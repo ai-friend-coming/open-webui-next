@@ -408,6 +408,37 @@
 	let chatInputContainerElement;
 	let chatInputElement;
 
+	// Expose a blur method to dismiss mobile keyboards
+	export function blurInput() {
+		chatInputElement?.blur?.();
+	}
+
+	// Extra mobile keyboard dismissal hack: briefly focus a hidden input then blur
+	export function dismissKeyboardHack() {
+		if (typeof document === 'undefined') return;
+		const tmp = document.createElement('input');
+		tmp.type = 'text';
+		tmp.style.position = 'fixed';
+		tmp.style.opacity = '0';
+		tmp.style.height = '0';
+		tmp.style.width = '0';
+		tmp.style.bottom = '-10px';
+		tmp.style.pointerEvents = 'none';
+		document.body.appendChild(tmp);
+		tmp.focus({ preventScroll: true });
+		// small timeout to ensure focus shift
+		setTimeout(() => {
+			tmp.blur();
+			tmp.remove();
+		}, 0);
+	}
+
+	const triggerSubmit = (value: string) => {
+		blurInput();
+		dismissKeyboardHack();
+		dispatch('submit', value);
+	};
+
 	let filesInputElement;
 	let commandsElement;
 
@@ -1046,7 +1077,7 @@
 								document.getElementById('chat-input')?.focus();
 
 								if ($settings?.speechAutoSend ?? false) {
-									dispatch('submit', prompt);
+									triggerSubmit(prompt);
 								}
 							}}
 						/>
@@ -1055,7 +1086,7 @@
 							class="w-full flex flex-col gap-1.5"
 							on:submit|preventDefault={() => {
 								// check if selectedModels support image input
-								dispatch('submit', prompt);
+								triggerSubmit(prompt);
 							}}
 						>
 							<div
@@ -1322,7 +1353,7 @@
 																	if (enterPressed) {
 																		e.preventDefault();
 																		if (prompt !== '' || files.length > 0) {
-																			dispatch('submit', prompt);
+																			triggerSubmit(prompt);
 																		}
 																	}
 																}

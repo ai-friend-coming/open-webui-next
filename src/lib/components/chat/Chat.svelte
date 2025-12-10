@@ -161,8 +161,8 @@
 	const navigateHandler = async () => {
 		loading = true;
 
-		prompt = '';
-		messageInput?.setText('');
+	prompt = '';
+	messageInput?.setText('', undefined, { focusInput: !get(mobile) });
 
 		files = [];
 		selectedToolIds = [];
@@ -214,12 +214,12 @@
 
 		if (type === 'prompt') {
 			// Handle prompt selection
-			messageInput?.setText(data, async () => {
-				if (!($settings?.insertSuggestionPrompt ?? false)) {
-					await tick();
-					submitPrompt(prompt);
-				}
-			});
+		messageInput?.setText(data, async () => {
+			if (!($settings?.insertSuggestionPrompt ?? false)) {
+				await tick();
+				submitPrompt(prompt);
+			}
+		});
 		}
 	};
 
@@ -2241,6 +2241,18 @@
 	};
 
 	const submitMessage = async (parentId, prompt) => {
+		if (get(mobile)) {
+			// Blur the input component to hide the mobile keyboard
+			messageInput?.blurInput?.();
+			messageInput?.dismissKeyboardHack?.();
+			// Fallback: blur currently focused element
+			if (typeof document !== 'undefined') {
+				const active = document.activeElement;
+				if (active && active instanceof HTMLElement) {
+					active.blur();
+				}
+			}
+		}
 		let userPrompt = prompt;
 		let userMessageId = uuidv4();
 

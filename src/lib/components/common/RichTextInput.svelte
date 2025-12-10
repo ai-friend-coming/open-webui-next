@@ -447,6 +447,19 @@
 		focus();
 	};
 
+	export function blur() {
+		if (editor) {
+			try {
+				// TipTap command
+				editor.commands.blur?.();
+				// Fallback to DOM blur
+				editor.view?.dom?.blur?.();
+			} catch (e) {
+				console.warn('Error blurring editor', e);
+			}
+		}
+	}
+
 	export const insertContent = (content) => {
 		if (!editor) return;
 		const { state, view } = editor;
