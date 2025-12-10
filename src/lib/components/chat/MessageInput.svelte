@@ -1400,7 +1400,7 @@
 								</div>
 
 								<!-- ai-friend 	屏蔽语言更多/引用/对话/语音 -->
-								
+
 								<div class=" flex justify-between mt-0.5 mb-2.5 mx-0.5 max-w-full" dir="ltr">
 									<div class="ml-1 self-end flex items-center flex-1 max-w-[80%]">
 										<InputMenu
@@ -1469,58 +1469,57 @@
 											class="flex self-center w-[1px] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50"
 										/>
 
-
 										<!-- AI-Friend 屏蔽扩展菜单-->
 										{#if false}
-										{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
-											<IntegrationsMenu
-												selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
-												{toggleFilters}
-												{showWebSearchButton}
-												{showImageGenerationButton}
-												{showCodeInterpreterButton}
-												bind:selectedToolIds
-												bind:selectedFilterIds
-												bind:webSearchEnabled
-												bind:imageGenerationEnabled
-												bind:codeInterpreterEnabled
-												bind:memoryEnabled
-												closeOnOutsideClick={integrationsMenuCloseOnOutsideClick}
-												onShowValves={(e) => {
-													const { type, id } = e;
-													selectedValvesType = type;
-													selectedValvesItemId = id;
-													showValvesModal = true;
-													integrationsMenuCloseOnOutsideClick = false;
-												}}
-												onClose={async () => {
-													await tick();
+											{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
+												<IntegrationsMenu
+													selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
+													{toggleFilters}
+													{showWebSearchButton}
+													{showImageGenerationButton}
+													{showCodeInterpreterButton}
+													bind:selectedToolIds
+													bind:selectedFilterIds
+													bind:webSearchEnabled
+													bind:imageGenerationEnabled
+													bind:codeInterpreterEnabled
+													bind:memoryEnabled
+													closeOnOutsideClick={integrationsMenuCloseOnOutsideClick}
+													onShowValves={(e) => {
+														const { type, id } = e;
+														selectedValvesType = type;
+														selectedValvesItemId = id;
+														showValvesModal = true;
+														integrationsMenuCloseOnOutsideClick = false;
+													}}
+													onClose={async () => {
+														await tick();
 
-													const chatInput = document.getElementById('chat-input');
-													chatInput?.focus();
-												}}
-											>
-												<div
-													id="integration-menu-button"
-													class="bg-transparent hover:bg-gray-100 text-gray-700 dark:text-white dark:hover:bg-gray-800 rounded-full size-8 flex justify-center items-center outline-hidden focus:outline-hidden"
+														const chatInput = document.getElementById('chat-input');
+														chatInput?.focus();
+													}}
 												>
-													<Component className="size-4.5" strokeWidth="1.5" />
-												</div>
-											</IntegrationsMenu>
-										{/if}
+													<div
+														id="integration-menu-button"
+														class="bg-transparent hover:bg-gray-100 text-gray-700 dark:text-white dark:hover:bg-gray-800 rounded-full size-8 flex justify-center items-center outline-hidden focus:outline-hidden"
+													>
+														<Component className="size-4.5" strokeWidth="1.5" />
+													</div>
+												</IntegrationsMenu>
+											{/if}
 										{/if}
 
 										{#if showMemoryButton}
 											<Tooltip
-												content={
-													memoryLocked
-														? $i18n.t('对话进行中无法切换记忆')
-														: $i18n.t('记忆开关')
-												}
+												content={memoryLocked
+													? $i18n.t('对话进行中无法切换记忆')
+													: $i18n.t('记忆开关')}
 												placement="top"
 											>
 												<div
-													class="flex items-center gap-2 bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full px-2.5 py-1.5 transition {memoryLocked ? 'opacity-60 cursor-not-allowed' : ''}"
+													class="flex items-center gap-2 bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full px-2.5 py-1.5 transition {memoryLocked
+														? 'opacity-60 cursor-not-allowed'
+														: ''}"
 												>
 													<div class="flex items-center gap-1.5 text-gray-700 dark:text-gray-300">
 														<Sparkles className="size-4" strokeWidth="1.5" />
@@ -1759,9 +1758,8 @@
 													</button>
 												</Tooltip>
 											</div>
-										
-										
-										<!-- {:else if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
+
+											<!-- {:else if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
 											<div class=" flex items-center">
 												<Tooltip content={$i18n.t('Voice mode')}>
 													<button
@@ -1852,7 +1850,6 @@
 										{/if}
 									</div>
 								</div>
-								
 							</div>
 
 							{#if $config?.license_metadata?.input_footer}

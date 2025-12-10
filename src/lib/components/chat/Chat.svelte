@@ -13,35 +13,35 @@
 	import type { i18n as i18nType } from 'i18next';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 
-import {
-	chatId,
-	chats,
-	config,
-	type Model,
-	models,
-	userModels,
-	tags as allTags,
-	settings,
-	showSidebar,
-	WEBUI_NAME,
-	banners,
-	user,
-	socket,
-	showControls,
-	showCallOverlay,
-	currentChatPage,
-	temporaryChatEnabled,
-	mobile,
-	showOverview,
-	chatTitle,
-	showArtifacts,
-	tools,
-	toolServers,
-	functions,
-	selectedFolder,
-	pinnedChats,
-	showEmbeds
-} from '$lib/stores';
+	import {
+		chatId,
+		chats,
+		config,
+		type Model,
+		models,
+		userModels,
+		tags as allTags,
+		settings,
+		showSidebar,
+		WEBUI_NAME,
+		banners,
+		user,
+		socket,
+		showControls,
+		showCallOverlay,
+		currentChatPage,
+		temporaryChatEnabled,
+		mobile,
+		showOverview,
+		chatTitle,
+		showArtifacts,
+		tools,
+		toolServers,
+		functions,
+		selectedFolder,
+		pinnedChats,
+		showEmbeds
+	} from '$lib/stores';
 	import {
 		convertMessagesToHistory,
 		copyToClipboard,
@@ -127,11 +127,11 @@ import {
 
 	let selectedToolIds = [];
 	let selectedFilterIds = [];
-let imageGenerationEnabled = false;
-let webSearchEnabled = false;
-let codeInterpreterEnabled = false;
-let memoryEnabled = true;
-let memoryLocked = false;
+	let imageGenerationEnabled = false;
+	let webSearchEnabled = false;
+	let codeInterpreterEnabled = false;
+	let memoryEnabled = true;
+	let memoryLocked = false;
 
 	let showCommands = false;
 
@@ -161,16 +161,16 @@ let memoryLocked = false;
 	const navigateHandler = async () => {
 		loading = true;
 
-	prompt = '';
-	messageInput?.setText('');
+		prompt = '';
+		messageInput?.setText('');
 
-	files = [];
-	selectedToolIds = [];
-	selectedFilterIds = [];
-	webSearchEnabled = false;
-	imageGenerationEnabled = false;
-	memoryEnabled = true;
-	memoryLocked = false;
+		files = [];
+		selectedToolIds = [];
+		selectedFilterIds = [];
+		webSearchEnabled = false;
+		imageGenerationEnabled = false;
+		memoryEnabled = true;
+		memoryLocked = false;
 
 		const storageChatInput = sessionStorage.getItem(
 			`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`
@@ -1551,12 +1551,12 @@ let memoryLocked = false;
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
-	// === 1. 模型验证：确保选中的模型仍然存在 ===
-	// 过滤掉已被删除或不可用的模型，避免发送请求时出错
-	const _selectedModels = selectedModels.map((modelId) => {
-		const allIds = [...$models.map((m) => m.id), ...$userModels.map((m) => m.id)];
-		return allIds.includes(modelId) ? modelId : '';
-	});
+		// === 1. 模型验证：确保选中的模型仍然存在 ===
+		// 过滤掉已被删除或不可用的模型，避免发送请求时出错
+		const _selectedModels = selectedModels.map((modelId) => {
+			const allIds = [...$models.map((m) => m.id), ...$userModels.map((m) => m.id)];
+			return allIds.includes(modelId) ? modelId : '';
+		});
 
 		// 如果模型列表发生变化，同步更新
 		if (JSON.stringify(selectedModels) !== JSON.stringify(_selectedModels)) {
@@ -1792,8 +1792,8 @@ let memoryLocked = false;
 							: model.id,
 					modelName:
 						combined.source === 'user' && combined.credential
-							? combined.credential.name ?? combined.credential.model_id
-							: model.name ?? model.id,
+							? (combined.credential.name ?? combined.credential.model_id)
+							: (model.name ?? model.id),
 					modelIdx: modelIdx ? modelIdx : _modelIdx, // 多模型对话时，区分不同模型的响应
 					timestamp: Math.floor(Date.now() / 1000) // Unix epoch
 				};
@@ -1841,23 +1841,23 @@ let memoryLocked = false;
 				const model = combined?.model ?? combined?.credential;
 
 				if (combined && model) {
-				// 7.1 检查模型视觉能力（如果消息包含图片）
-				const hasImages = createMessagesList(_history, parentId).some((message) =>
-					message.files?.some((file) => file.type === 'image')
-				);
-
-				// 如果消息包含图片，但模型不支持视觉，提示错误（私有模型默认视为支持）
-				if (
-					combined.source !== 'user' &&
-					hasImages &&
-					!(model.info?.meta?.capabilities?.vision ?? true)
-				) {
-					toast.error(
-						$i18n.t('Model {{modelName}} is not vision capable', {
-							modelName: model.name ?? model.id
-						})
+					// 7.1 检查模型视觉能力（如果消息包含图片）
+					const hasImages = createMessagesList(_history, parentId).some((message) =>
+						message.files?.some((file) => file.type === 'image')
 					);
-				}
+
+					// 如果消息包含图片，但模型不支持视觉，提示错误（私有模型默认视为支持）
+					if (
+						combined.source !== 'user' &&
+						hasImages &&
+						!(model.info?.meta?.capabilities?.vision ?? true)
+					) {
+						toast.error(
+							$i18n.t('Model {{modelName}} is not vision capable', {
+								modelName: model.name ?? model.id
+							})
+						);
+					}
 
 					// 7.2 获取响应消息 ID
 					let responseMessageId =
@@ -1873,12 +1873,12 @@ let memoryLocked = false;
 					// - 构造请求 payload（messages、files、tools、features 等）
 					// - 调用 generateOpenAIChatCompletion API
 					// - 处理流式响应（通过 WebSocket 实时更新消息内容）
-						await sendMessageSocket(
-							combined,
-							messages && messages.length > 0
-								? messages // 使用自定义消息列表（例如重新生成时追加 follow-up）
-								: createMessagesList(_history, responseMessageId), // 使用完整历史记录
-							_history,
+					await sendMessageSocket(
+						combined,
+						messages && messages.length > 0
+							? messages // 使用自定义消息列表（例如重新生成时追加 follow-up）
+							: createMessagesList(_history, responseMessageId), // 使用完整历史记录
+						_history,
 						responseMessageId,
 						_chatId
 					);
@@ -1896,8 +1896,8 @@ let memoryLocked = false;
 		chats.set(await getChatList(localStorage.token, $currentChatPage));
 	};
 
-const getFeatures = () => {
-	let features = {};
+	const getFeatures = () => {
+		let features = {};
 
 		if ($config?.features)
 			features = {
@@ -1934,22 +1934,28 @@ const getFeatures = () => {
 		}
 
 		// 如果用户手动切换了记忆开关,覆盖全局设置
-	if (memoryEnabled !== undefined && memoryEnabled !== ($settings?.memory ?? false)) {
-		features = { ...features, memory: memoryEnabled };
-	}
+		if (memoryEnabled !== undefined && memoryEnabled !== ($settings?.memory ?? false)) {
+			features = { ...features, memory: memoryEnabled };
+		}
 
-	return features;
-};
+		return features;
+	};
 
-const getCombinedModelById = (modelId) => {
-	const platform = $models.find((m) => m.id === modelId);
-	if (platform) return { source: 'platform', model: platform };
-	const priv = $userModels.find((m) => m.id === modelId);
-	if (priv) return { source: 'user', credential: priv };
-	return null;
-};
+	const getCombinedModelById = (modelId) => {
+		const platform = $models.find((m) => m.id === modelId);
+		if (platform) return { source: 'platform', model: platform };
+		const priv = $userModels.find((m) => m.id === modelId);
+		if (priv) return { source: 'user', credential: priv };
+		return null;
+	};
 
-	const sendMessageSocket = async (combinedModel, _messages, _history, responseMessageId, _chatId) => {
+	const sendMessageSocket = async (
+		combinedModel,
+		_messages,
+		_history,
+		responseMessageId,
+		_chatId
+	) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
 
@@ -2085,7 +2091,9 @@ const getCombinedModelById = (modelId) => {
 				variables: {
 					...getPromptVariables($user?.name, $settings?.userLocation ? userLocation : undefined)
 				},
-				model_item: isUserModel ? { credential_id: credential.id } : $models.find((m) => m.id === model.id),
+				model_item: isUserModel
+					? { credential_id: credential.id }
+					: $models.find((m) => m.id === model.id),
 				is_user_model: isUserModel,
 
 				session_id: $socket?.id,
