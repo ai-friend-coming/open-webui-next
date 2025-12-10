@@ -6,7 +6,8 @@
 		settings,
 		user,
 		mobile,
-		config
+		config,
+		showSidebar
 	} from '$lib/stores';
 	import { onMount, tick, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -231,8 +232,11 @@
 		</div>
 	{/each}
 
-	{#if showUserModelModal}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+{#if showUserModelModal}
+		<div
+			class="fixed top-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/50"
+			style={`left: ${$showSidebar && !$mobile ? '260px' : '0'}`}
+		>
 			<div class="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-md p-4 space-y-3">
 				<div class="text-lg font-semibold text-gray-900 dark:text-gray-100">
 					{editingCredential ? $i18n.t('Edit My API') : $i18n.t('Add My API')}
