@@ -266,7 +266,6 @@
 						<div class="flex flex-col gap-1">
 						<label class="text-gray-600 dark:text-gray-400">API Key</label>
 						<input
-							type="password"
 							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
 							bind:value={form.api_key}
 							placeholder="sk-..."
