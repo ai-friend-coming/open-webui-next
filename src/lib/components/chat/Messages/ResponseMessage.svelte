@@ -1179,6 +1179,8 @@
 											: ''}
 										placement="bottom"
 									>
+									<!-- ai-friend 	隐藏感叹号 -->
+									 {#if false}
 										<button
 											aria-hidden="true"
 											class=" {isLastMessage || ($settings?.highContrastMode ?? false)
@@ -1205,6 +1207,7 @@
 												/>
 											</svg>
 										</button>
+									{/if}
 									</Tooltip>
 								{/if}
 
