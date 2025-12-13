@@ -779,6 +779,21 @@ const convertDeepseekMessages = (convo) => {
     const messages = [];
     // 即使缺少这个函数，这里给一个简单的补丁以防报错
     const fragmentsToContent = (frags) => frags?.map(f => f.content).join('') || '';
+    const inferRoleFromFragments = (frags, fallback = null) => {
+        if (!Array.isArray(frags)) return fallback;
+        const type = frags.find((f) => typeof f?.type === 'string')?.type?.toUpperCase();
+        switch (type) {
+            case 'REQUEST':
+                return 'user';
+            case 'RESPONSE':
+            case 'RESPONSE_FINAL':
+                return 'assistant';
+            case 'SYSTEM':
+                return 'system';
+            default:
+                return fallback;
+        }
+    };
     const createdAt = parseDeepseekTimestamp(convo['create_time'] || convo['created_at']);
     const updatedAt = parseDeepseekTimestamp(
         convo['updated_at'] || convo['inserted_at'] || convo['create_time']
@@ -789,16 +804,29 @@ const convertDeepseekMessages = (convo) => {
     
     Object.keys(mapping).forEach(id => {
         const node = mapping[id];
-        const fragments = node?.message?.fragments;
+        const fragments = Array.isArray(node?.message?.fragments)
+            ? node.message.fragments
+            : Array.isArray(node?.message?.content?.fragments)
+              ? node.message.content.fragments
+              : null;
         const content = fragments ? fragmentsToContent(fragments) : '';
         
         // 推断角色
-        let inferredRole = 'user';
-        if (Array.isArray(fragments)) {
-             const firstType = fragments.find((f) => typeof f?.type === 'string')?.type;
-             if (firstType === 'RESPONSE') inferredRole = 'assistant';
-        } else if (node?.message?.author?.role !== 'user') {
-             inferredRole = 'assistant';
+        const authorRole =
+            node?.message?.author?.role === 'assistant'
+                ? 'assistant'
+                : node?.message?.author?.role === 'system'
+                  ? 'system'
+                  : 'user';
+        const fragmentRole = inferRoleFromFragments(fragments, null);
+        let inferredRole = fragmentRole ?? authorRole;
+        if (
+            !fragmentRole &&
+            inferredRole === 'user' &&
+            node?.message?.author?.role !== 'user' &&
+            node?.message?.author?.role !== 'system'
+        ) {
+            inferredRole = 'assistant';
         }
 
         rawNodes[id] = {

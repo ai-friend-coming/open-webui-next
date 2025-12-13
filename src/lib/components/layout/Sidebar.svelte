@@ -234,6 +234,22 @@
         let currentId = null;
         let lastId = null; // Fallback to track linear progression
 
+        const inferRoleFromFragments = (frags, fallbackRole) => {
+            if (!Array.isArray(frags)) return null;
+            const type = frags.find((f) => typeof f?.type === 'string')?.type?.toUpperCase();
+            switch (type) {
+                case 'REQUEST':
+                    return 'user';
+                case 'RESPONSE':
+                case 'RESPONSE_FINAL':
+                    return 'assistant';
+                case 'SYSTEM':
+                    return 'system';
+                default:
+                    return fallbackRole ?? null;
+            }
+        };
+
         for (const message_id in mapping) {
             const node = mapping[message_id];
             const message = node.message;
@@ -242,7 +258,18 @@
             if (!message) continue;
 
             let content = '';
-            let role = message.author?.role === 'assistant' ? 'assistant' : 'user';
+            const baseRole =
+                message.author?.role === 'assistant'
+                    ? 'assistant'
+                    : message.author?.role === 'system'
+                      ? 'system'
+                      : 'user';
+            const fragments = Array.isArray(message.fragments)
+                ? message.fragments
+                : Array.isArray(message.content?.fragments)
+                  ? message.content.fragments
+                  : null;
+            let role = inferRoleFromFragments(fragments, baseRole) ?? baseRole;
             
             // Extract content based on format (OpenAI 'parts' or DeepSeek 'fragments'/'content')
             if (message.content) {
@@ -262,8 +289,17 @@
                  content = message.fragments.map(f => f.content).join('');
             }
 
+            if (!content && Array.isArray(fragments)) {
+                content = fragments.map((f) => f.content).join('');
+            }
+
             // Fallback for role inference if missing
-            if (role === 'user' && message.author?.role !== 'user' && message.author?.role !== 'system') {
+            if (
+                !inferRoleFromFragments(fragments, null) &&
+                role === 'user' &&
+                message.author?.role !== 'user' &&
+                message.author?.role !== 'system'
+            ) {
                  // DeepSeek sometimes uses 'author': { 'role': 'tool' } or others
                  role = 'assistant';
             }
