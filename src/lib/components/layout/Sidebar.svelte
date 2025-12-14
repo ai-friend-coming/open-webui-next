@@ -883,7 +883,7 @@
                     <img
                         crossorigin="anonymous"
                         src="static/favicon.png"
-                        class="sidebar-new-chat-icon size-6 rounded-full invert"
+                        class="sidebar-new-chat-icon size-6 rounded-full dark:invert"
                         alt=""
                     />
                 </a>
