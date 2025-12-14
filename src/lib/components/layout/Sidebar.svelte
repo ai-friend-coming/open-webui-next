@@ -229,10 +229,9 @@
 
     // Helper to convert OpenAI/DeepSeek "mapping" format to OpenWebUI format
     const convertLegacyChat = (convo) => {
-        const mapping = convo['mapping'];
+        const mapping = convo?.mapping || {};
         const messages = {};
-        let currentId = null;
-        let lastId = null; // Fallback to track linear progression
+        let lastValidId = null;
 
         const inferRoleFromFragments = (frags, fallbackRole) => {
             if (!Array.isArray(frags)) return null;
@@ -250,93 +249,95 @@
             }
         };
 
-        for (const message_id in mapping) {
-            const node = mapping[message_id];
-            const message = node.message;
-
-            // Skip empty updates or null messages
-            if (!message) continue;
-
-            let content = '';
-            const baseRole =
-                message.author?.role === 'assistant'
-                    ? 'assistant'
-                    : message.author?.role === 'system'
-                      ? 'system'
-                      : 'user';
-            const fragments = Array.isArray(message.fragments)
-                ? message.fragments
-                : Array.isArray(message.content?.fragments)
-                  ? message.content.fragments
+        const extractFragments = (msg) =>
+            Array.isArray(msg?.fragments)
+                ? msg.fragments
+                : Array.isArray(msg?.content?.fragments)
+                  ? msg.content.fragments
                   : null;
-            let role = inferRoleFromFragments(fragments, baseRole) ?? baseRole;
-            
-            // Extract content based on format (OpenAI 'parts' or DeepSeek 'fragments'/'content')
-            if (message.content) {
-                if (Array.isArray(message.content.parts)) {
-                     // OpenAI format
-                     content = message.content.parts.join('');
-                } else if (typeof message.content === 'string') {
-                     // Simple string format
-                     content = message.content;
-                } else if (Array.isArray(message.fragments)) {
-                    // DeepSeek fragments format (if inside content)
-                    content = message.fragments.map(f => f.content).join('');
+
+        const extractContent = (msg, frags) => {
+            if (!msg) return '';
+            let content = '';
+            if (msg.content) {
+                if (Array.isArray(msg.content.parts)) {
+                    content = msg.content.parts.join('');
+                } else if (typeof msg.content === 'string') {
+                    content = msg.content;
                 }
-            } 
-            // Check top-level fragments (DeepSeek sometimes puts fragments here)
-            else if (Array.isArray(message.fragments)) {
-                 content = message.fragments.map(f => f.content).join('');
+            }
+            if (!content && Array.isArray(frags)) {
+                content = frags.map((f) => f?.content || '').join('');
+            }
+            return typeof content === 'string' ? content : '';
+        };
+
+        const baseRole = (author) => {
+            if (author?.role === 'assistant') return 'assistant';
+            if (author?.role === 'system') return 'system';
+            return 'user';
+        };
+
+        const traverse = (id, parentValidId) => {
+            const node = mapping[id];
+            if (!node) return parentValidId;
+
+            const msg = node.message;
+            const frags = extractFragments(msg);
+            const role = inferRoleFromFragments(frags, baseRole(msg?.author)) ?? baseRole(msg?.author);
+            const content = extractContent(msg, frags);
+
+            let acceptedId = null;
+
+            // Accept nodes with content or explicit system messages
+            if (msg && (content || role === 'system')) {
+                const messageId = msg.id || id;
+                acceptedId = messageId;
+
+                messages[messageId] = {
+                    id: messageId,
+                    parentId: parentValidId,
+                    childrenIds: [],
+                    role,
+                    content,
+                    model: msg.model || msg.metadata?.model_slug || 'gpt-3.5-turbo',
+                    done: true,
+                    context: null,
+                    timestamp: msg.create_time || convo.create_time || Date.now() / 1000
+                };
+
+                lastValidId = messageId;
+                parentValidId = messageId;
             }
 
-            if (!content && Array.isArray(fragments)) {
-                content = fragments.map((f) => f.content).join('');
+            const validChildren = [];
+            for (const childId of node.children || []) {
+                const childAcceptedId = traverse(childId, parentValidId);
+                if (acceptedId && childAcceptedId && childAcceptedId !== acceptedId) {
+                    validChildren.push(childAcceptedId);
+                }
             }
 
-            // Fallback for role inference if missing
-            if (
-                !inferRoleFromFragments(fragments, null) &&
-                role === 'user' &&
-                message.author?.role !== 'user' &&
-                message.author?.role !== 'system'
-            ) {
-                 // DeepSeek sometimes uses 'author': { 'role': 'tool' } or others
-                 role = 'assistant';
+            if (acceptedId) {
+                messages[acceptedId].childrenIds = validChildren;
             }
 
-            // Skip messages with no content unless strictly necessary (e.g. system instructions, though OpenWebUI handles those differently)
-            if (!content && role !== 'system') continue;
+            return acceptedId ?? parentValidId;
+        };
 
-            const newChat = {
-                id: message_id,
-                parentId: node.parent || null,
-                childrenIds: node.children || [],
-                role: role,
-                content: content,
-                model: message.model || message.metadata?.model_slug || 'gpt-3.5-turbo',
-                done: true,
-                context: null,
-                timestamp: message.create_time || convo.create_time || Date.now() / 1000
-            };
-            
-            messages[message_id] = newChat;
-            
-            // Attempt to determine the "current" (latest) node
-            // A node with no children is a candidate for being the leaf node
-            if (!node.children || node.children.length === 0) {
-                // If multiple branches exist, this simple logic takes the last one processed
-                // In linear chats, this is correct.
-                currentId = message_id;
-            }
-            lastId = message_id;
-        }
+        // Pick a root (prefer parent null)
+        const roots = Object.keys(mapping).filter((key) => mapping[key]?.parent === null);
+        const startId = roots[0] || Object.keys(mapping)[0];
+        traverse(startId, null);
 
         return {
             history: {
-                currentId: currentId || lastId,
+                currentId: lastValidId,
                 messages: messages
             },
-            models: Object.values(messages).map(m => m.model).filter((v, i, a) => a.indexOf(v) === i),
+            models: Object.values(messages)
+                .map((m) => m.model)
+                .filter((v, i, a) => a.indexOf(v) === i),
             title: convo.title || 'New Chat',
             timestamp: convo.create_time || convo.inserted_at || Date.now() / 1000
         };

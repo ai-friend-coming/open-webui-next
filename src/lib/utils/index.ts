@@ -700,56 +700,122 @@ export const getUserPosition = async (raw = false) => {
 };
 
 const convertOpenAIMessages = (convo) => {
-	// Parse OpenAI chat messages and create chat dictionary for creating new chats
-	const mapping = convo['mapping'];
-	const messages = [];
-	let currentId = '';
-	let lastId = null;
+	// Parse OpenAI chat messages (mapping format) into OpenWebUI history
+	const mapping = convo?.mapping || {};
+	const messagesMap: Record<string, any> = {};
+	const orderedMessages: any[] = [];
+	let lastValidId: string | null = null;
 
-	for (const message_id in mapping) {
-		const message = mapping[message_id];
-		currentId = message_id;
-		try {
-			if (
-				messages.length == 0 &&
-				(message['message'] == null ||
-					(message['message']['content']['parts']?.[0] == '' &&
-						message['message']['content']['text'] == null))
-			) {
-				// Skip chat messages with no content
-				continue;
-			} else {
-				const new_chat = {
-					id: message_id,
-					parentId: lastId,
-					childrenIds: message['children'] || [],
-					role: message['message']?.['author']?.['role'] !== 'user' ? 'assistant' : 'user',
-					content:
-						message['message']?.['content']?.['parts']?.[0] ||
-						message['message']?.['content']?.['text'] ||
-						'',
-					model: 'gpt-3.5-turbo',
-					done: true,
-					context: null
-				};
-				messages.push(new_chat);
-				lastId = currentId;
-			}
-		} catch (error) {
-			console.log('Error with', message, '\nError:', error);
+	const extractFragments = (msg) =>
+		Array.isArray(msg?.fragments)
+			? msg.fragments
+			: Array.isArray(msg?.content?.fragments)
+			  ? msg.content.fragments
+			  : null;
+
+	const inferRoleFromFragments = (frags, fallbackRole) => {
+		if (!Array.isArray(frags)) return null;
+		const type = frags.find((f) => typeof f?.type === 'string')?.type?.toUpperCase();
+		switch (type) {
+			case 'REQUEST':
+				return 'user';
+			case 'RESPONSE':
+			case 'RESPONSE_FINAL':
+				return 'assistant';
+			case 'SYSTEM':
+				return 'system';
+			default:
+				return fallbackRole ?? null;
 		}
-	}
+	};
 
-	const history: Record<PropertyKey, (typeof messages)[number]> = {};
-	messages.forEach((obj) => (history[obj.id] = obj));
+	const baseRole = (author) => {
+		if (author?.role === 'assistant') return 'assistant';
+		if (author?.role === 'system') return 'system';
+		return 'user';
+	};
+
+	const extractContent = (msg, frags) => {
+		if (!msg) return '';
+		let content = '';
+		if (msg.content) {
+			if (Array.isArray(msg.content.parts)) {
+				content = msg.content.parts.join('');
+			} else if (typeof msg.content === 'string') {
+				content = msg.content;
+			} else if (msg.content?.text) {
+				content = msg.content.text;
+			}
+		}
+		if (!content && Array.isArray(frags)) {
+			content = frags.map((f) => f?.content || '').join('');
+		}
+		return typeof content === 'string' ? content : '';
+	};
+
+	const traverse = (id: string, parentValidId: string | null) => {
+		const node = mapping[id];
+		if (!node) return parentValidId;
+
+		const msg = node.message;
+		const frags = extractFragments(msg);
+		const role = inferRoleFromFragments(frags, baseRole(msg?.author)) ?? baseRole(msg?.author);
+		const content = extractContent(msg, frags);
+
+		let acceptedId: string | null = null;
+
+		// Accept nodes with content or explicit system messages (even if empty content)
+		if (msg && (content || role === 'system')) {
+			const messageId = msg.id || id;
+			acceptedId = messageId;
+
+			messagesMap[messageId] = {
+				id: messageId,
+				parentId: parentValidId,
+				childrenIds: [],
+				role,
+				content,
+				model: msg.model || msg.metadata?.model_slug || 'gpt-3.5-turbo',
+				done: true,
+				context: null
+			};
+
+			orderedMessages.push(messagesMap[messageId]);
+			lastValidId = messageId;
+			parentValidId = messageId;
+		}
+
+		const validChildren: string[] = [];
+		for (const childId of node.children || []) {
+			const childAcceptedId = traverse(childId, parentValidId);
+			if (acceptedId && childAcceptedId && childAcceptedId !== acceptedId) {
+				validChildren.push(childAcceptedId);
+			}
+		}
+
+		if (acceptedId) {
+			messagesMap[acceptedId].childrenIds = validChildren;
+		}
+
+		return acceptedId ?? parentValidId;
+	};
+
+	const roots = Object.keys(mapping).filter((key) => mapping[key]?.parent === null);
+	const startId = roots[0] || Object.keys(mapping)[0];
+	traverse(startId, null);
+
+	const history: Record<PropertyKey, any> = {};
+	orderedMessages.forEach((obj) => (history[obj.id] = obj));
 
 	const chat = {
 		history: {
-			currentId: currentId,
-			messages: history // Need to convert this to not a list and instead a json object
+			currentId: lastValidId,
+			messages: history
 		},
-		models: ['gpt-3.5-turbo'],
-		messages: messages,
+		models: orderedMessages
+			.map((m) => m.model)
+			.filter((v, i, a) => a.indexOf(v) === i),
+		messages: orderedMessages,
 		options: {},
 		timestamp: convo['create_time'],
 		title: convo['title'] ?? 'New Chat'
