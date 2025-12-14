@@ -14,15 +14,16 @@
 
 	import { deleteModel, getOllamaVersion, pullModel, unloadModel } from '$lib/apis/ollama';
 
-	import {
-		user,
-		MODEL_DOWNLOAD_POOL,
-		models,
-		mobile,
-		temporaryChatEnabled,
-		settings,
-		config
-	} from '$lib/stores';
+import {
+	user,
+	MODEL_DOWNLOAD_POOL,
+	models,
+	mobile,
+	temporaryChatEnabled,
+	settings,
+	config,
+	modelPricings
+} from '$lib/stores';
 	import { toast } from 'svelte-sonner';
 	import { capitalizeFirstLetter, sanitizeResponseContent, splitStream } from '$lib/utils';
 	import { getModels } from '$lib/apis';
@@ -32,9 +33,10 @@
 	import Search from '$lib/components/icons/Search.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
-	import ChatBubbleOval from '$lib/components/icons/ChatBubbleOval.svelte';
+import ChatBubbleOval from '$lib/components/icons/ChatBubbleOval.svelte';
 
-	import ModelItem from './ModelItem.svelte';
+import ModelItem from './ModelItem.svelte';
+import { listModelPricing } from '$lib/apis/billing';
 
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
@@ -73,6 +75,18 @@
 
 	let selectedTag = '';
 	let selectedConnectionType = '';
+
+	// Provider 分组：收集去重后的 provider 列表
+	const getProvider = (item) =>
+		item?.model?.info?.provider ?? item?.model?.provider ?? item?.model?.openai?.owned_by ?? '';
+
+	$: providerGroups = Array.from(
+		new Set(
+			items
+				.map((item) => getProvider(item))
+				.filter((provider) => provider !== null && provider !== undefined && provider !== '')
+		)
+	).sort((a, b) => a.localeCompare(b));
 
 	let ollamaVersion = null;
 	let selectedModelIdx = 0;
@@ -128,14 +142,13 @@
 					})
 					.filter((item) => {
 						if (selectedConnectionType === '') {
-							return true;
-						} else if (selectedConnectionType === 'local') {
-							return item.model?.connection_type === 'local';
-						} else if (selectedConnectionType === 'external') {
-							return item.model?.connection_type === 'external';
-						} else if (selectedConnectionType === 'direct') {
-							return item.model?.direct;
+							return true; // 全部
 						}
+						if (selectedConnectionType === 'private') {
+							return item.source === 'user';
+						}
+						// 按 provider 分组
+						return getProvider(item) === selectedConnectionType;
 					})
 			: items
 					.filter((item) => {
@@ -146,14 +159,13 @@
 					})
 					.filter((item) => {
 						if (selectedConnectionType === '') {
-							return true;
-						} else if (selectedConnectionType === 'local') {
-							return item.model?.connection_type === 'local';
-						} else if (selectedConnectionType === 'external') {
-							return item.model?.connection_type === 'external';
-						} else if (selectedConnectionType === 'direct') {
-							return item.model?.direct;
+							return true; // 全部
 						}
+						if (selectedConnectionType === 'private') {
+							return item.source === 'user';
+						}
+						// 按 provider 分组
+						return getProvider(item) === selectedConnectionType;
 					})
 	).filter((item) => !(item.model?.info?.meta?.hidden ?? false));
 
@@ -314,6 +326,20 @@
 	};
 
 	onMount(async () => {
+		// 加载模型定价（仅首次或为空时）
+		if (Object.keys($modelPricings || {}).length === 0) {
+			try {
+				const pricingList = await listModelPricing();
+				const pricingMap = pricingList.reduce((acc, p) => {
+					acc[p.model_id] = p;
+					return acc;
+				}, {});
+				modelPricings.set(pricingMap);
+			} catch (error) {
+				console.error('Failed to load model pricing', error);
+			}
+		}
+
 		if (items) {
 			tags = items
 				.filter((item) => !(item.model?.info?.meta?.hidden ?? false))
@@ -323,6 +349,7 @@
 			// Remove duplicates and sort
 			tags = Array.from(new Set(tags)).sort((a, b) => a.localeCompare(b));
 		}
+		console.log(items)
 	});
 
 	$: if (show) {
@@ -461,66 +488,47 @@
 							class="flex gap-1 w-fit text-center text-sm rounded-full bg-transparent px-1.5 whitespace-nowrap"
 							bind:this={tagsContainerElement}
 						>
-							{#if items.find((item) => item.model?.connection_type === 'local') || items.find((item) => item.model?.connection_type === 'external') || items.find((item) => item.model?.direct) || tags.length > 0}
-								<button
-									class="min-w-fit outline-none px-1.5 py-0.5 {selectedTag === '' &&
-									selectedConnectionType === ''
-										? ''
-										: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
-									aria-pressed={selectedTag === '' && selectedConnectionType === ''}
-									on:click={() => {
-										selectedConnectionType = '';
-										selectedTag = '';
-									}}
-								>
-									{$i18n.t('All')}
-								</button>
-							{/if}
+							<button
+								class="min-w-fit outline-none px-1.5 py-0.5 {selectedTag === '' &&
+								selectedConnectionType === ''
+									? ''
+									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
+								aria-pressed={selectedTag === '' && selectedConnectionType === ''}
+								on:click={() => {
+									selectedConnectionType = '';
+									selectedTag = '';
+								}}
+							>
+								{$i18n.t('All')}
+							</button>
 
-							{#if items.find((item) => item.model?.connection_type === 'local')}
-								<button
-									class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'local'
-										? ''
-										: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
-									aria-pressed={selectedConnectionType === 'local'}
-									on:click={() => {
-										selectedTag = '';
-										selectedConnectionType = 'local';
-									}}
-								>
-									{$i18n.t('Local')}
-								</button>
-							{/if}
+							<button
+								class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'private'
+									? ''
+									: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
+								aria-pressed={selectedConnectionType === 'private'}
+								on:click={() => {
+									selectedTag = '';
+									selectedConnectionType = 'private';
+								}}
+							>
+								{$i18n.t('Private')}
+							</button>
 
-							{#if items.find((item) => item.model?.connection_type === 'external')}
+							{#each providerGroups as provider}
 								<button
-									class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'external'
+									class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === provider
 										? ''
 										: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
-									aria-pressed={selectedConnectionType === 'external'}
+									aria-pressed={selectedConnectionType === provider}
 									on:click={() => {
 										selectedTag = '';
-										selectedConnectionType = 'external';
+										selectedConnectionType = provider;
 									}}
 								>
-									{$i18n.t('External')}
+									{provider}
 								</button>
-							{/if}
-
-							{#if items.find((item) => item.model?.direct)}
-								<button
-									class="min-w-fit outline-none px-1.5 py-0.5 {selectedConnectionType === 'direct'
-										? ''
-										: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition capitalize"
-									aria-pressed={selectedConnectionType === 'direct'}
-									on:click={() => {
-										selectedTag = '';
-										selectedConnectionType = 'direct';
-									}}
-								>
-									{$i18n.t('Direct')}
-								</button>
-							{/if}
+							{/each}
 
 							{#each tags as tag}
 								<Tooltip content={tag}>

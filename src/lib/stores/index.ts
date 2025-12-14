@@ -1,6 +1,7 @@
 import { APP_NAME } from '$lib/constants';
 import { type Writable, writable } from 'svelte/store';
 import type { ModelConfig } from '$lib/apis';
+import type { ModelPricing } from '$lib/apis/billing';
 import type { Banner } from '$lib/types';
 import type { Socket } from 'socket.io-client';
 
@@ -56,6 +57,7 @@ export const selectedFolder = writable(null);
 
 export const models: Writable<Model[]> = writable([]);
 export const userModels: Writable<any[]> = writable([]);
+export const modelPricings: Writable<Record<string, ModelPricing>> = writable({});
 
 export const prompts: Writable<null | Prompt[]> = writable(null);
 export const knowledge: Writable<null | Document[]> = writable(null);
