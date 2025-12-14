@@ -1029,10 +1029,16 @@
 			if (chatContent) {
 				console.log(chatContent);
 
-				selectedModels =
-					(chatContent?.models ?? undefined) !== undefined
-						? chatContent.models
-						: [chatContent.models ?? ''];
+				const getLastModelId = (models: any) => {
+					if (Array.isArray(models)) {
+						const nonEmpty = models.filter((m) => !!m);
+						return nonEmpty.length ? nonEmpty[nonEmpty.length - 1] : '';
+					}
+					return models ?? '';
+				};
+
+				const importedModelId = getLastModelId(chatContent?.models);
+				selectedModels = [importedModelId];
 
 				if (!($user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true))) {
 					selectedModels = selectedModels.length > 0 ? [selectedModels[0]] : [''];

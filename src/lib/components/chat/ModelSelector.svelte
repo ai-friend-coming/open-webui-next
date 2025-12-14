@@ -16,21 +16,23 @@
 
 	import { updateUserSettings } from '$lib/apis/users';
 	import {
-		listUserModels,
-		createUserModel,
-		updateUserModel,
-		deleteUserModel
+	listUserModels,
+	createUserModel,
+	updateUserModel,
+	deleteUserModel,
+	testUserModel
 	} from '$lib/apis/userModels';
 
-	let showUserModelModal = false;
-	let editingCredential = null;
-	let form = {
-		name: '',
-		model_id: '',
-		base_url: '',
-		api_key: ''
-	};
-	const i18n = getContext('i18n');
+let showUserModelModal = false;
+let editingCredential = null;
+let form = {
+	name: '',
+	model_id: '',
+	base_url: '',
+	api_key: ''
+};
+let testingConnection = false;
+const i18n = getContext('i18n');
 
 	export let selectedModels = [''];
 	export let disabled = false;
@@ -131,6 +133,31 @@
 
 		resetForm();
 		showUserModelModal = false;
+	};
+
+	const testUserModelConnection = async () => {
+		if (!form.model_id || !form.api_key) {
+			toast.error($i18n.t('Model ID and API Key are required'));
+			return;
+		}
+
+		testingConnection = true;
+		try {
+			const res = await testUserModel(localStorage.token, form).catch((err) => {
+				toast.error(`${err?.detail ?? err}`);
+				return null;
+			});
+
+			if (res) {
+				if (res.has_model === false) {
+					toast.warning($i18n.t('Connected, but the model ID was not found on the endpoint'));
+				} else {
+					toast.success($i18n.t('Connection successful'));
+				}
+			}
+		} finally {
+			testingConnection = false;
+		}
 	};
 
 	const removeUserModel = async (cred) => {
@@ -288,8 +315,16 @@
 						{$i18n.t('Cancel')}
 					</button>
 					<button
+						class="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-70"
+						on:click={testUserModelConnection}
+						disabled={disabled || testingConnection}
+					>
+						{testingConnection ? $i18n.t('Testing...') : $i18n.t('Verify Connection')}
+					</button>
+					<button
 						class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black"
 						on:click={submitUserModel}
+						disabled={disabled || testingConnection}
 					>
 						{$i18n.t('Save')}
 					</button>

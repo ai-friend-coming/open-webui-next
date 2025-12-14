@@ -101,6 +101,35 @@ export const updateUserModel = async (
 	return res;
 };
 
+export const testUserModel = async (token: string, body: UserModelCredentialForm) => {
+	let error = null;
+
+	const res = await fetch(`${BASE}/test`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(body)
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const deleteUserModel = async (token: string, id: string) => {
 	let error = null;
 

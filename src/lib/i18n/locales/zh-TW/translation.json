@@ -1705,6 +1705,8 @@
 	"Valves updated successfully": "設定項目成功更新",
 	"variable": "變數",
 	"Verify Connection": "驗證連線",
+	"Testing...": "測試中...",
+	"Connected, but the model ID was not found on the endpoint": "已連線，但端點未找到該模型 ID",
 	"Verify SSL Certificate": "驗證 SSL 憑證",
 	"Version": "版本",
 	"Version {{selectedVersion}} of {{totalVersions}}": "第 {{selectedVersion}} 版，共 {{totalVersions}} 版",

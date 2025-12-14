@@ -1708,6 +1708,8 @@
 	"Valves updated successfully": "",
 	"variable": "",
 	"Verify Connection": "",
+	"Testing...": "Testing...",
+	"Connected, but the model ID was not found on the endpoint": "Connected, but the model ID was not found on the endpoint",
 	"Verify SSL Certificate": "",
 	"Version": "",
 	"Version {{selectedVersion}} of {{totalVersions}}": "",

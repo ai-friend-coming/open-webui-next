@@ -16,9 +16,15 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import aiohttp
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from open_webui.constants import ERROR_MESSAGES
+from open_webui.env import (
+    AIOHTTP_CLIENT_SESSION_SSL,
+    AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST,
+)
+from open_webui.routers.openai import get_headers_and_cookies
 from open_webui.utils.auth import get_verified_user
 from open_webui.models.user_model_credentials import (
     UserModelCredentialForm,
@@ -185,3 +191,102 @@ async def delete_user_credential(cred_id: str, user=Depends(get_verified_user)):
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
     return True
+
+
+@router.post("/test")
+async def test_user_model_connection(
+    request: Request,
+    form_data: UserModelCredentialForm,
+    user=Depends(get_verified_user),
+):
+    """
+    Probe whether the provided model endpoint is reachable.
+    """
+    base_url = form_data.base_url
+    api_key = form_data.api_key
+    api_config = form_data.config or {}
+
+    if not base_url:
+        base_url = (
+            request.app.state.config.OPENAI_API_BASE_URLS[0]
+            if request.app.state.config.OPENAI_API_BASE_URLS
+            else None
+        )
+    if not api_key:
+        api_key = (
+            request.app.state.config.OPENAI_API_KEYS[0]
+            if request.app.state.config.OPENAI_API_KEYS
+            else None
+        )
+
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base URL is required to test reachability",
+        )
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
+    async with aiohttp.ClientSession(trust_env=True, timeout=timeout) as session:
+        try:
+            headers, cookies = await get_headers_and_cookies(
+                request, base_url, api_key, api_config, user=user
+            )
+
+            if api_config.get("azure", False):
+                auth_type = api_config.get("auth_type", "bearer")
+                if auth_type not in ("azure_ad", "microsoft_entra_id"):
+                    headers["api-key"] = api_key or ""
+                api_version = api_config.get("api_version", "") or "2023-03-15-preview"
+                target_url = f"{base_url}/openai/models?api-version={api_version}"
+            else:
+                target_url = f"{base_url}/models"
+
+            async with session.get(
+                target_url, headers=headers, cookies=cookies, ssl=AIOHTTP_CLIENT_SESSION_SSL
+            ) as r:
+                try:
+                    response_data = await r.json()
+                except Exception:
+                    response_data = await r.text()
+
+                if r.status != 200:
+                    detail = (
+                        response_data.get("error")
+                        if isinstance(response_data, dict) and "error" in response_data
+                        else response_data
+                    )
+                    raise HTTPException(status_code=r.status, detail=detail)
+
+                models = None
+                has_model = None
+                if isinstance(response_data, dict):
+                    models = response_data.get("data")
+
+                if isinstance(models, list) and form_data.model_id:
+                    has_model = any(
+                        isinstance(model, dict)
+                        and form_data.model_id
+                        in [
+                            model.get("id"),
+                            model.get("model"),
+                            model.get("name"),
+                        ]
+                        for model in models
+                    )
+
+                return {
+                    "ok": True,
+                    "status": r.status,
+                    "has_model": has_model,
+                    "model_count": len(models) if isinstance(models, list) else None,
+                    "base_url": base_url,
+                }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.exception(e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to reach the model endpoint",
+            )
