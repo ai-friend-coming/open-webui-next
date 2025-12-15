@@ -20,7 +20,7 @@
 	} from '$lib/apis/auths';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
-	import { agreementContent as defaultAgreementContent, privacyContent as defaultPrivacyContent } from '$lib/constants/legal';
+	import { agreementContent as defaultAgreementContent, privacyContent as defaultPrivacyContent, letter } from '$lib/constants/legal';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
 
 	import { generateInitialsImage, canvasPixelTest } from '$lib/utils';
@@ -65,6 +65,7 @@
 	let agreeToPrivacy = false;
 	let showPrivacyModal = false;
 	let privacyContent = defaultPrivacyContent;
+	let showLetterModal = false;
 
 	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
 		if (sessionUser) {
@@ -300,6 +301,13 @@
 
 		loaded = true;
 		setLogoImage();
+
+		// 自动显示信件 Modal（排除自动登录场景）
+		if (!($config?.features.auth_trusted_header ?? false) && $config?.features.auth !== false) {
+			setTimeout(() => {
+				showLetterModal = true;
+			}, 300);
+		}
 
 		if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
 			await signInHandler();
@@ -879,6 +887,22 @@
 			</div>
 		{/if}
 
+		<!-- 致用户的信 按钮 -->
+		<div class="fixed top-6 right-6 z-50">
+			<button
+				type="button"
+				class="group flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white bg-gray-700/10 hover:bg-gray-700/20 dark:bg-gray-100/10 dark:hover:bg-gray-100/20 border border-gray-200/50 dark:border-gray-700/50 rounded-full shadow-md hover:shadow-lg transition-all duration-200"
+				on:click={() => {
+					showLetterModal = true;
+				}}
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+				</svg>
+				<span>致大家的一封信</span>
+			</button>
+		</div>
+
 		<!-- ICP 备案信息 -->
 		<div class="fixed bottom-4 left-0 right-0 flex justify-center z-50">
 			<a
@@ -937,6 +961,36 @@
 				}}
 			>
 				关闭
+			</button>
+		</div>
+	</div>
+</Modal>
+
+<!-- Letter Modal -->
+<Modal bind:show={showLetterModal} size="lg">
+	<div class="p-8 space-y-5 max-w-4xl">
+		<!-- 标题 -->
+		<div class="space-y-1">
+			<div class="text-xl font-semibold text-gray-900 dark:text-white">
+				致每一位 Cakumi 用户
+			</div>
+		</div>
+
+		<!-- Markdown 内容 -->
+		<div class="text-gray-800 dark:text-gray-100 leading-relaxed space-y-3 max-h-[60vh] overflow-y-auto pr-1 markdown">
+			{@html DOMPurify.sanitize(marked.parse(letter || ''))}
+		</div>
+
+		<!-- 关闭按钮 -->
+		<div class="flex justify-end gap-2">
+			<button
+				type="button"
+				class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+				on:click={() => {
+					showLetterModal = false;
+				}}
+			>
+				我知道了
 			</button>
 		</div>
 	</div>
