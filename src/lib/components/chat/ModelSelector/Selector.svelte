@@ -36,7 +36,6 @@ import {
 import ChatBubbleOval from '$lib/components/icons/ChatBubbleOval.svelte';
 
 import ModelItem from './ModelItem.svelte';
-import { listModelPricing } from '$lib/apis/billing';
 
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
@@ -326,19 +325,7 @@ import { listModelPricing } from '$lib/apis/billing';
 	};
 
 	onMount(async () => {
-		// 加载模型定价（仅首次或为空时）
-		if (Object.keys($modelPricings || {}).length === 0) {
-			try {
-				const pricingList = await listModelPricing();
-				const pricingMap = pricingList.reduce((acc, p) => {
-					acc[p.model_id] = p;
-					return acc;
-				}, {});
-				modelPricings.set(pricingMap);
-			} catch (error) {
-				console.error('Failed to load model pricing', error);
-			}
-		}
+		// 模型定价已在应用启动时加载到 $modelPricings store 中，无需重复加载
 
 		if (items) {
 			tags = items
@@ -349,7 +336,7 @@ import { listModelPricing } from '$lib/apis/billing';
 			// Remove duplicates and sort
 			tags = Array.from(new Set(tags)).sort((a, b) => a.localeCompare(b));
 		}
-		console.log(items)
+		console.log(items);
 	});
 
 	$: if (show) {

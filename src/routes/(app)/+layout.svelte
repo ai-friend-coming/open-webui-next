@@ -18,6 +18,7 @@ import { onMount, tick, getContext } from 'svelte';
 	import { getBanners } from '$lib/apis/configs';
 	import { getLatestAnnouncements, markAnnouncementsRead, type AnnouncementUserView } from '$lib/apis/announcements';
 	import { getUserSettings } from '$lib/apis/users';
+	import { listModelPricing } from '$lib/apis/billing';
 
 	import { WEBUI_VERSION } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
@@ -27,6 +28,7 @@ import { onMount, tick, getContext } from 'svelte';
 		user,
 		settings,
 		models,
+		modelPricings,
 		prompts,
 		knowledge,
 		tools,
@@ -126,6 +128,19 @@ import { onMount, tick, getContext } from 'svelte';
 		);
 	};
 
+	const setModelPricings = async () => {
+		try {
+			const pricingList = await listModelPricing();
+			const pricingMap = pricingList.reduce((acc, p) => {
+				acc[p.model_id] = p;
+				return acc;
+			}, {});
+			modelPricings.set(pricingMap);
+		} catch (error) {
+			console.error('Failed to load model pricing', error);
+		}
+	};
+
 	const setToolServers = async () => {
 		let toolServersData = await getToolServersData($settings?.toolServers ?? []);
 		toolServersData = toolServersData.filter((data) => {
@@ -222,6 +237,7 @@ import { onMount, tick, getContext } from 'svelte';
 			checkLocalDBChats(),
 			setBanners(),
 			setTools(),
+			setModelPricings(),
 			setUserSettings(async () => {
 				await Promise.all([setModels(), setToolServers()]);
 			})

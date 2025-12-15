@@ -45,16 +45,44 @@ import { mobile, settings, user, modelPricings } from '$lib/stores';
 
 	let showMenu = false;
 
-	const pricing = () =>
-		item?.model?.pricing ??
-		item?.model?.info?.pricing ??
-		$modelPricings?.[item?.model?.id ?? item?.value] ??
-		null;
+	// 响应式计算价格信息
+	// 私有模型（source === 'user'）不显示价格
+	$: pricing = (() => {
+		// 私有模型不显示价格（用户自己的 API）
+		if (item?.source === 'user') {
+			return null;
+		}
+
+		return item?.model?.pricing ??
+			item?.model?.info?.pricing ??
+			$modelPricings?.[item?.model?.id ?? item?.value] ??
+			null;
+	})();
+
 	const formatPrice = (price) => {
 		if (price === undefined || price === null) return null;
 		// 价格存储为毫/1k tokens（1 元 = 10000 毫）
 		return (price / 10000).toFixed(2);
 	};
+
+	// 响应式判断第2行是否有内容需要显示
+	// 私有模型（source === 'user'）始终保持单行，不显示第2行
+	$: hasSecondLineContent = (() => {
+		// 私有模型强制单行显示
+		if (item?.source === 'user') {
+			return false;
+		}
+
+		return (
+			pricing || // 有价格
+			(item.model.owned_by === 'ollama' && (item.model.ollama?.details?.parameter_size ?? '') !== '') || // Ollama 参数
+			(item.model.owned_by === 'ollama' && item.model.ollama?.expires_at && new Date(item.model.ollama?.expires_at * 1000) > new Date()) || // Ollama 加载状态
+			(item?.model?.tags ?? []).length > 0 || // Tags
+			item.model?.direct || // Direct 标识
+			item.model.connection_type === 'external' || // External 标识
+			item.model?.info?.meta?.description // Description
+		);
+	})();
 </script>
 
 <button
@@ -118,129 +146,25 @@ import { mobile, settings, user, modelPricings } from '$lib/stores';
 		</div>
 
 		<!-- 第2行: 价格 + 参数大小 + 其他图标 -->
+		{#if hasSecondLineContent}
 		<div class="flex items-center gap-2 text-xs">
 			<!-- 紧凑价格格式 -->
-			{#if pricing()}
+			{#if pricing}
 				<span class="text-gray-600 dark:text-gray-400">
-					{#if formatPrice(pricing().input_price)}
-						<span class="text-gray-500 dark:text-gray-500">入</span>
-						<span class="font-mono">¥{formatPrice(pricing().input_price)}</span>
+					{#if formatPrice(pricing.input_price)}
+						<span class="text-gray-500 dark:text-gray-500">输入</span>
+						<span class="font-mono">¥{formatPrice(pricing.input_price)}/M</span>
 					{/if}
-					{#if formatPrice(pricing().input_price) && formatPrice(pricing().output_price)}
+					{#if formatPrice(pricing.input_price) && formatPrice(pricing.output_price)}
 						<span class="mx-1.5 text-gray-300 dark:text-gray-600">|</span>
 					{/if}
-					{#if formatPrice(pricing().output_price)}
-						<span class="text-gray-500 dark:text-gray-500">出</span>
-						<span class="font-mono">¥{formatPrice(pricing().output_price)}</span>
+					{#if formatPrice(pricing.output_price)}
+						<span class="text-gray-500 dark:text-gray-500">输出</span>
+						<span class="font-mono">¥{formatPrice(pricing.output_price)}/M</span>
 					{/if}
-					<span class="text-gray-500 dark:text-gray-500 ml-0.5">/1k</span>
 				</span>
 			{/if}
 
-			{#if item.model.owned_by === 'ollama'}
-				{#if (item.model.ollama?.details?.parameter_size ?? '') !== ''}
-					<div class="flex items-center">
-						<Tooltip
-							content={`${
-								item.model.ollama?.details?.quantization_level
-									? item.model.ollama?.details?.quantization_level + ' '
-									: ''
-							}${
-								item.model.ollama?.size
-									? `(${(item.model.ollama?.size / 1024 ** 3).toFixed(1)}GB)`
-									: ''
-							}`}
-							className="self-end"
-						>
-							<span class="text-xs font-medium text-gray-600 dark:text-gray-400 line-clamp-1"
-								>{item.model.ollama?.details?.parameter_size ?? ''}</span
-							>
-						</Tooltip>
-					</div>
-				{/if}
-				{#if item.model.ollama?.expires_at && new Date(item.model.ollama?.expires_at * 1000) > new Date()}
-					<div class="flex items-center px-0.5">
-						<Tooltip
-							content={`${$i18n.t('Unloads {{FROM_NOW}}', {
-								FROM_NOW: dayjs(item.model.ollama?.expires_at * 1000).fromNow()
-							})}`}
-							className="self-end"
-						>
-							<div class="flex items-center">
-								<span class="relative flex size-2">
-									<span
-										class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"
-									/>
-									<span class="relative inline-flex rounded-full size-2 bg-green-500" />
-								</span>
-							</div>
-						</Tooltip>
-					</div>
-				{/if}
-			{/if}
-
-			<!-- Tags 图标 -->
-			{#if (item?.model?.tags ?? []).length > 0}
-				{#key item.model.id}
-					<Tooltip elementId="tags-{item.model.id}">
-						<div slot="tooltip" id="tags-{item.model.id}">
-							{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
-								<Tooltip content={tag.name} className="flex-shrink-0">
-									<div class="text-xs font-medium rounded-sm uppercase text-white">
-										{tag.name}
-									</div>
-								</Tooltip>
-							{/each}
-						</div>
-
-						<div class="translate-y-[1px]">
-							<Tag />
-						</div>
-					</Tooltip>
-				{/key}
-			{/if}
-
-			<!-- Direct/External 图标 -->
-			{#if item.model?.direct}
-				<Tooltip content={`${$i18n.t('Direct')}`}>
-					<div class="translate-y-[1px]">
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 16 16"
-							fill="currentColor"
-							class="size-3"
-						>
-							<path
-								fill-rule="evenodd"
-								d="M2 2.75A.75.75 0 0 1 2.75 2C8.963 2 14 7.037 14 13.25a.75.75 0 0 1-1.5 0c0-5.385-4.365-9.75-9.75-9.75A.75.75 0 0 1 2 2.75Zm0 4.5a.75.75 0 0 1 .75-.75 6.75 6.75 0 0 1 6.75 6.75.75.75 0 0 1-1.5 0C8 10.35 5.65 8 2.75 8A.75.75 0 0 1 2 7.25ZM3.5 11a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"
-								clip-rule="evenodd"
-							/>
-						</svg>
-					</div>
-				</Tooltip>
-			{:else if item.model.connection_type === 'external'}
-				<Tooltip content={`${$i18n.t('External')}`}>
-					<div class="translate-y-[1px]">
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 16 16"
-							fill="currentColor"
-							class="size-3"
-						>
-							<path
-								fill-rule="evenodd"
-								d="M8.914 6.025a.75.75 0 0 1 1.06 0 3.5 3.5 0 0 1 0 4.95l-2 2a3.5 3.5 0 0 1-5.396-4.402.75.75 0 0 1 1.251.827 2 2 0 0 0 3.085 2.514l2-2a2 2 0 0 0 0-2.828.75.75 0 0 1 0-1.06Z"
-								clip-rule="evenodd"
-							/>
-							<path
-								fill-rule="evenodd"
-								d="M7.086 9.975a.75.75 0 0 1-1.06 0 3.5 3.5 0 0 1 0-4.95l2-2a3.5 3.5 0 0 1 5.396 4.402.75.75 0 0 1-1.251-.827 2 2 0 0 0-3.085-2.514l-2 2a2 2 0 0 0 0 2.828.75.75 0 0 1 0 1.06Z"
-								clip-rule="evenodd"
-							/>
-						</svg>
-					</div>
-				</Tooltip>
-			{/if}
 
 			<!-- Description 图标 -->
 			{#if item.model?.info?.meta?.description}
@@ -268,6 +192,7 @@ import { mobile, settings, user, modelPricings } from '$lib/stores';
 				</Tooltip>
 			{/if}
 		</div>
+		{/if}
 	</div>
 
 	<div class="ml-auto pl-2 pr-1 flex items-center gap-1.5 shrink-0">
