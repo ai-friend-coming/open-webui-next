@@ -310,7 +310,6 @@ import ArchiveBox from '../icons/ArchiveBox.svelte';
 										/>
 									</th>
 									<th class="py-1.5 px-3 font-medium text-xs uppercase tracking-wider w-full">标题</th>
-									<th class="w-56 py-1.5 px-3 font-medium text-xs uppercase tracking-wider text-right hidden sm:table-cell">创建时间</th>
 								</tr>
 							</thead>
 							<tbody>

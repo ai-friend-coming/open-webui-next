@@ -261,7 +261,18 @@
             let content = '';
             if (msg.content) {
                 if (Array.isArray(msg.content.parts)) {
-                    content = msg.content.parts.join('');
+                    content = msg.content.parts
+                        .map((part) => {
+                            if (typeof part === 'string') return part;
+                            if (part?.text) return part.text;
+                            if (part?.content) return part.content;
+                            try {
+                                return JSON.stringify(part);
+                            } catch (e) {
+                                return '';
+                            }
+                        })
+                        .join('');
                 } else if (typeof msg.content === 'string') {
                     content = msg.content;
                 }
