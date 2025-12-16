@@ -287,11 +287,12 @@
             const role = inferRoleFromFragments(frags, baseRole(msg?.author)) ?? baseRole(msg?.author);
             const content = extractContent(msg, frags);
             const modelId = msg?.model || msg?.metadata?.model_slug || null;
+            const effectiveModelId = modelId || (role === 'user' ? 'user' : null);
 
             let acceptedId = null;
 
-            // Accept nodes with content/system role AND valid model id
-            if (msg && modelId && (content || role === 'system')) {
+            // Accept nodes with content/system role; require model for non-user, but allow user without model
+            if (msg && effectiveModelId && (content || role === 'system')) {
                 const messageId = msg.id || id;
                 acceptedId = messageId;
 
@@ -301,7 +302,7 @@
                     childrenIds: [],
                     role,
                     content,
-                    model: modelId,
+                    model: effectiveModelId,
                     done: true,
                     context: null,
                     timestamp: msg.create_time || convo.create_time || Date.now() / 1000
