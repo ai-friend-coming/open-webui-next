@@ -286,11 +286,12 @@
             const frags = extractFragments(msg);
             const role = inferRoleFromFragments(frags, baseRole(msg?.author)) ?? baseRole(msg?.author);
             const content = extractContent(msg, frags);
+            const modelId = msg?.model || msg?.metadata?.model_slug || null;
 
             let acceptedId = null;
 
-            // Accept nodes with content or explicit system messages
-            if (msg && (content || role === 'system')) {
+            // Accept nodes with content/system role AND valid model id
+            if (msg && modelId && (content || role === 'system')) {
                 const messageId = msg.id || id;
                 acceptedId = messageId;
 
@@ -300,7 +301,7 @@
                     childrenIds: [],
                     role,
                     content,
-                    model: msg.model || msg.metadata?.model_slug || 'gpt-3.5-turbo',
+                    model: modelId,
                     done: true,
                     context: null,
                     timestamp: msg.create_time || convo.create_time || Date.now() / 1000

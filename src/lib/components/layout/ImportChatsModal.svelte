@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import Modal from '../common/Modal.svelte';
-	import Spinner from '../common/Spinner.svelte';
+import Modal from '../common/Modal.svelte';
+import Spinner from '../common/Spinner.svelte';
+import ArrowUpTray from '../icons/ArrowUpTray.svelte';
+import ArchiveBox from '../icons/ArchiveBox.svelte';
 
 	export let show = false;
 	export let onImport: (chats: any[]) => Promise<void>;
@@ -173,10 +175,10 @@
 			<div>
 				<div class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
 					<span class="w-3 h-3 rounded bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>
-					记录筛选与导入
+					上传聊天记录
 				</div>
 				<div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-					筛选所需的聊天记录
+					仅支持 JSON 格式，导入前请先选择或拖入文件
 				</div>
 			</div>
 			<button
@@ -191,11 +193,17 @@
 		<div class="space-y-4">
 			<div class="rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
 				<div class="flex items-center justify-between">
-					<div class="text-sm font-semibold text-gray-800 dark:text-gray-100">1. 读取文件</div>
+					<div class="text-sm font-semibold text-gray-800 dark:text-gray-100">上传聊天记录</div>
+					{#if loading}
+						<div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+							<Spinner className="size-4" />
+							<span>正在解析...</span>
+						</div>
+					{/if}
 				</div>
 
 				<div
-					class={`border-2 border-dashed rounded-xl p-4 transition ${
+					class={`relative border-2 border-dashed rounded-xl p-6 transition flex flex-col items-center gap-3 text-center ${
 						dropActive
 							? 'border-blue-400 bg-blue-50/70 dark:border-blue-400/80 dark:bg-blue-950/40'
 							: 'border-gray-200 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-900'
@@ -209,14 +217,17 @@
 					role="button"
 					tabindex="0"
 				>
-					<div class="flex flex-col items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+					<div class="w-12 h-12 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-center text-blue-500">
+						<ArrowUpTray className="size-6" />
+					</div>
+					<div class="flex flex-col items-center gap-1 text-sm text-gray-700 dark:text-gray-200">
 						<div class="font-medium text-gray-900 dark:text-white font-mono">
-							{fileName ? `Current: ${fileName}` : '拖入 .json 文件'}
+							{fileName ? `已选择：${fileName}` : '拖入 .json 文件'}
 						</div>
-						
-						<div class="flex items-center gap-2">
+						<div class="text-xs text-gray-500 dark:text-gray-400">仅支持 JSON 格式</div>
+						<div class="flex items-center gap-2 mt-1">
 							<button
-								class="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 transition-colors"
+								class="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-850 text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition shadow-sm text-xs"
 								on:click={() => fileInputEl.click()}
 								type="button"
 							>
@@ -226,19 +237,6 @@
 								格式要求: <code>[&#123;...&#125;, &#123;...&#125;]</code>
 							</div>
 						</div>
-
-						{#if loading}
-							<div class="flex items-center gap-2 text-blue-600 dark:text-blue-300 mt-2">
-								<Spinner className="size-4" />
-								<span>正在解析...</span>
-							</div>
-						{/if}
-						{#if errorMsg}
-							<div class="text-xs text-red-500 mt-1">{errorMsg}</div>
-						{/if}
-						{#if successMsg}
-							<div class="text-xs text-green-600 dark:text-green-400 mt-1">{successMsg}</div>
-						{/if}
 					</div>
 					<input
 						bind:this={fileInputEl}
@@ -247,6 +245,22 @@
 						hidden
 						on:change={handleFileInputChange}
 					/>
+
+					{#if errorMsg}
+						<div class="w-full mt-2 text-xs text-red-500 bg-red-50/60 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2 text-left">
+							{errorMsg}
+						</div>
+					{:else if successMsg}
+						<div class="w-full mt-2 text-xs text-green-600 dark:text-green-400 bg-green-50/70 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2 text-left">
+							{successMsg}
+						</div>
+					{/if}
+
+					{#if loading}
+						<div class="absolute inset-0 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-xl flex items-center justify-center">
+							<Spinner className="size-6 text-blue-500" />
+						</div>
+					{/if}
 				</div>
 			</div>
 
@@ -278,16 +292,29 @@
 						<table class="w-full text-sm border-collapse">
 							<thead class="text-left bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 sticky top-0 backdrop-blur-md">
 								<tr>
-									<th class="w-12 py-2 px-3 text-center">#</th>
-									<th class="py-2 px-3 font-medium text-xs uppercase tracking-wider">Title</th>
-									<th class="w-48 py-2 px-3 font-medium text-xs uppercase tracking-wider">Inserted At</th>
+									<th class="w-12 py-2 px-3 text-center">
+										<input
+											type="checkbox"
+											class="accent-blue-600 rounded"
+											checked={rawChats.length > 0 && selectedIndices.size === rawChats.length}
+											indeterminate={selectedIndices.size > 0 && selectedIndices.size < rawChats.length}
+											on:change={handleSelectAllChange}
+										/>
+									</th>
+									<th class="py-2 px-3 font-medium text-xs uppercase tracking-wider w-full">Title</th>
+									<th class="w-48 py-2 px-3 font-medium text-xs uppercase tracking-wider text-right">Inserted At</th>
 								</tr>
 							</thead>
 							<tbody>
 								{#if !rawChats.length}
 									<tr>
-										<td colspan="3" class="py-8 text-center text-gray-500 dark:text-gray-500 text-xs">
-											暂无数据，请先导入文件
+										<td colspan="3" class="py-10 text-center text-gray-500 dark:text-gray-500 text-xs">
+											<div class="flex flex-col items-center gap-2 text-sm text-gray-500">
+												<div class="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-400">
+													<ArchiveBox className="size-5" />
+												</div>
+												<div>暂无数据，请先在上方上传文件</div>
+											</div>
 										</td>
 									</tr>
 								{:else}
@@ -308,7 +335,7 @@
 													{row.title}
 												</div>
 											</td>
-											<td class="py-2 px-3 text-xs font-mono text-blue-600 dark:text-blue-400">
+											<td class="py-2 px-3 text-xs font-mono text-blue-600 dark:text-blue-400 text-right">
 												{row.date}
 											</td>
 										</tr>
@@ -322,7 +349,7 @@
 
 			<div class="flex items-center justify-end gap-3 pt-2">
 				<button
-					class="px-4 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-850 text-gray-700 dark:text-gray-300 transition-all"
+					class="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition underline-offset-2 hover:underline"
 					on:click={() => (show = false)}
 					type="button"
 				>
