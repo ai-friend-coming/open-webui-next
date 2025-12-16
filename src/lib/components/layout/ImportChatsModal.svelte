@@ -150,11 +150,19 @@ import ArchiveBox from '../icons/ArchiveBox.svelte';
 	};
 
 	// 辅助显示函数 (对应 HTML 中的 renderTable)
+	const formatDate = (value) => {
+		if (!value) return '-';
+		const dateObj = new Date(value);
+		if (isNaN(dateObj.getTime())) return value;
+		return dateObj.toLocaleString();
+	};
+
 	const displayRows = () =>
 		rawChats.map((chat, idx) => {
 			// 宽容处理字段
 			const title = chat.title || '<无标题>';
-			const date = chat.inserted_at || '-';
+			const dateRaw = chat.inserted_at || chat.created_at || chat.timestamp || chat.date || '-';
+			const date = formatDate(dateRaw);
 			return { idx, title, date };
 		});
 
@@ -292,7 +300,7 @@ import ArchiveBox from '../icons/ArchiveBox.svelte';
 						<table class="w-full text-sm border-collapse">
 							<thead class="text-left bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 sticky top-0 backdrop-blur-md">
 								<tr>
-									<th class="w-12 py-2 px-3 text-center">
+									<th class="w-12 py-1.5 px-3 text-center">
 										<input
 											type="checkbox"
 											class="accent-blue-600 rounded"
@@ -301,8 +309,8 @@ import ArchiveBox from '../icons/ArchiveBox.svelte';
 											on:change={handleSelectAllChange}
 										/>
 									</th>
-									<th class="py-2 px-3 font-medium text-xs uppercase tracking-wider w-full">Title</th>
-									<th class="w-48 py-2 px-3 font-medium text-xs uppercase tracking-wider text-right">Inserted At</th>
+									<th class="py-1.5 px-3 font-medium text-xs uppercase tracking-wider w-full">标题</th>
+									<th class="w-56 py-1.5 px-3 font-medium text-xs uppercase tracking-wider text-right">创建时间</th>
 								</tr>
 							</thead>
 							<tbody>
