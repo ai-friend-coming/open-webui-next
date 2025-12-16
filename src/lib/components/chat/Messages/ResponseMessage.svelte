@@ -171,10 +171,44 @@
 		})();
 
 		userModel = credentialModel ? { ...credentialModel, id: credentialModel.model_id } : null;
-		model = platformModel ?? userModel;
 
-		modelName =
-			message.modelName ?? model?.name ?? userModel?.name ?? userModel?.model_id ?? message.model;
+		// 明确区分私有模型和平台模型，并计算 modelName
+		let computedModelName = '';
+
+		if (userModel) {
+			// 情况1: 私有模型
+			model = userModel;
+
+			// 私有模型名称优先级：name（非空） > model_id > message.model
+			if (userModel.name && userModel.name.trim() !== '') {
+				computedModelName = userModel.name;
+			} else if (userModel.model_id) {
+				computedModelName = userModel.model_id;
+			} else {
+				computedModelName = message.model;
+			}
+		} else if (platformModel) {
+			// 情况2: 平台模型
+			model = platformModel;
+
+			// 平台模型名称优先级：name（非空） > message.model
+			if (platformModel.name && platformModel.name.trim() !== '') {
+				computedModelName = platformModel.name;
+			} else {
+				computedModelName = message.model;
+			}
+		} else {
+			// 情况3: 既不是私有模型也不是平台模型
+			model = null;
+			computedModelName = message.model;
+		}
+
+		// message.modelName 有最高优先级（如果存在且非空）
+		if (message.modelName && message.modelName.trim() !== '') {
+			modelName = message.modelName;
+		} else {
+			modelName = computedModelName;
+		}
 	}
 
 	let edit = false;
@@ -202,182 +236,6 @@
 		const res = await _copyToClipboard(text, null, $settings?.copyFormatted ?? false);
 		if (res) {
 			toast.success($i18n.t('Copying to clipboard was successful!'));
-		}
-	};
-
-	const playAudio = (idx: number) => {
-		return new Promise<void>((res) => {
-			speakingIdx = idx;
-			const audio = audioParts[idx];
-
-			if (!audio) {
-				return res();
-			}
-
-			audio.play();
-			audio.onended = async () => {
-				await new Promise((r) => setTimeout(r, 300));
-
-				if (Object.keys(audioParts).length - 1 === idx) {
-					speaking = false;
-				}
-
-				res();
-			};
-		});
-	};
-
-	const toggleSpeakMessage = async () => {
-		if (speaking) {
-			try {
-				speechSynthesis.cancel();
-
-				if (speakingIdx !== undefined && audioParts[speakingIdx]) {
-					audioParts[speakingIdx]!.pause();
-					audioParts[speakingIdx]!.currentTime = 0;
-				}
-			} catch {}
-
-			speaking = false;
-			speakingIdx = undefined;
-			return;
-		}
-
-		if (!(message?.content ?? '').trim().length) {
-			toast.info($i18n.t('No content to speak'));
-			return;
-		}
-
-		speaking = true;
-
-		const content = removeAllDetails(message.content);
-
-		if ($config.audio.tts.engine === '') {
-			let voices = [];
-			const getVoicesLoop = setInterval(() => {
-				voices = speechSynthesis.getVoices();
-				if (voices.length > 0) {
-					clearInterval(getVoicesLoop);
-
-					const voice =
-						voices
-							?.filter(
-								(v) => v.voiceURI === ($settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice)
-							)
-							?.at(0) ?? undefined;
-
-					console.log(voice);
-
-					const speak = new SpeechSynthesisUtterance(content);
-					speak.rate = $settings.audio?.tts?.playbackRate ?? 1;
-
-					console.log(speak);
-
-					speak.onend = () => {
-						speaking = false;
-						if ($settings.conversationMode) {
-							document.getElementById('voice-input-button')?.click();
-						}
-					};
-
-					if (voice) {
-						speak.voice = voice;
-					}
-
-					speechSynthesis.speak(speak);
-				}
-			}, 100);
-		} else {
-			loadingSpeech = true;
-
-			const messageContentParts: string[] = getMessageContentParts(
-				content,
-				$config?.audio?.tts?.split_on ?? 'punctuation'
-			);
-
-			if (!messageContentParts.length) {
-				console.log('No content to speak');
-				toast.info($i18n.t('No content to speak'));
-
-				speaking = false;
-				loadingSpeech = false;
-				return;
-			}
-
-			console.debug('Prepared message content for TTS', messageContentParts);
-
-			audioParts = messageContentParts.reduce(
-				(acc, _sentence, idx) => {
-					acc[idx] = null;
-					return acc;
-				},
-				{} as typeof audioParts
-			);
-
-			let lastPlayedAudioPromise = Promise.resolve(); // Initialize a promise that resolves immediately
-
-			if ($settings.audio?.tts?.engine === 'browser-kokoro') {
-				if (!$TTSWorker) {
-					await TTSWorker.set(
-						new KokoroWorker({
-							dtype: $settings.audio?.tts?.engineConfig?.dtype ?? 'fp32'
-						})
-					);
-
-					await $TTSWorker.init();
-				}
-
-				for (const [idx, sentence] of messageContentParts.entries()) {
-					const blob = await $TTSWorker
-						.generate({
-							text: sentence,
-							voice: $settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice
-						})
-						.catch((error) => {
-							console.error(error);
-							toast.error(`${error}`);
-
-							speaking = false;
-							loadingSpeech = false;
-						});
-
-					if (blob) {
-						const audio = new Audio(blob);
-						audio.playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
-
-						audioParts[idx] = audio;
-						loadingSpeech = false;
-						lastPlayedAudioPromise = lastPlayedAudioPromise.then(() => playAudio(idx));
-					}
-				}
-			} else {
-				for (const [idx, sentence] of messageContentParts.entries()) {
-					const res = await synthesizeOpenAISpeech(
-						localStorage.token,
-						$settings?.audio?.tts?.defaultVoice === $config.audio.tts.voice
-							? ($settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice)
-							: $config?.audio?.tts?.voice,
-						sentence
-					).catch((error) => {
-						console.error(error);
-						toast.error(`${error}`);
-
-						speaking = false;
-						loadingSpeech = false;
-					});
-
-					if (res) {
-						const blob = await res.blob();
-						const blobUrl = URL.createObjectURL(blob);
-						const audio = new Audio(blobUrl);
-						audio.playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
-
-						audioParts[idx] = audio;
-						loadingSpeech = false;
-						lastPlayedAudioPromise = lastPlayedAudioPromise.then(() => playAudio(idx));
-					}
-				}
-			}
 		}
 	};
 
