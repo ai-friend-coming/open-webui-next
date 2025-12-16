@@ -613,7 +613,7 @@ async def send_signup_code(request: Request, form_data: SignupCodeForm):
         request.app.state.email_verification_manager = manager
 
     send_interval = request.app.state.email_verification_config["send_interval"]
-    can_send, remaining = manager.can_send(email, send_interval)
+    can_send, remaining = await manager.can_send(email, send_interval)
     if not can_send:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -633,7 +633,7 @@ async def send_signup_code(request: Request, form_data: SignupCodeForm):
         )
 
     code = generate_verification_code()
-    manager.store_code(
+    await manager.store_code(
         email,
         code,
         ttl,
@@ -708,7 +708,7 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
             manager = EmailVerificationManager(request.app.state.redis)
             request.app.state.email_verification_manager = manager
 
-        if not manager.validate_code(email, form_data.code):
+        if not await manager.validate_code(email, form_data.code):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or expired verification code.",
@@ -825,7 +825,7 @@ async def send_reset_code(request: Request, form_data: ResetPasswordCodeForm):
         request.app.state.reset_verification_manager = manager
 
     send_interval = request.app.state.email_verification_config["send_interval"]
-    can_send, remaining = manager.can_send(email, send_interval)
+    can_send, remaining = await manager.can_send(email, send_interval)
     if not can_send:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -843,7 +843,7 @@ async def send_reset_code(request: Request, form_data: ResetPasswordCodeForm):
         )
 
     code = generate_verification_code()
-    manager.store_code(
+    await manager.store_code(
         email,
         code,
         ttl,
@@ -901,7 +901,7 @@ async def reset_password(request: Request, form_data: ResetPasswordForm):
         manager = EmailVerificationManager(request.app.state.redis, prefix="reset:code")
         request.app.state.reset_verification_manager = manager
 
-    if not manager.validate_code(email, form_data.code):
+    if not await manager.validate_code(email, form_data.code):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired verification code.",

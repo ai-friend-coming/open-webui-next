@@ -53,14 +53,14 @@ class EmailVerificationManager:
     def _key(self, email: str) -> str:
         return f"{self.prefix}:{email.lower()}"
 
-    def _delete(self, email: str):
+    async def _delete(self, email: str):
         key = self._key(email)
         if self.redis:
-            self.redis.delete(key)
+            await self.redis.delete(key)
         else:
             self.memory_store.pop(key, None)
 
-    def _load_record(self, email: str) -> Optional[dict]:
+    async def _load_record(self, email: str) -> Optional[dict]:
         """
         Retrieves the verification record from Redis or local memory.
         Checks for expiration based on 'expires_at' and automatically deletes if expired.
@@ -68,7 +68,7 @@ class EmailVerificationManager:
         key = self._key(email)
         record = None
         if self.redis:
-            raw = self.redis.get(key)
+            raw = await self.redis.get(key)
             log.debug(f"[EmailAuth] Loading from Redis - Key: {key}, Raw Value: {raw}")
             if raw:
                 try:
@@ -86,12 +86,12 @@ class EmailVerificationManager:
         expires_at = record.get("expires_at")
         if expires_at and expires_at <= self._now():
             log.debug(f"[EmailAuth] Record expired for {email}. ExpiresAt: {expires_at}, Now: {self._now()}")
-            self._delete(email)
+            await self._delete(email)
             return None
 
         return record
 
-    def _save_record(self, email: str, record: dict, ttl: int):
+    async def _save_record(self, email: str, record: dict, ttl: int):
         """
         Saves the verification record to Redis (with TTL) or local memory.
         """
@@ -99,12 +99,12 @@ class EmailVerificationManager:
         ttl = max(ttl, 1)
         if self.redis:
             log.debug(f"[EmailAuth] Saving to Redis - Key: {key}, Value: {record}, TTL: {ttl}")
-            self.redis.set(key, json.dumps(record), ex=ttl)
+            await self.redis.set(key, json.dumps(record), ex=ttl)
         else:
             log.debug(f"[EmailAuth] Saving to Memory - Key: {key}, Value: {record}")
             self.memory_store[key] = record
 
-    def can_send(self, email: str, send_interval: int) -> tuple[bool, int]:
+    async def can_send(self, email: str, send_interval: int) -> tuple[bool, int]:
         """
         Checks if a new verification code can be sent to the given email.
         Enforces a cooldown period defined by `send_interval`.
@@ -112,7 +112,7 @@ class EmailVerificationManager:
         Returns:
             (bool, int): (True if allowed, 0) or (False, remaining_seconds_to_wait)
         """
-        record = self._load_record(email)
+        record = await self._load_record(email)
         if not record:
             return True, 0
 
@@ -126,7 +126,7 @@ class EmailVerificationManager:
 
         return True, 0
 
-    def store_code(
+    async def store_code(
         self,
         email: str,
         code: str,
@@ -146,11 +146,11 @@ class EmailVerificationManager:
             "sent_at": now,
             **({"ip": ip} if ip else {}),
         }
-        self._save_record(email, record, ttl)
+        await self._save_record(email, record, ttl)
         # ⚠️ SECURITY WARNING: Logging the code is for debugging purposes only.
         log.info(f"Stored verification code for {email}. Code: {code}")
 
-    def validate_code(self, email: str, code: str) -> bool:
+    async def validate_code(self, email: str, code: str) -> bool:
         """
         Validates the provided code against the stored record.
         
@@ -169,7 +169,7 @@ class EmailVerificationManager:
         #     return True
 
         log.debug(f"[EmailAuth] Validating code for {email}. Input Code: {code}")
-        record = self._load_record(email)
+        record = await self._load_record(email)
         if not record:
             log.warning(f"Verification failed for {email}: No record found.")
             return False
@@ -181,12 +181,12 @@ class EmailVerificationManager:
             attempts_left = record.get("attempts_left", 1) - 1
             if attempts_left <= 0:
                 log.warning(f"[EmailAuth] Max attempts reached for {email}. Deleting record.")
-                self._delete(email)
+                await self._delete(email)
             else:
                 record["attempts_left"] = attempts_left
-                self._save_record(email, record, ttl_left)
+                await self._save_record(email, record, ttl_left)
             return False
 
         log.info(f"Verification successful for {email}.")
-        self._delete(email)
+        await self._delete(email)
         return True
