@@ -67,6 +67,10 @@ async def chat_with_billing(
         stream=form_data.get("stream", False),
     )
 
+    # 用户模型不启用扣费
+    if form_data.get("is_user_model") and form_data.get("model_item", {}).get("credential_id"):
+        billing.enabled = False
+
     try:
         # 2. 预扣费
         await billing.precharge()
