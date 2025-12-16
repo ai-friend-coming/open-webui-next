@@ -485,6 +485,7 @@ from open_webui.utils.chat import (
     chat_completed as chat_completed_handler,
     chat_action as chat_action_handler,
 )
+from open_webui.billing import chat_with_billing
 from open_webui.utils.misc import get_message_list
 from open_webui.utils.summary import (
     summarize,
@@ -1745,8 +1746,14 @@ async def chat_completion(
                 request, form_data, user, metadata, model
             )
 
-            # 8.2 调用 LLM 完成对话 (核心)
-            response = await chat_completion_handler(request, form_data, user, chatting_completion = True)
+            # 8.2 调用 LLM 完成对话 (核心) - 使用计费代理包装
+            response = await chat_with_billing(
+                chat_completion_handler,
+                request,
+                form_data,
+                user,
+                chatting_completion=True,
+            )
 
             # 8.3 更新数据库：保存模型 ID 到消息记录
             if metadata.get("chat_id") and metadata.get("message_id"):
@@ -1904,7 +1911,12 @@ async def chat_completion_tutorial(
     form_data, metadata, events = await process_chat_payload(
         request, form_data, user, metadata, model
     )
-    response = await chat_completion_handler(request, form_data, user)
+    response = await chat_with_billing(
+        chat_completion_handler,
+        request,
+        form_data,
+        user,
+    )
     return await process_chat_response(
         request, response, form_data, user, metadata, model, events, tasks=None
     )
