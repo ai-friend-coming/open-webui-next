@@ -147,7 +147,7 @@ import { mobile, settings, user, modelPricings } from '$lib/stores';
 
 		<!-- 第2行: 价格 + 参数大小 + 其他图标 -->
 		{#if hasSecondLineContent}
-		<div class="flex items-center gap-2 text-xs">
+		<div class="flex items-center gap-2 text-xs ml-7">
 			<!-- 紧凑价格格式 -->
 			{#if pricing}
 				<span class="text-gray-600 dark:text-gray-400">
