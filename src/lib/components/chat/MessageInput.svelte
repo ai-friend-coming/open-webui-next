@@ -1434,7 +1434,7 @@
 
 								<div class=" flex justify-between mt-0.5 mb-2.5 mx-0.5 max-w-full" dir="ltr">
 									<div class="ml-1 self-end flex items-center flex-1 max-w-[80%]">
-										<InputMenu
+										<!-- <InputMenu
 											bind:files
 											selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
 											{fileUploadCapableModels}
@@ -1494,11 +1494,11 @@
 											>
 												<PlusAlt className="size-5.5" />
 											</div>
-										</InputMenu>
+										</InputMenu> -->
 
-										<div
+										<!-- <div
 											class="flex self-center w-[1px] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50"
-										/>
+										/> -->
 
 										<!-- AI-Friend 屏蔽扩展菜单-->
 										{#if false}
