@@ -68,7 +68,7 @@ async def chat_with_billing(
     )
 
     # 用户模型不启用扣费
-    if form_data.get("is_user_model") and form_data.get("model_item", {}).get("credential_id"):
+    if form_data.get("is_user_model"):
         billing.enabled = False
 
     try:
