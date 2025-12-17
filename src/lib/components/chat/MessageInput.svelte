@@ -1544,7 +1544,7 @@
 											<Tooltip
 												content={memoryLocked
 													? $i18n.t('对话进行中无法切换记忆')
-													: $i18n.t('记忆开关')}
+													: $i18n.t('开启手动编辑记忆')}
 												placement="top"
 											>
 												<div
