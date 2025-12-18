@@ -5,6 +5,7 @@
 - BillingContext: 计费上下文管理
 - BillingStreamWrapper: 流式响应计费包装
 - chat_with_billing: 聊天计费代理
+- charge_direct: 直接扣费（传入金额和log_type，无需token计算）
 """
 
 from open_webui.billing.context import BillingContext
@@ -19,6 +20,7 @@ from open_webui.billing.core import (
     get_user_balance,
     estimate_prompt_tokens,
     check_user_balance_threshold,
+    charge_direct,
 )
 
 __all__ = [
@@ -33,4 +35,5 @@ __all__ = [
     "get_user_balance",
     "estimate_prompt_tokens",
     "check_user_balance_threshold",
+    "charge_direct",
 ]

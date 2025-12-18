@@ -23,6 +23,7 @@ from open_webui.billing.core import (
     precharge_balance,
     settle_precharge,
     check_user_balance_threshold,
+    charge_direct,
 )
 
 # 保留 safe_deduct_balance_for_middleware 函数（用于 middleware.py）
@@ -123,5 +124,6 @@ __all__ = [
     "precharge_balance",
     "settle_precharge",
     "check_user_balance_threshold",
+    "charge_direct",
     "safe_deduct_balance_for_middleware",
 ]

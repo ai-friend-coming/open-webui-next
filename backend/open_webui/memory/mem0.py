@@ -14,9 +14,9 @@ mem0_api_key = os.getenv("MEM0_API_KEY")
 memory_client = MemoryClient(api_key=mem0_api_key)
 
 # 计费常量
-BILLING_UNIT_TOKENS = 1_000_000  # 以 100 万 tokens 作为固定计费单位
-MEM0_SEARCH_MODEL_ID = "rag.mem0.search"
-MEM0_ADD_MODEL_ID = "rag.mem0.add"
+BILLING_UNIT_TOKENS = 0  # 以 100 万 tokens 作为固定计费单位
+MEM0_SEARCH_MODEL_ID = "rag"
+MEM0_ADD_MODEL_ID = "rag"
 
 
 def _charge_mem0(user_id: str, model_id: str):
