@@ -24,6 +24,13 @@ DEFAULT_PRICING = {
     "gemini-1.5-pro": {"input": 35000, "output": 105000},  # 3.5元/M -> 35000毫/M
     "gemini-1.5-flash": {"input": 750, "output": 3000},  # 0.075元/M -> 750毫/M
 
+    # RAG / mem0 固定费率（按百万 tokens 折算为固定费用）
+    # - mem0.search: 0.0005元 -> 5毫
+    # - mem0.add:    0.0035元 -> 35毫
+    # 计费时可用 1,000,000 tokens 作为单位，配合以下单价得到固定费用
+    "rag.mem0.search": {"input": 5, "output": 0},
+    "rag.mem0.add": {"input": 35, "output": 0},
+
     # 默认价格（未配置的模型使用此价格）
     "default": {"input": 10000, "output": 20000},  # 1元/M -> 10000毫/M
 }

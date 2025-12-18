@@ -4,10 +4,32 @@ import os
 from logging import getLogger
 from typing import List, Dict, Optional
 
+from fastapi import HTTPException
+
+from open_webui.billing.core import deduct_balance
+
 log = getLogger(__name__)
 
 mem0_api_key = os.getenv("MEM0_API_KEY")
 memory_client = MemoryClient(api_key=mem0_api_key)
+
+# 计费常量
+BILLING_UNIT_TOKENS = 1_000_000  # 以 100 万 tokens 作为固定计费单位
+MEM0_SEARCH_MODEL_ID = "rag.mem0.search"
+MEM0_ADD_MODEL_ID = "rag.mem0.add"
+
+
+def _charge_mem0(user_id: str, model_id: str):
+    """
+    为 mem0 操作扣费。利用固定 token 单位和 ratio.py 中的定价得到固定费用。
+    """
+    deduct_balance(
+        user_id=user_id,
+        model_id=model_id,
+        prompt_tokens=BILLING_UNIT_TOKENS,
+        completion_tokens=0,
+        log_type="deduct",
+    )
 
 async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str]:
     """
@@ -15,6 +37,7 @@ async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str
     增加 chat_id 便于按会话窗口区分/隔离记忆。
     """
     try:
+        _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
         # TODO: 接入真实 Mem0 检索
         log.info(f"mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         serach_rst = memory_client.search(
@@ -34,6 +57,8 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
     增加 chat_id 便于按会话窗口区分/隔离记忆。
     """
     try:
+        # 先对检索计费
+        _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
         # TODO: 接入真实 Mem0 检索
         log.info(f"mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         serach_rst = memory_client.search(
@@ -48,6 +73,8 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
             memories=serach_rst["results"]
         added_messages= [{"role": "user", "content": last_message}]
         memory_client.add(added_messages, user_id=user_id,enable_graph=True,async_mode=False, metadata={"session_id": chat_id})
+        # 再对添加计费
+        _charge_mem0(user_id, MEM0_ADD_MODEL_ID)
         log.info(f"mem0_add added message for user_id: {user_id}")
         return memories
     except Exception as e:
