@@ -359,20 +359,20 @@ import { onMount, tick, getContext } from 'svelte';
 			}
 		}
 
-		// Check for version updates
-		if ($user?.role === 'admin' && $config?.features?.enable_version_update_check) {
-			// Check if the user has dismissed the update toast in the last 24 hours
-			if (localStorage.dismissedUpdateToast) {
-				const dismissedUpdateToast = new Date(Number(localStorage.dismissedUpdateToast));
-				const now = new Date();
+		// Check for version updates - DISABLED
+		// if ($user?.role === 'admin' && $config?.features?.enable_version_update_check) {
+		// 	// Check if the user has dismissed the update toast in the last 24 hours
+		// 	if (localStorage.dismissedUpdateToast) {
+		// 		const dismissedUpdateToast = new Date(Number(localStorage.dismissedUpdateToast));
+		// 		const now = new Date();
 
-				if (now - dismissedUpdateToast > 24 * 60 * 60 * 1000) {
-					checkForVersionUpdates();
-				}
-			} else {
-				checkForVersionUpdates();
-			}
-		}
+		// 		if (now - dismissedUpdateToast > 24 * 60 * 60 * 1000) {
+		// 			checkForVersionUpdates();
+		// 		}
+		// 	} else {
+		// 		checkForVersionUpdates();
+		// 	}
+		// }
 		await tick();
 
 		loaded = true;
@@ -386,14 +386,15 @@ import { onMount, tick, getContext } from 'svelte';
 		prevAnnouncementsOpen = $showAnnouncements;
 	}
 
-	const checkForVersionUpdates = async () => {
-		version = await getVersionUpdates(localStorage.token).catch((error) => {
-			return {
-				current: WEBUI_VERSION,
-				latest: WEBUI_VERSION
-			};
-		});
-	};
+	// checkForVersionUpdates function DISABLED
+	// const checkForVersionUpdates = async () => {
+	// 	version = await getVersionUpdates(localStorage.token).catch((error) => {
+	// 		return {
+	// 			current: WEBUI_VERSION,
+	// 			latest: WEBUI_VERSION
+	// 		};
+	// 	});
+	// };
 </script>
 
 <SettingsModal bind:show={$showSettings} />
@@ -405,7 +406,8 @@ import { onMount, tick, getContext } from 'svelte';
 	onClose={closeAnnouncementModal}
 />
 
-{#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
+<!-- UpdateInfoToast DISABLED -->
+<!-- {#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
 	<div class=" absolute bottom-8 right-8 z-50" in:fade={{ duration: 100 }}>
 		<UpdateInfoToast
 			{version}
@@ -415,7 +417,7 @@ import { onMount, tick, getContext } from 'svelte';
 			}}
 		/>
 	</div>
-{/if}
+{/if} -->
 
 {#if $user}
 	<div class="app relative">
