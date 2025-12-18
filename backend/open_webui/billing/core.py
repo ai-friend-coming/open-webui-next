@@ -128,6 +128,7 @@ def deduct_balance(
     prompt_tokens: int,
     completion_tokens: int,
     log_type: str = "deduct",
+    estimated_tokens: Optional[int] = None,
 ) -> Tuple[int, int]:
     """
     扣除用户余额（带行锁，防止并发超扣）
@@ -185,6 +186,9 @@ def deduct_balance(
             total_cost=cost,
             balance_after=user.balance,
             log_type=log_type,
+            estimated_tokens=estimated_tokens
+            if estimated_tokens is not None
+            else prompt_tokens + completion_tokens,
             created_at=int(time.time() * 1000000000),  # 纳秒级时间戳
         )
         db.add(billing_log)
