@@ -70,11 +70,18 @@ class BillingStreamWrapper:
 
     def _parse_usage(self, chunk: Union[bytes, str]) -> None:
         """
-        从 SSE chunk 中解析 usage
+                    
 
         支持的格式：
-        - OpenAI: data: {"usage": {"prompt_tokens": 10, "completion_tokens": 20}}
-        - Claude: data: {"type": "message_delta", "usage": {...}}
+        1. OpenAI 完整 usage: {"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
+        2. OpenAI 增量 delta: {"choices": [{"delta": {...}}], "usage": null}
+        3. Claude message_delta: {"type": "message_delta", "usage": {"output_tokens": 20}}
+        4. 流式最后一个 chunk: {"usage": {...}} (包含完整 usage)
+
+        关键逻辑：
+        - 优先使用完整的 usage 对象（包含 prompt_tokens 和 completion_tokens）
+        - 如果只有部分 tokens，累加到现有值
+        - 使用 max() 确保 tokens 只增不减
         """
         try:
             # 转换为字符串
@@ -103,15 +110,35 @@ class BillingStreamWrapper:
 
                 # 提取 usage
                 usage = data.get("usage")
-                if usage:
+                if not usage:
+                    continue
+
+                # 处理不同格式的 usage
+                prompt_tokens = 0
+                completion_tokens = 0
+
+                # OpenAI 格式: {"prompt_tokens": 10, "completion_tokens": 20}
+                if "prompt_tokens" in usage:
                     prompt_tokens = usage.get("prompt_tokens", 0)
+                if "completion_tokens" in usage:
                     completion_tokens = usage.get("completion_tokens", 0)
 
-                    if prompt_tokens > 0 or completion_tokens > 0:
-                        self.billing.update_usage(prompt_tokens, completion_tokens)
+                # Claude 格式: {"input_tokens": 10, "output_tokens": 20}
+                if "input_tokens" in usage:
+                    prompt_tokens = usage.get("input_tokens", 0)
+                if "output_tokens" in usage:
+                    completion_tokens = usage.get("output_tokens", 0)
 
-        except Exception:
+                # 只要有任何 tokens 数据就更新
+                if prompt_tokens > 0 or completion_tokens > 0:
+                    self.billing.update_usage(prompt_tokens, completion_tokens)
+                    log.debug(
+                        f"[Billing] 解析到 usage: prompt={prompt_tokens}, completion={completion_tokens}"
+                    )
+
+        except Exception as e:
             # 解析失败忽略，不影响流式传输
+            log.debug(f"[Billing] 解析 usage 失败（忽略）: {e}")
             pass
 
 
