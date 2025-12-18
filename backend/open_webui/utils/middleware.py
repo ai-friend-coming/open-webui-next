@@ -2179,10 +2179,10 @@ async def process_chat_response(
                         response_data = response
 
                     # ----------------------------------------
-                    # 步骤 2：错误响应处理
+                    # 步骤 2：错误响应处理（仅 WebSocket 推送，不持久化）
                     # ----------------------------------------
                     # 业务逻辑：LLM 返回错误（如 API 限流、模型不可用等）
-                    # 数据流转：error → 数据库 + WebSocket 推送
+                    # 数据流转：error → WebSocket 推送（临时通知）
                     if "error" in response_data:
                         error = response_data.get("error")
 
@@ -2192,16 +2192,17 @@ async def process_chat_response(
                         else:
                             error = str(error)
 
-                        # 数据流转：保存错误到数据库（message.error 字段）
-                        Chats.upsert_message_to_chat_by_id_and_message_id(
-                            metadata["chat_id"],
-                            metadata["message_id"],
-                            {
-                                "error": {"content": error},
-                            },
-                        )
+                        # ⚠️ 不再持久化错误到数据库，仅通过 WebSocket 临时推送
+                        # 这样错误只在当前会话可见，刷新后消失，不会阻塞后续对话
+                        # Chats.upsert_message_to_chat_by_id_and_message_id(
+                        #     metadata["chat_id"],
+                        #     metadata["message_id"],
+                        #     {
+                        #         "error": {"content": error},
+                        #     },
+                        # )
 
-                        # 数据流转：通过 WebSocket 实时推送错误事件给前端
+                        # 数据流转：通过 WebSocket 实时推送错误事件给前端（临时通知）
                         if isinstance(error, str) or isinstance(error, dict):
                             await event_emitter(
                                 {

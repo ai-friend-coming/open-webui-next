@@ -161,8 +161,8 @@
 	const navigateHandler = async () => {
 		loading = true;
 
-	prompt = '';
-	messageInput?.setText('', undefined, { focusInput: !get(mobile) });
+		prompt = '';
+		messageInput?.setText('', undefined, { focusInput: !get(mobile) });
 
 		files = [];
 		selectedToolIds = [];
@@ -214,12 +214,12 @@
 
 		if (type === 'prompt') {
 			// Handle prompt selection
-		messageInput?.setText(data, async () => {
-			if (!($settings?.insertSuggestionPrompt ?? false)) {
-				await tick();
-				submitPrompt(prompt);
-			}
-		});
+			messageInput?.setText(data, async () => {
+				if (!($settings?.insertSuggestionPrompt ?? false)) {
+					await tick();
+					submitPrompt(prompt);
+				}
+			});
 		}
 	};
 
@@ -385,7 +385,36 @@
 				} else if (type === 'chat:message:embeds' || type === 'embeds') {
 					message.embeds = data.embeds;
 				} else if (type === 'chat:message:error') {
-					message.error = data.error;
+					// 显示 Toast 通知用户错误
+					toast.error(data.error?.content || $i18n.t('An error occurred'));
+
+					// 从 history 中删除这条错误消息
+					const parentId = message.parentId;
+					if (parentId && history.messages[parentId]) {
+						// 从父消息的 childrenIds 中移除
+						history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
+							id => id !== message.id
+						);
+					}
+
+					// 删除消息本身
+					delete history.messages[message.id];
+
+					// 如果这是当前消息，重置 currentId 到父消息
+					if (history.currentId === message.id) {
+						history.currentId = parentId;
+					}
+
+				// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+				if (parentId && history.messages[parentId]) {
+					history.messages[parentId].done = true;
+				}
+
+				// v3: 清理生成状态（防御性，后端会发送 chat:tasks:cancel 但添加保险）
+				cleanupGenerationState();
+
+				// 保存更新后的 history 到数据库
+				await saveChatHandler($chatId, history);
 				} else if (type === 'chat:message:follow_ups') {
 					message.followUps = data.follow_ups;
 
@@ -1123,9 +1152,39 @@
 			chat_id: chatId,
 			session_id: $socket?.id,
 			id: responseMessageId
-		}).catch((error) => {
+		}).catch(async (error) => {
 			toast.error(`${error}`);
-			messages.at(-1).error = { content: error };
+
+			// v2: 删除错误消息而不是设置 error 字段
+			const errorMessage = history.messages[responseMessageId];
+			if (errorMessage) {
+				const parentId = errorMessage.parentId;
+				if (parentId && history.messages[parentId]) {
+					// 从父消息的 childrenIds 中移除
+					history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
+						(id) => id !== responseMessageId
+					);
+				}
+
+				// 删除消息本身
+				delete history.messages[responseMessageId];
+
+				// 如果这是当前消息，重置 currentId 到父消息
+				if (history.currentId === responseMessageId) {
+					history.currentId = parentId;
+				}
+
+				// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+				if (parentId && history.messages[parentId]) {
+					history.messages[parentId].done = true;
+				}
+
+				// v3: 清理生成状态（防御性，任务已在 1210 行清理但确保状态干净）
+				cleanupGenerationState();
+
+				// 保存更新后的 history 到数据库
+				await saveChatHandler($chatId, history);
+			}
 
 			return null;
 		});
@@ -1150,9 +1209,10 @@
 
 		if ($chatId == chatId) {
 			if (!$temporaryChatEnabled) {
+				const currentMessages = createMessagesList(history, history.currentId);
 				chat = await updateChatById(localStorage.token, chatId, {
 					models: selectedModels,
-					messages: messages,
+					messages: currentMessages,
 					history: history,
 					params: params,
 					files: chatFiles
@@ -1184,9 +1244,40 @@
 			chat_id: chatId,
 			session_id: $socket?.id,
 			id: responseMessageId
-		}).catch((error) => {
+		}).catch(async (error) => {
 			toast.error(`${error}`);
-			messages.at(-1).error = { content: error };
+
+			// v2: 删除错误消息而不是设置 error 字段
+			const errorMessage = history.messages[responseMessageId];
+			if (errorMessage) {
+				const parentId = errorMessage.parentId;
+				if (parentId && history.messages[parentId]) {
+					// 从父消息的 childrenIds 中移除
+					history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
+						(id) => id !== responseMessageId
+					);
+				}
+
+				// 删除消息本身
+				delete history.messages[responseMessageId];
+
+				// 如果这是当前消息，重置 currentId 到父消息
+				if (history.currentId === responseMessageId) {
+					history.currentId = parentId;
+				}
+
+				// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+				if (parentId && history.messages[parentId]) {
+					history.messages[parentId].done = true;
+				}
+
+				// v3: 清理生成状态（防御性，确保状态干净）
+				cleanupGenerationState();
+
+				// 保存更新后的 history 到数据库
+				await saveChatHandler($chatId, history);
+			}
+
 			return null;
 		});
 
@@ -1205,9 +1296,10 @@
 
 		if ($chatId == chatId) {
 			if (!$temporaryChatEnabled) {
+				const currentMessages = createMessagesList(history, history.currentId);
 				chat = await updateChatById(localStorage.token, chatId, {
 					models: selectedModels,
-					messages: messages,
+					messages: currentMessages,
 					history: history,
 					params: params,
 					files: chatFiles
@@ -1617,12 +1709,7 @@
 				return;
 			}
 
-			// 3.2 如果上一条消息有错误且没有内容，提示用户
-			if (lastMessage.error && !lastMessage.content) {
-				// Error in response
-				toast.error($i18n.t(`Oops! There was an error in the previous response.`));
-				return;
-			}
+			// 3.2 错误消息已在 chatEventHandler 中删除，此处无需处理，直接继续
 		}
 
 		// === 4. 清空输入框 ===
@@ -2145,14 +2232,34 @@
 			}
 
 			toast.error(`${errorMessage}`);
-			responseMessage.error = {
-				content: error
-			};
 
-			responseMessage.done = true;
+			// v2: 删除错误消息而不是设置 error 字段
+			const parentId = responseMessage.parentId;
+			if (parentId && history.messages[parentId]) {
+				// 从父消息的 childrenIds 中移除
+				history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
+					(id) => id !== responseMessageId
+				);
+			}
 
-			history.messages[responseMessageId] = responseMessage;
-			history.currentId = responseMessageId;
+			// 删除消息本身
+			delete history.messages[responseMessageId];
+
+			// 如果这是当前消息，重置 currentId 到父消息
+			if (history.currentId === responseMessageId) {
+				history.currentId = parentId;
+			}
+
+			// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+			if (parentId && history.messages[parentId]) {
+				history.messages[parentId].done = true;
+			}
+
+			// v3: 清理生成状态（防御性，任务未创建但确保状态干净）
+			cleanupGenerationState();
+
+			// 保存更新后的 history 到数据库
+			await saveChatHandler($chatId, history);
 
 			return null;
 		});
@@ -2201,18 +2308,34 @@
 			errorMessage = innerError.message;
 		}
 
-		responseMessage.error = {
-			content: $i18n.t(`Uh-oh! There was an issue with the response.`) + '\n' + errorMessage
-		};
-		responseMessage.done = true;
-
-		if (responseMessage.statusHistory) {
-			responseMessage.statusHistory = responseMessage.statusHistory.filter(
-				(status) => status.action !== 'knowledge_search'
+		// v2: 删除错误消息而不是设置 error 字段（和 chatEventHandler 一致）
+		// 从 history 中删除这条错误消息
+		const parentId = responseMessage.parentId;
+		if (parentId && history.messages[parentId]) {
+			// 从父消息的 childrenIds 中移除
+			history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
+				(id) => id !== responseMessage.id
 			);
 		}
 
-		history.messages[responseMessage.id] = responseMessage;
+		// 删除消息本身
+		delete history.messages[responseMessage.id];
+
+		// 如果这是当前消息，重置 currentId 到父消息
+		if (history.currentId === responseMessage.id) {
+			history.currentId = parentId;
+		}
+
+		// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+		if (parentId && history.messages[parentId]) {
+			history.messages[parentId].done = true;
+		}
+
+		// v3: 清理生成状态（防御性，任务未创建但确保状态干净）
+		cleanupGenerationState();
+
+		// 保存更新后的 history 到数据库
+		await saveChatHandler($chatId, history);
 	};
 
 	const stopResponse = async () => {
@@ -2243,6 +2366,27 @@
 			generating = false;
 			generationController?.abort();
 			generationController = null;
+		}
+	};
+
+	/**
+	 * 清理生成相关的状态变量
+	 * 用于错误处理场景，恢复 UI 到待发送状态
+	 * 注意：不调用后端 API，不修改消息状态
+	 */
+	const cleanupGenerationState = () => {
+		// 清理后端任务 ID（防御性）
+		if (taskIds) {
+			taskIds = null;
+		}
+
+		// 清理客户端生成状态（MoA）
+		if (generating) {
+			generating = false;
+			if (generationController) {
+				generationController.abort();
+				generationController = null;
+			}
 		}
 	};
 
@@ -2295,6 +2439,8 @@
 		console.log('regenerateResponse');
 
 		if (history.currentId) {
+			// 错误消息已在 chatEventHandler 中删除，此处无需清除
+
 			let userMessage = history.messages[message.parentId];
 
 			if (autoScroll) {
@@ -2394,9 +2540,13 @@
 				await saveChatHandler(_chatId, history);
 			} else {
 				console.error(res);
+				// v3: API 调用失败，清理生成状态
+				cleanupGenerationState();
 			}
 		} catch (e) {
 			console.error(e);
+			// v3: 异常情况，清理生成状态
+			cleanupGenerationState();
 		}
 	};
 

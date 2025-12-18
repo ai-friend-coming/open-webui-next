@@ -1785,22 +1785,23 @@ async def chat_completion(
             except Exception as e:
                 pass
 
-        # 8.6 异常处理：记录错误到数据库并通知前端
+        # 8.6 异常处理：通过 WebSocket 通知前端（不持久化）
         except Exception as e:
             log.exception(f"Error processing chat payload: {e}")
             if metadata.get("chat_id") and metadata.get("message_id"):
                 try:
-                    # 将错误信息保存到消息记录
-                    if not metadata["chat_id"].startswith("local:"):
-                        Chats.upsert_message_to_chat_by_id_and_message_id(
-                            metadata["chat_id"],
-                            metadata["message_id"],
-                            {
-                                "error": {"content": str(e)},
-                            },
-                        )
+                    # ⚠️ 不再持久化错误到数据库，仅通过 WebSocket 临时推送
+                    # 这样错误只在当前会话可见，刷新后消失，不会阻塞后续对话
+                    # if not metadata["chat_id"].startswith("local:"):
+                    #     Chats.upsert_message_to_chat_by_id_and_message_id(
+                    #         metadata["chat_id"],
+                    #         metadata["message_id"],
+                    #         {
+                    #             "error": {"content": str(e)},
+                    #         },
+                    #     )
 
-                    # 通过 WebSocket 发送错误事件到前端
+                    # 通过 WebSocket 发送错误事件到前端（临时通知）
                     event_emitter = get_event_emitter(metadata)
                     await event_emitter(
                         {

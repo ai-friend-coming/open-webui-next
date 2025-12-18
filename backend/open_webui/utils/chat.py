@@ -195,7 +195,7 @@ async def generate_chat_completion(
     Raises:
         Exception: 模型不存在或无权限访问
     """
-    log.debug(f"generate_chat_completion: {form_data}")
+    # log.debug(f"generate_chat_completion: {form_data}")
 
     # === 1. 权限检查配置 ===
     if BYPASS_MODEL_ACCESS_CONTROL:

@@ -1003,7 +1003,7 @@ async def generate_chat_completion(
             log.debug(f"chatting_completion 钩子执行失败: {e}")
 
     
-    # 移除上游不识别的内部参数
+    # 移除上游 LLM API 不识别的内部参数
     for key in [
         "is_user_model",
         "variables",
@@ -1014,10 +1014,24 @@ async def generate_chat_completion(
         "message_id",
         "session_id",
         "filter_ids",
-        "tool_servers",
+        "tool_servers"
     ]:
         payload.pop(key, None)
+    
+    for index in range(len(payload['messages'])):
+        for key in [
+            "timestamp",
+            "models",
+            "parentId",
+            "childrenIds",
+            "usage",
+            "model",
+            "id"
+        ]: 
+            payload['messages'][index].pop(key, None)
 
+    # print('''print(payload)''')
+    # print(payload)
     payload = json.dumps(payload)  # 序列化为 JSON 字符串
 
     # === 11. 初始化请求状态变量 ===
