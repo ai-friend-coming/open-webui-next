@@ -1712,11 +1712,22 @@ async def chat_completion(
                     messages_for_summary = recent_messages # 用于后续计算 last_id 等
 
                 last_id = messages_for_summary[-1].get("id") if messages_for_summary else None
-                recent_ids = [m.get("id") for m in messages_for_summary[-20:] if m.get("id")]  # 记录最近20条消息为冷启动消息
+                
+                # 生成冷启动消息（完整内容，无截断）
+                cold_start_messages = [
+                    {
+                        "id": m.get("id"),
+                        "role": m.get("role"),
+                        "content": m.get("content"),
+                        "timestamp": m.get("timestamp")
+                    }
+                    for m in messages_for_summary[-20:] # 最近20条
+                    if m.get("id") and m.get("content")
+                ]
 
                 if CHAT_DEBUG_FLAG:
                     print(
-                        f"[summary:init] chat_id={chat_id} 生成首条摘要，msg_count={len(messages_for_summary)}, last_id={last_id}, recent_ids={len(recent_ids)}"
+                        f"[summary:init] chat_id={chat_id} 生成首条摘要，msg_count={len(messages_for_summary)}, last_id={last_id}, cold_start_count={len(cold_start_messages)}"
                     )
 
                     print("[summary:init]: messages_for_summary")
@@ -1729,7 +1740,7 @@ async def chat_completion(
                     summary_text,
                     last_id,
                     int(time.time()),
-                    recent_message_ids=recent_ids,
+                    cold_start_messages=cold_start_messages,
                 )
                 if not res:
                     if CHAT_DEBUG_FLAG:

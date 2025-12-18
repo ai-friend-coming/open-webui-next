@@ -1111,7 +1111,6 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     chat_id = metadata.get("chat_id", None)
     summary_record = None
     ordered_messages = form_data.get("messages", [])
-    cold_start_ids = []
 
     # 1.1 读取摘要记录并裁剪消息列表
     if chat_id and user and not str(chat_id).startswith("local:"):
@@ -1120,10 +1119,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             summary_record = Chats.get_summary_by_user_id_and_chat_id(
                 user.id, chat_id
             )
-            # 获取冷启动消息 ID 列表（用于注入关键历史消息）
+            # 获取冷启动消息（用于注入关键历史消息）
             chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+            cold_start_messages = []
             if chat_item and isinstance(chat_item.meta, dict):
-                cold_start_ids = chat_item.meta.get("recent_message_id_for_cold_start", []) or []
+                cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
             
             if CHAT_DEBUG_FLAG:
                 print(
@@ -1150,38 +1150,46 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         except Exception as e:
             print(f"summary preprocessing failed: {e}")
 
-    # 1.2 追加冷启动消息（避免重要上下文丢失）
-    if cold_start_ids and chat_id and not str(chat_id).startswith("local:"):
-        messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
-        seen_ids = {m.get("id") for m in ordered_messages if m.get("id")}
-        if CHAT_DEBUG_FLAG:
-            print("[summary:payload:cold_start]")
-        for mid in cold_start_ids:
-            msg = messages_map.get(mid)
-            if not msg:
-                continue
-            print(msg['role'], "  ", msg['content'][:100])
-            if mid in seen_ids:  # 跳过已存在的消息
-                continue
-            ordered_messages.append({**msg, "id": mid})
-            seen_ids.add(mid)
-        
-        if CHAT_DEBUG_FLAG:
-            print(
-                f"[summary:payload:cold_start] chat_id={chat_id} 追加冷启动消息数={len(cold_start_ids)}"
-            )
+    # 1.2 准备冷启动消息（直接读取消息内容）
+    cold_start_for_insertion = []
+    if cold_start_messages and chat_id and not str(chat_id).startswith("local:"):
+        try:
+            seen_ids = {m.get("id") for m in ordered_messages if m.get("id")}
+            
+            if CHAT_DEBUG_FLAG:
+                print("[summary:payload:cold_start]")
+                
+            for msg_data in cold_start_messages:
+                if msg_data.get("id") not in seen_ids:
+                    if CHAT_DEBUG_FLAG:
+                        print(msg_data.get('role'), "  ", msg_data.get('content', '')[:100])
+                    cold_start_for_insertion.append(msg_data)
+                    seen_ids.add(msg_data.get("id"))
+            
+            if CHAT_DEBUG_FLAG:
+                print(
+                    f"[summary:payload:cold_start] chat_id={chat_id} 准备冷启动消息数={len(cold_start_for_insertion)}"
+                )
+        except Exception as e:
+            print(f"cold start processing failed: {e}")
 
-    # 1.3 注入摘要系统提示（替换原有 system 消息）
+    # 1.3 注入摘要系统提示（替换原有 system 消息）并重新组织消息顺序
     if summary_record and summary_record.get("content"):
         summary_system_message = {
             "role": "system",
             "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
         }
-        # 移除旧的 system 消息，插入摘要系统提示到开头
-        ordered_messages = [
+        # 移除旧的 system 消息
+        non_system_messages = [
             m for m in ordered_messages if m.get("role") != "system"
         ]
-        ordered_messages = [summary_system_message, *ordered_messages]
+        # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
+        ordered_messages = [summary_system_message, *cold_start_for_insertion, *non_system_messages]
+    elif cold_start_for_insertion:
+        # 无摘要但有冷启动消息的情况：保持原 system 消息 + Cold Start Messages + 其余消息
+        system_messages = [m for m in ordered_messages if m.get("role") == "system"]
+        non_system_messages = [m for m in ordered_messages if m.get("role") != "system"]
+        ordered_messages = [*system_messages, *cold_start_for_insertion, *non_system_messages]
 
     if ordered_messages:
         # 合并连续的同角色消息，避免 LLM API 报错
@@ -2107,7 +2115,7 @@ async def process_chat_response(
                                 summary_text,
                                 last_msg_id,
                                 int(time.time()),
-                                recent_message_ids=[],
+                                cold_start_messages=[],
                             )
                         else:
                             if CHAT_DEBUG_FLAG:

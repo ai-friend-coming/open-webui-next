@@ -1,11 +1,10 @@
 import logging
-import json
 import time
 import uuid
-from typing import Optional
+from typing import Optional, List, Dict
 
 from open_webui.internal.db import Base, get_db
-from open_webui.models.tags import TagModel, Tag, Tags
+from open_webui.models.tags import TagModel, Tags
 from open_webui.models.folders import Folders
 from open_webui.env import SRC_LOG_LEVELS
 
@@ -271,7 +270,7 @@ class ChatTable:
         summary: str,
         last_message_id: Optional[str],
         last_timestamp: Optional[int],
-        recent_message_ids: Optional[list[str]] = None,
+        cold_start_messages: Optional[List[Dict]] = None,
     ) -> Optional[ChatModel]:
         """
         写入 chat.meta.summary，并更新更新时间。
@@ -292,8 +291,8 @@ class ChatTable:
                         "last_timestamp": last_timestamp,
                     },
                     **(
-                        {"recent_message_id_for_cold_start": recent_message_ids}
-                        if recent_message_ids is not None
+                        {"cold_start_messages": cold_start_messages}
+                        if cold_start_messages is not None
                         else {}
                     ),
                 }
