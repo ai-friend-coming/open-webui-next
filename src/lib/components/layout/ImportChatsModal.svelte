@@ -171,49 +171,39 @@
                 </div>
 
                 <!-- 导出指南 -->
-                <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800/30 overflow-hidden">
                     <button
-                        class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                        class="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-blue-100/50 dark:hover:bg-blue-900/20 transition-colors"
                         on:click={() => showExportGuide = !showExportGuide}
                     >
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">💡 如何导出聊天记录 (JSON)</span>
-                        </div>
-                        <span class="text-gray-400 transform transition-transform {showExportGuide ? 'rotate-180' : ''}">▼</span>
+                        <span class="text-xs font-medium text-blue-700 dark:text-blue-300">💡 如何导出聊天记录?</span>
+                        <span class="text-blue-400 text-xs transform transition-transform {showExportGuide ? 'rotate-180' : ''}">▼</span>
                     </button>
 
                     {#if showExportGuide}
-                        <div class="px-4 pb-4 pt-2 space-y-3 text-sm" transition:slide>
-                            <div class="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                                <span class="text-lg shrink-0">🌊</span>
-                                <div>
-                                    <div class="font-medium text-gray-900 dark:text-white mb-1">DeepSeek</div>
-                                    <div class="text-xs text-gray-600 dark:text-gray-400">设置 → 数据 → 导出</div>
-                                </div>
+                        <div class="px-3 pb-2 space-y-1.5 text-xs" transition:slide>
+                            <div class="flex items-center gap-2 py-1.5">
+                                <span class="shrink-0 w-4">🌊</span>
+                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">DeepSeek</span>
+                                <span class="text-gray-600 dark:text-gray-400 truncate">设置 → 数据 → 导出</span>
                             </div>
 
-                            <div class="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                                <span class="text-lg shrink-0">💬</span>
-                                <div>
-                                    <div class="font-medium text-gray-900 dark:text-white mb-1">ChatGPT</div>
-                                    <div class="text-xs text-gray-600 dark:text-gray-400">设置 → 数据控制 → 导出数据 → 解压缩提取 conversations.json</div>
-                                </div>
+                            <div class="flex items-center gap-2 py-1.5">
+                                <span class="shrink-0 w-4">💬</span>
+                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">ChatGPT</span>
+                                <span class="text-gray-600 dark:text-gray-400 truncate">设置 → 数据控制 → 导出数据 → 提取 conversations.json</span>
                             </div>
 
-                            <div class="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                <span class="text-lg shrink-0">✨</span>
-                                <div>
-                                    <div class="font-medium text-gray-900 dark:text-white mb-1">Gemini</div>
-                                    <div class="text-xs text-gray-600 dark:text-gray-400">前往 Google Takeout → 仅勾选 Gemini Apps</div>
-                                </div>
+                            <div class="flex items-center gap-2 py-1.5">
+                                <span class="shrink-0 w-4">✨</span>
+                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">Gemini</span>
+                                <span class="text-gray-600 dark:text-gray-400 truncate">Google Takeout → 勾选 Gemini Apps</span>
                             </div>
 
-                            <div class="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                                <span class="text-lg shrink-0">𝕏</span>
-                                <div>
-                                    <div class="font-medium text-gray-900 dark:text-white mb-1">Grok</div>
-                                    <div class="text-xs text-gray-600 dark:text-gray-400">X 设置 → 您的账户 → 下载数据归档</div>
-                                </div>
+                            <div class="flex items-center gap-2 py-1.5">
+                                <span class="shrink-0 w-4">𝕏</span>
+                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">Grok</span>
+                                <span class="text-gray-600 dark:text-gray-400 truncate">X 设置 → 您的账户 → 下载数据归档</span>
                             </div>
                         </div>
                     {/if}
