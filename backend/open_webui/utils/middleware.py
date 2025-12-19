@@ -1091,6 +1091,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             - metadata: 更新后的元数据
             - events: 需要发送给前端的事件列表（如引用来源）
     """
+    # 获取性能日志记录器
+    perf_logger = metadata.get("perf_logger")
+
     # === 0. 计费预检查 ===
     # 注意：只做预检查，不扣费。实际计费由openai.py负责
     from fastapi import HTTPException
@@ -1107,9 +1110,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         # 其他异常仅记录日志，不阻断请求
         log.error(f"计费预检查异常: {e}")
 
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("billing_check")
+
     # === 1. 应用模型参数到请求 ===
     form_data = apply_params_to_form_data(form_data, model)
-    log.debug(f"form_data: {form_data}")
+    # log.debug(f"form_data: {form_data}")
+
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("apply_params")
 
     # === 1 基于摘要的上下文裁剪与系统提示 ===
     # - backend/open_webui/utils/middleware.py:process_chat_payload：
@@ -1125,19 +1134,25 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             summary_record = Chats.get_summary_by_user_id_and_chat_id(
                 user.id, chat_id
             )
+
+            if perf_logger:
+                perf_logger.mark_payload_checkpoint("db_get_summary")
+
             # 获取冷启动消息（用于注入关键历史消息）
             chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
             cold_start_messages = []
             if chat_item and isinstance(chat_item.meta, dict):
                 cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
-            
-            if CHAT_DEBUG_FLAG:
-                print(
-                    f"[summary:payload] chat_id={chat_id} 有摘要={bool(summary_record)} "
-                    f"上次摘要的 message_id={summary_record.get('last_message_id') if summary_record else None}"
-                )
+
+            if perf_logger:
+                perf_logger.mark_payload_checkpoint("db_get_chat")
+
             # 基于摘要边界裁剪消息：保留边界前 20 条 + 边界后全部
             messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+
+            if perf_logger:
+                perf_logger.mark_payload_checkpoint("db_get_messages_map")
+
             anchor_id = metadata.get("message_id")
             ordered_messages = slice_messages_with_summary(
                 messages_map,
@@ -1146,13 +1161,6 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 pre_boundary=20,
             )
 
-            if CHAT_DEBUG_FLAG:
-                print("[summary:payload]: summary前 20 条 + summary 后全部")
-                for i in ordered_messages:
-                    print(i['role'], "  ", i['content'][:100])
-                print(
-                    f"[summary:payload] chat_id={chat_id} 切片后消息数={len(ordered_messages)} 当前锚点={anchor_id}"
-                )
         except Exception as e:
             print(f"summary preprocessing failed: {e}")
 
@@ -1161,46 +1169,46 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if cold_start_messages and chat_id and not str(chat_id).startswith("local:"):
         try:
             seen_ids = {m.get("id") for m in ordered_messages if m.get("id")}
-            
-            if CHAT_DEBUG_FLAG:
-                print("[summary:payload:cold_start]")
-                
+
             for msg_data in cold_start_messages:
                 if msg_data.get("id") not in seen_ids:
-                    if CHAT_DEBUG_FLAG:
-                        print(msg_data.get('role'), "  ", msg_data.get('content', '')[:100])
                     cold_start_for_insertion.append(msg_data)
                     seen_ids.add(msg_data.get("id"))
-            
-            if CHAT_DEBUG_FLAG:
-                print(
-                    f"[summary:payload:cold_start] chat_id={chat_id} 准备冷启动消息数={len(cold_start_for_insertion)}"
-                )
+
         except Exception as e:
             print(f"cold start processing failed: {e}")
 
     # 1.3 注入摘要系统提示（替换原有 system 消息）并重新组织消息顺序
-    if summary_record and summary_record.get("content"):
-        summary_system_message = {
-            "role": "system",
-            "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
-        }
-        # 移除旧的 system 消息
-        non_system_messages = [
-            m for m in ordered_messages if m.get("role") != "system"
-        ]
-        # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
-        ordered_messages = [summary_system_message, *cold_start_for_insertion, *non_system_messages]
-    elif cold_start_for_insertion:
-        # 无摘要但有冷启动消息的情况：保持原 system 消息 + Cold Start Messages + 其余消息
-        system_messages = [m for m in ordered_messages if m.get("role") == "system"]
-        non_system_messages = [m for m in ordered_messages if m.get("role") != "system"]
-        ordered_messages = [*system_messages, *cold_start_for_insertion, *non_system_messages]
+    summary_system_message = {
+        "role": "system",
+        "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
+    }
+    # 移除旧的 system 消息
+    non_system_messages = [
+        m for m in ordered_messages if m.get("role") != "system"
+    ]
+
+    # 标记开始装入上下文
+    perf_logger = metadata.get("perf_logger")
+    if perf_logger:
+        perf_logger.mark_context_load(start=True)
+
+    # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
+    ordered_messages = [summary_system_message, *cold_start_for_insertion, *non_system_messages]
 
     if ordered_messages:
         # 合并连续的同角色消息，避免 LLM API 报错
         ordered_messages = merge_consecutive_messages(ordered_messages)
         form_data["messages"] = ordered_messages
+
+    # 标记装入上下文完成
+    if perf_logger:
+        perf_logger.mark_context_load(
+            start=False,
+            system_prompt=summary_system_message.get("content"),
+            cold_start_messages=cold_start_for_insertion,
+            ordered_messages=ordered_messages
+        )
 
     # === 2. 处理 System Prompt 变量替换 ===
     system_message = get_system_message(form_data.get("messages", []))
@@ -1217,6 +1225,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     event_emitter = get_event_emitter(metadata)  # WebSocket 事件发射器
     event_call = get_event_call(metadata)  # 事件调用函数
 
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("system_prompt_replace")
+
     # === 4. 获取 OAuth Token ===
     oauth_token = None
     try:
@@ -1227,6 +1238,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             )
     except Exception as e:
         log.error(f"Error getting OAuth token: {e}")
+
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("oauth_token")
 
     # === 5. 构建额外参数（供 Pipeline/Filter/Tools 使用）===
     extra_params = {
@@ -1368,11 +1382,20 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # === 12. 功能增强处理 (Features) ===
     features = form_data.pop("features", None)
     if features:
+        if perf_logger:
+            perf_logger.mark_payload_checkpoint("before_features")
+
         # 12.1 记忆功能 - 注入历史对话记忆
         if "memory" in features and features["memory"]:
+            if perf_logger:
+                perf_logger.mark_payload_checkpoint("before_memory")
+
             form_data = await chat_memory_handler(
                 request, form_data, extra_params, user, metadata
             )
+
+            if perf_logger:
+                perf_logger.mark_payload_checkpoint("after_memory")
 
         # 12.2 网页搜索功能 - 执行网络搜索 [已屏蔽]
         if False:
@@ -1687,6 +1710,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         )
 
     # print(form_data["messages"])
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("payload_complete")
+
     return form_data, metadata, events
 
 
@@ -2106,10 +2132,13 @@ async def process_chat_response(
 
                         # 若超过阈值，才生成/更新摘要
                         if tokens >= threshold:
-                            if CHAT_DEBUG_FLAG:
-                                print(
-                                    f"[summary:update] chat_id={chat_id} 触发摘要更新"
-                                )
+                            # 获取性能日志记录器
+                            perf_logger = metadata.get("perf_logger")
+
+                            # 读取已有的 summary
+                            existing_summary = Chats.get_summary_by_user_id_and_chat_id(
+                                user.id, chat_id
+                            )
                             old_summary = (
                                 existing_summary.get("content")
                                 if existing_summary
@@ -2128,7 +2157,7 @@ async def process_chat_response(
                                 messages_map,
                                 existing_summary.get("last_message_id") if existing_summary else None,
                                 metadata.get("message_id"),
-                                pre_boundary=20,
+                                pre_boundary=0,
                             )
 
                             summary_messages = [
@@ -2136,10 +2165,13 @@ async def process_chat_response(
                                 for msg in ordered
                                 if msg.get("role") in ("user", "assistant")
                             ]
-                            if CHAT_DEBUG_FLAG:
-                                print(
-                                    f"[summary:update] chat_id={chat_id} 切片总数={len(ordered)} 摘要参与消息数={len(summary_messages)} "
-                                    f"上次摘要 message_id={existing_summary.get('last_message_id') if existing_summary else None}"
+                            # 标记 summary 更新开始
+                            if perf_logger:
+                                perf_logger.mark_summary_update(
+                                    start=True,
+                                    tokens=tokens,
+                                    threshold=threshold,
+                                    messages_count=len(summary_messages),
                                 )
                             
                             # 获取当前模型ID和用户模型标记，确保使用正确的模型进行摘要更新
@@ -2170,11 +2202,23 @@ async def process_chat_response(
                                 int(time.time()),
                                 cold_start_messages=[],
                             )
-                        else:
-                            if CHAT_DEBUG_FLAG:
-                                print(
-                                    f"[summary:update] chat_id={chat_id} token数={tokens} 低于阈值={threshold}"
+
+                            # 记录 summary 更新使用的材料（summarize 函数的完整参数）
+                            if perf_logger:
+                                perf_logger.record_summary_materials(
+                                    messages=summary_messages,      # summarize 的第1个参数
+                                    old_summary=old_summary,        # summarize 的第2个参数
+                                    model=model_id,                 # summarize 的第3个参数
+                                    user_id=user.id,                # summarize 的第4个参数（user对象的id）
+                                    new_summary=summary_text,       # summarize 的返回值
                                 )
+
+                            # 标记 summary 更新结束
+                            if perf_logger:
+                                perf_logger.mark_summary_update(start=False)
+                        else:
+                            # tokens 未超过阈值，不执行摘要更新
+                            pass
                 except Exception as e:
                     log.debug(f"summary update skipped: {e}")
 
@@ -2358,6 +2402,20 @@ async def process_chat_response(
                             # ----------------------------------------
                             # 业务逻辑：异步生成 Follow-ups、标题、标签
                             await background_tasks_handler()
+
+                            # 标记 LLM 完成并保存性能日志（非流式）
+                            perf_logger = metadata.get("perf_logger")
+                            if perf_logger:
+                                # 标记 LLM 完成
+                                perf_logger.mark_llm_complete(
+                                    usage=response_data.get("usage")
+                                )
+
+                                # 补充 chat_title 信息
+                                perf_logger.chat_title = title
+
+                                # 保存性能日志为 JSON 文件
+                                await perf_logger.save_to_file()
 
                     # ----------------------------------------
                     # 步骤 7：合并额外事件（如 RAG sources）
@@ -3049,6 +3107,9 @@ async def process_chat_response(
 
                     response_tool_calls = []  # 累积的工具调用列表
 
+                    # [TIMESTAMP] 6. LLM 返回第一个 token 标志
+                    _first_token_received = [False]  # 使用列表以便在闭包中修改
+
                     # === 1. 初始化流式推送控制 ===
                     delta_count = 0  # 当前累积的 delta 数量
                     delta_chunk_size = max(
@@ -3233,6 +3294,13 @@ async def process_chat_response(
 
                                     # === 9. 处理文本内容 ===
                                     value = delta.get("content")
+
+                                    # [TIMESTAMP] 6. LLM 返回第一个 token
+                                    if not _first_token_received[0] and (value or delta_tool_calls or delta.get("reasoning_content") or delta.get("reasoning") or delta.get("thinking")):
+                                        _first_token_received[0] = True
+                                        perf_logger = metadata.get("perf_logger")
+                                        if perf_logger:
+                                            perf_logger.mark_first_token()
 
                                     # === 10. 处理推理内容（Reasoning Content）===
                                     reasoning_content = (
@@ -3841,6 +3909,19 @@ async def process_chat_response(
                 )
 
                 await background_tasks_handler()
+
+                # 标记 LLM 完成并保存性能日志
+                perf_logger = metadata.get("perf_logger")
+                if perf_logger:
+                    # 标记 LLM 完成
+                    perf_logger.mark_llm_complete(usage=usage_holder.get("usage"))
+
+                    # 补充 chat_title 信息
+                    perf_logger.chat_title = title
+
+                    # 保存性能日志为 JSON 文件
+                    await perf_logger.save_to_file()
+
             except asyncio.CancelledError:
                 log.warning("Task was cancelled!")
                 await event_emitter({"type": "chat:tasks:cancel"})

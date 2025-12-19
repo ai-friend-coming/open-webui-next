@@ -1525,11 +1525,33 @@ async def chat_completion(
        - 调用 process_chat_response (处理响应、事件发射)
     5. 根据是否有 session_id 决定同步/异步执行
     """
-    # === 1. 初始化阶段：加载模型列表 ===
+    # === 1. 初始化性能日志记录器 ===
+    # 只在 CHAT_DEBUG_FLAG=True 时启用性能日志
+    perf_logger = None
+    if CHAT_DEBUG_FLAG:
+        from open_webui.utils.perf_logger import ChatPerfLogger
+
+        # 提前提取 metadata 信息用于 logger 初始化
+        chat_id = form_data.get("chat_id", None)
+        message_id = form_data.get("id", None)
+
+        # 实例化性能日志记录器
+        perf_logger = ChatPerfLogger(
+            user_id=user.id,
+            chat_id=chat_id,
+            message_id=message_id,
+            user_name=user.name if hasattr(user, "name") else None,
+            chat_title=None,  # 稍后补充
+        )
+
+        # 标记接口调用开始
+        perf_logger.mark_api_start()
+
+    # === 2. 初始化阶段：加载模型列表 ===
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)  # 从数据库和后端服务加载所有可用模型
 
-    # === 2. 提取请求参数 ===
+    # === 3. 提取请求参数 ===
     form_data = await transform_user_model_if_needed(form_data, user)
     model_id = form_data.get("model", None)  # 用户选择的模型 ID (如 "gpt-4")
     model_item = form_data.pop("model_item", {})  # 模型元数据 (包含 direct 标志)
@@ -1607,6 +1629,7 @@ async def chat_completion(
                     else "default"  # 默认模式 (通过 Prompt 实现)
                 ),
             },
+            "perf_logger": perf_logger,  # 性能日志记录器
         }
 
         # === 6. 权限二次验证：检查用户是否拥有该 chat ===
@@ -1639,7 +1662,6 @@ async def chat_completion(
             如果是新聊天，其中没有summary，获得最近的若干次互动，生成一次摘要并保存。
             触发条件：非 local 会话，无已有摘要。
             """
-
             # 获取 chat_id（跳过本地会话）
             chat_id = metadata.get("chat_id")
             if not chat_id or str(chat_id).startswith("local:"):
@@ -1648,32 +1670,39 @@ async def chat_completion(
             try:
                 # 检查是否已有摘要
                 old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
-                if CHAT_DEBUG_FLAG:
-                    print(f"[summary:init] chat_id={chat_id} 现有摘要={bool(old_summary)}")
+
+                # 标记 ensure_initial_summary 开始
+                if perf_logger:
+                    perf_logger.mark_ensure_summary_start(
+                        has_existing_summary=bool(old_summary)
+                    )
+
                 if old_summary:
-                    if CHAT_DEBUG_FLAG:
-                        print(f"[summary:init] chat_id={chat_id} 已存在摘要，跳过生成")
                     return
 
                 # 获取消息列表
                 # 如果历史消息非常多（比如刚导入的），只取最近的 N 条可能会丢失早期上下文
                 # 策略：分块生成摘要。先取较早的消息生成基础摘要，再结合最近消息生成最终摘要
-                
+
                 # 1. 获取全量消息（按时间排序）
                 all_messages = get_recent_messages_by_user_id(user.id, chat_id, -1) # -1 表示获取全部
-                
-                if CHAT_DEBUG_FLAG:
-                    print(f"[summary:init] chat_id={chat_id} 全量消息数={len(all_messages)}")
 
                 if not all_messages:
-                    if CHAT_DEBUG_FLAG:
-                        print(f"[summary:init] chat_id={chat_id} 无可用消息，跳过生成")
                     return
 
                 # 2. 如果消息量适中 (< 200)，直接生成
                 if len(all_messages) <= 200:
                     messages_for_summary = all_messages
                     model_id = form_data.get("model")
+
+                    # 标记摘要生成开始
+                    if perf_logger:
+                        perf_logger.mark_summary_generation(
+                            start=True,
+                            messages=messages_for_summary,
+                            stage="适中消息量"
+                        )
+
                     is_user_model = form_data.get("is_user_model", False)
                     summary_text = await summarize(
                         messages=messages_for_summary,
@@ -1684,14 +1713,15 @@ async def chat_completion(
                         is_user_model=is_user_model,
                         model_config=model,  # 传递完整的模型配置对象
                     )
+
+                    # 标记摘要生成结束
+                    if perf_logger:
+                        perf_logger.mark_summary_generation(start=False)
                 else:
                     # 3. 如果消息量很大，进行分块压缩
                     # 这里的策略是：
                     # a. 取前 50% 的消息（或者前 N 条），生成一个 "Initial Summary"
                     # b. 将这个 Initial Summary 作为 existing_summary，配合后半部分消息生成最终摘要
-                    
-                    if CHAT_DEBUG_FLAG:
-                        print(f"[summary:init] chat_id={chat_id} 消息过多，执行分块摘要策略...")
                     
                     # 简单的二分法：旧消息块 (除最后100条外) + 新消息块 (最后100条)
                     # 这样能保证最近的对话被精细处理，而久远的对话被压缩
@@ -1709,9 +1739,18 @@ async def chat_completion(
                     # 或者分批调用。鉴于性能，我们只取旧消息的“精华片段”（比如每隔几条取一条，或者只取两端）。
                     # 简化方案：直接把 older_messages 传给 summarize，让它内部去切片/截断
                     # TODO: 真正完美的方案是循环 reduce，但耗时太久。
-                    
+
+                    # 标记基础摘要生成开始
+                    if perf_logger:
+                        perf_logger.mark_summary_generation(
+                            start=True,
+                            messages=older_messages,
+                            stage="分块压缩-基础摘要"
+                        )
+
                     if CHAT_DEBUG_FLAG:
                         print(f"[summary:init] 生成旧历史摘要 (msgs={len(older_messages)})...")
+
                     base_summary = await summarize(
                         messages=older_messages,
                         old_summary=None,
@@ -1722,9 +1761,21 @@ async def chat_completion(
                         model_config=model,  # 传递完整的模型配置对象
                     )
 
+                    if perf_logger:
+                        perf_logger.mark_summary_generation(start=False)
+
+                    # 第二步：基于旧摘要 + 最近消息生成最终摘要
+                    # 标记最终摘要生成开始
+                    if perf_logger:
+                        perf_logger.mark_summary_generation(
+                            start=True,
+                            messages=recent_messages,
+                            stage="分块压缩-最终摘要"
+                        )
+
                     if CHAT_DEBUG_FLAG:
                         print(f"[summary:init] 生成最终摘要 (base_summary_len={len(base_summary)}, recent_msgs={len(recent_messages)})...")
-                    # 第二步：基于旧摘要 + 最近消息生成最终摘要
+
                     summary_text = await summarize(
                         messages=recent_messages,
                         old_summary=base_summary,
@@ -1734,7 +1785,10 @@ async def chat_completion(
                         is_user_model=is_user_model,
                         model_config=model,  # 传递完整的模型配置对象
                     )
-                    
+
+                    if perf_logger:
+                        perf_logger.mark_summary_generation(start=False)
+
                     messages_for_summary = recent_messages # 用于后续计算 last_id 等
 
                 last_id = messages_for_summary[-1].get("id") if messages_for_summary else None
@@ -1751,15 +1805,6 @@ async def chat_completion(
                     if m.get("id") and m.get("content")
                 ]
 
-                if CHAT_DEBUG_FLAG:
-                    print(
-                        f"[summary:init] chat_id={chat_id} 生成首条摘要，msg_count={len(messages_for_summary)}, last_id={last_id}, cold_start_count={len(cold_start_messages)}"
-                    )
-
-                    print("[summary:init]: messages_for_summary")
-                    for i in messages_for_summary:
-                        print(i['role'], "  ", i['content'][:100])
-
                 res = Chats.set_summary_by_user_id_and_chat_id(
                     user.id,
                     chat_id,
@@ -1768,20 +1813,33 @@ async def chat_completion(
                     int(time.time()),
                     cold_start_messages=cold_start_messages,
                 )
-                if not res:
-                    if CHAT_DEBUG_FLAG:
-                        print(f"[summary:init] chat_id={chat_id} 写入摘要失败")
             except Exception as e:
                 log.exception(f"initial summary failed: {e}")
 
         try:
             await ensure_initial_summary()
 
+            # 标记 payload 处理开始
+            if perf_logger:
+                perf_logger.mark_payload_processing(start=True)
+
             # 8.1 Payload 预处理：执行 Pipeline Filters、工具注入、RAG 检索等
             # remark：并不涉及消息的持久化，只涉及发送给 LLM 前，上下文的封装
             form_data, metadata, events = await process_chat_payload(
                 request, form_data, user, metadata, model
             )
+
+            # 标记 payload 处理结束
+            if perf_logger:
+                perf_logger.mark_payload_processing(start=False)
+
+            # 标记调用 LLM 之前
+            if perf_logger:
+                perf_logger.mark_before_llm()
+
+            # 记录 LLM 调用的 payload
+            if perf_logger:
+                perf_logger.record_llm_payload(form_data)
 
             # 8.2 调用 LLM 完成对话 (核心) - 使用计费代理包装
             response = await chat_with_billing(
