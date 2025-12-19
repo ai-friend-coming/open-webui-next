@@ -13,6 +13,9 @@ except ImportError:
 from open_webui.models.chats import Chats
 from open_webui.config import OPENAI_API_KEYS, OPENAI_API_BASE_URLS
 
+# Import for calling main chat API
+from fastapi import Request
+
 log = getLogger(__name__)
 
 # --- Constants & Prompts from persona_extractor ---
@@ -483,27 +486,118 @@ def slice_messages_with_summary(
     return ordered
 
 
-def summarize(
+async def summarize(
     messages: List[Dict],
     old_summary: Optional[str] = None,
-    model: Optional[str] = None,
-    user: Optional[Any] = None
+    model_id: Optional[str] = None,
+    user: Optional[Any] = None,
+    request: Optional[Request] = None,
+    is_user_model: bool = False,
 ) -> str:
     """
-    生成对话摘要
+    生成对话摘要（新版：复用主对话 API）
 
     参数：
         messages: 需要摘要的消息列表
         old_summary: 旧摘要
-        model: 指定使用的模型 ID（如果为 None，则使用类内部默认值）
-        user: 用户对象或用户ID（用于计费）
+        model_id: 指定使用的模型 ID（如果为 None，则使用默认值 gpt-4.1-mini）
+        user: 用户对象（用于计费）
+        request: FastAPI Request 对象（用于调用主对话 API）
+        is_user_model: 是否为用户自己的模型（True 时不扣费）
 
     返回：
         摘要字符串
     """
-    summarizer = HistorySummarizer(model=model) if model else HistorySummarizer()
-    result = summarizer.summarize(messages, existing_summary=old_summary, user=user)
-    return result.summary if result else ""
+    # 如果提供了 request，则使用新逻辑（调用主对话 API）
+    if request is not None:
+        return await _summarize_with_main_api(
+            messages=messages,
+            old_summary=old_summary,
+            model_id=model_id,
+            user=user,
+            request=request,
+            is_user_model=is_user_model,
+        )
+    else:
+        # 向后兼容：使用旧逻辑（独立 OpenAI client）
+        log.warning("使用旧的 summarize 逻辑（不推荐），建议传入 request 参数")
+        summarizer = HistorySummarizer(model=model_id) if model_id else HistorySummarizer()
+        result = summarizer.summarize(messages, existing_summary=old_summary, user=user)
+        return result.summary if result else ""
+
+
+async def _summarize_with_main_api(
+    messages: List[Dict],
+    old_summary: Optional[str],
+    model_id: Optional[str],
+    user: Any,
+    request: Request,
+    is_user_model: bool,
+) -> str:
+    """
+    使用主对话 API 生成摘要（内部函数）
+
+    核心优势：
+    1. 自动复用用户的 API 配置（base_url, api_key）
+    2. 自动判断是否扣费（is_user_model=True 时不扣费）
+    3. 使用当前会话的模型（而不是固定的 gpt-4.1-mini）
+    """
+    from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
+
+    # 1. 构建摘要 prompt
+    # 排序并截断消息（最近 120 条）
+    sorted_messages = sorted(messages, key=lambda m: m.get('timestamp', 0) if isinstance(m.get('timestamp'), (int, float)) else 0)
+    trail = sorted_messages[-120:]
+    transcript = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in trail)
+
+    prompt = SUMMARY_PROMPT.format(
+        existing_summary=old_summary.strip() if old_summary else "无",
+        chat_transcript=transcript,
+    )
+
+    # 2. 构造请求参数（OpenAI 格式）
+    form_data = {
+        "model": model_id or "gpt-4o-mini",  # 默认使用 gpt-4o-mini
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,  # 摘要不使用流式
+        "max_tokens": 2000,  # 安全值，防止截断
+        "temperature": 0.1,  # 低温度保证稳定性
+        "is_user_model": is_user_model,  # ← 关键：用户模型标记（控制是否扣费）
+    }
+
+    log.info(f"开始生成摘要: model={model_id}, is_user_model={is_user_model}, messages_count={len(messages)}")
+
+    try:
+        # 3. 调用主对话 API
+        response = await generate_openai_chat_completion(
+            request=request,
+            form_data=form_data,
+            user=user,
+            bypass_filter=True,  # 跳过权限检查（摘要是系统内部调用）
+        )
+
+        # 4. 解析响应
+        if isinstance(response, dict):
+            payload = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # 记录 usage 信息（调试用）
+            usage = response.get("usage", {})
+            log.info(
+                f"摘要生成完成: model={model_id}, is_user_model={is_user_model}, "
+                f"tokens={usage.get('prompt_tokens', 0)}+{usage.get('completion_tokens', 0)}, "
+                f"payload_length={len(payload)}"
+            )
+
+            # 5. 解析 JSON 并提取摘要
+            result = _parse_response(payload)
+            return result.summary if result else ""
+        else:
+            log.error(f"摘要 API 返回格式错误: {type(response)}")
+            return ""
+
+    except Exception as e:
+        log.error(f"摘要生成失败: {e}")
+        return ""
 
 def compute_token_count(messages: List[Dict]) -> int:
     """

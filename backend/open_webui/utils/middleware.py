@@ -2041,7 +2041,7 @@ async def process_chat_response(
                                 pass
 
                 # ========================================
-                # 任务 4: 摘要更新（基于阈值）
+                # 任务 4: 摘要更新（基于新增 token 阈值）
                 # ========================================
                 try:
                     # 获取 chat_id
@@ -2054,27 +2054,56 @@ async def process_chat_response(
                             SUMMARY_TOKEN_THRESHOLD_DEFAULT,
                         )
 
-                        # 优先使用上游 usage，再回退自算 token
-                        tokens = None
-                        if isinstance(usage_holder.get("usage"), dict):
-                            usage = usage_holder["usage"]
-                            tokens = usage.get("total_tokens") or usage.get(
-                                "prompt_tokens"
-                            )
-                        if tokens is None:
-                            tokens = compute_token_count(messages or [])
+                        # 读取已有的 summary（提前读取，用于判断是否需要更新）
+                        existing_summary = Chats.get_summary_by_user_id_and_chat_id(
+                            user.id, chat_id
+                        )
 
-                        # 若超过阈值
+                        # 计算需要检查的 token 数
+                        # 策略：如果已有摘要，只计算"摘要边界后的新增消息"的 token 数
+                        #       如果无摘要，计算全量消息的 token 数
+                        if existing_summary:
+                            # 已有摘要：只计算新增部分的 token
+                            messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+                            new_messages = slice_messages_with_summary(
+                                messages_map,
+                                existing_summary.get("last_message_id"),
+                                metadata.get("message_id"),
+                                pre_boundary=0,  # 不保留边界前的消息，只要边界后的
+                            )
+                            # 只统计 user 和 assistant 消息
+                            new_messages = [
+                                msg for msg in new_messages
+                                if msg.get("role") in ("user", "assistant")
+                            ]
+                            tokens = compute_token_count(new_messages)
+
+                            if CHAT_DEBUG_FLAG:
+                                print(
+                                    f"[summary:update] chat_id={chat_id} 已有摘要，"
+                                    f"新增消息数={len(new_messages)} 新增token={tokens} 阈值={threshold}"
+                                )
+                        else:
+                            # 无摘要：计算全量 token（首次生成摘要）
+                            tokens = None
+                            if isinstance(usage_holder.get("usage"), dict):
+                                usage = usage_holder["usage"]
+                                tokens = usage.get("total_tokens") or usage.get("prompt_tokens")
+                            if tokens is None:
+                                tokens = compute_token_count(messages or [])
+
+                            if CHAT_DEBUG_FLAG:
+                                print(
+                                    f"[summary:update] chat_id={chat_id} 无摘要，"
+                                    f"全量token={tokens} 阈值={threshold}"
+                                )
+
+                        # 若超过阈值，才生成/更新摘要
                         if tokens >= threshold:
                             if CHAT_DEBUG_FLAG:
                                 print(
-                                    f"[summary:update] chat_id={chat_id} token数={tokens} 阈值={threshold}"
+                                    f"[summary:update] chat_id={chat_id} 触发摘要更新"
                                 )
-
-                            # 读取已有的 summary
-                            existing_summary = Chats.get_summary_by_user_id_and_chat_id(
-                                user.id, chat_id
-                            )
                             old_summary = (
                                 existing_summary.get("content")
                                 if existing_summary
@@ -2082,7 +2111,13 @@ async def process_chat_response(
                             )
 
                             # 取摘要边界前 20 条 + 之后所有消息
-                            messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+                            # 注意：如果上面已读取 messages_map，复用它；否则重新读取
+                            if existing_summary and 'messages_map' in locals():
+                                # 已在上面读取过，直接复用
+                                pass
+                            else:
+                                messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+
                             ordered = slice_messages_with_summary(
                                 messages_map,
                                 existing_summary.get("last_message_id") if existing_summary else None,
@@ -2101,9 +2136,19 @@ async def process_chat_response(
                                     f"上次摘要 message_id={existing_summary.get('last_message_id') if existing_summary else None}"
                                 )
                             
-                            # 获取当前模型ID，确保使用正确的模型进行摘要更新
+                            # 获取当前模型ID和用户模型标记，确保使用正确的模型进行摘要更新
                             model_id = model.get("id") if model else None
-                            summary_text = summarize(summary_messages, old_summary, model=model_id, user=user)
+                            is_user_model = form_data.get("is_user_model", False)
+
+                            # 调用摘要生成（复用主对话 API，自动判断是否扣费）
+                            summary_text = await summarize(
+                                messages=summary_messages,
+                                old_summary=old_summary,
+                                model_id=model_id,
+                                user=user,
+                                request=request,
+                                is_user_model=is_user_model,
+                            )
                             last_msg_id = (
                                 summary_messages[-1].get("id")
                                 if summary_messages

@@ -1674,7 +1674,15 @@ async def chat_completion(
                 if len(all_messages) <= 200:
                     messages_for_summary = all_messages
                     model_id = form_data.get("model")
-                    summary_text = summarize(messages_for_summary, None, model=model_id, user=user)
+                    is_user_model = form_data.get("is_user_model", False)
+                    summary_text = await summarize(
+                        messages=messages_for_summary,
+                        old_summary=None,
+                        model_id=model_id,
+                        user=user,
+                        request=request,
+                        is_user_model=is_user_model,
+                    )
                 else:
                     # 3. 如果消息量很大，进行分块压缩
                     # 这里的策略是：
@@ -1689,8 +1697,9 @@ async def chat_completion(
                     split_idx = max(len(all_messages) - 100, 0)
                     older_messages = all_messages[:split_idx]
                     recent_messages = all_messages[split_idx:]
-                    
+
                     model_id = form_data.get("model")
+                    is_user_model = form_data.get("is_user_model", False)
                     
                     # 第一步：压缩旧消息
                     # 注意：如果旧消息依然过多（>500），summarize 内部会截取最后 max_messages（默认120），
@@ -1702,12 +1711,26 @@ async def chat_completion(
                     
                     if CHAT_DEBUG_FLAG:
                         print(f"[summary:init] 生成旧历史摘要 (msgs={len(older_messages)})...")
-                    base_summary = summarize(older_messages, None, model=model_id, user=user)
-                    
+                    base_summary = await summarize(
+                        messages=older_messages,
+                        old_summary=None,
+                        model_id=model_id,
+                        user=user,
+                        request=request,
+                        is_user_model=is_user_model,
+                    )
+
                     if CHAT_DEBUG_FLAG:
                         print(f"[summary:init] 生成最终摘要 (base_summary_len={len(base_summary)}, recent_msgs={len(recent_messages)})...")
                     # 第二步：基于旧摘要 + 最近消息生成最终摘要
-                    summary_text = summarize(recent_messages, old_summary=base_summary, model=model_id, user=user)
+                    summary_text = await summarize(
+                        messages=recent_messages,
+                        old_summary=base_summary,
+                        model_id=model_id,
+                        user=user,
+                        request=request,
+                        is_user_model=is_user_model,
+                    )
                     
                     messages_for_summary = recent_messages # 用于后续计算 last_id 等
 
