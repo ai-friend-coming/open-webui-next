@@ -1,379 +1,300 @@
 <script lang="ts">
-	import { toast } from 'svelte-sonner';
-import Modal from '../common/Modal.svelte';
-import Spinner from '../common/Spinner.svelte';
-import ArrowUpTray from '../icons/ArrowUpTray.svelte';
-import ArchiveBox from '../icons/ArchiveBox.svelte';
+    import { toast } from 'svelte-sonner';
+    import { slide, fly } from 'svelte/transition';
+    import Modal from '../common/Modal.svelte';
+    import Spinner from '../common/Spinner.svelte';
+    import ArrowUpTray from '../icons/ArrowUpTray.svelte';
+    import ArchiveBox from '../icons/ArchiveBox.svelte';
+    import DocumentText from '../icons/DocumentText.svelte';
+    import MagnifyingGlass from '../icons/MagnifyingGlass.svelte';
 
-	export let show = false;
-	export let onImport: (chats: any[]) => Promise<void>;
+    export let show = false;
+    export let onImport: (chats: any[]) => Promise<void>;
 
-	let dropActive = false;
-	let loading = false;
-	let importing = false;
-	let filterOpen = true;
-	let errorMsg = '';
-	let successMsg = '';
-	let fileName = '';
-	
-	// 对应 HTML 版本中的 rawData
-	let rawChats: any[] = [];
-	// 对应 HTML 版本中的 selectedIndices
-	let selectedIndices: Set<number> = new Set();
+    let dropActive = false;
+    let loading = false;
+    let importing = false;
+    let errorMsg = '';
+    let rawChats: any[] = [];
+    let selectedIndices: Set<number> = new Set();
+    let fileInputEl: HTMLInputElement;
+    let fileName = '';
+    let searchQuery = '';
 
-	let fileInputEl: HTMLInputElement;
+    // 重置状态
+    const resetState = () => {
+        errorMsg = '';
+        fileName = '';
+        rawChats = [];
+        selectedIndices = new Set();
+        searchQuery = '';
+        if (fileInputEl) fileInputEl.value = '';
+    };
 
-	// 重置状态
-	const resetState = () => {
-		errorMsg = '';
-		successMsg = '';
-		fileName = '';
-		rawChats = [];
-		selectedIndices = new Set();
-		filterOpen = true;
-		if (fileInputEl) fileInputEl.value = '';
-	};
+    $: if (!show) {
+        resetState();
+    }
 
-	$: if (!show) {
-		resetState();
-	}
+    // 处理文件
+    const handleFiles = async (files: FileList | File[]) => {
+        if (!files || files.length === 0) return;
+        const file = files[0];
+        
+        loading = true;
+        errorMsg = '';
+        fileName = file.name;
+        
+        try {
+            const text = await file.text();
+            let parsed: any;
+            try {
+                parsed = JSON.parse(text);
+            } catch (e) {
+                throw new Error('无法解析 JSON，请检查文件格式');
+            }
 
-	// 核心逻辑：读取并解析 JSON 数组
-	const handleFiles = async (files: FileList | File[]) => {
-		if (!files || files.length === 0) return;
-		const file = files[0];
-		
-		loading = true;
-		errorMsg = '';
-		successMsg = '';
-		fileName = file.name;
-		rawChats = [];
-		selectedIndices = new Set();
+            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组');
+            if (parsed.length === 0) throw new Error('JSON 数组为空');
 
-		try {
-			const text = await file.text();
-			let parsed: any;
+            rawChats = parsed;
+            selectedIndices = new Set(); 
+            toast.success(`解析成功，共 ${rawChats.length} 条记录`);
+        } catch (error) {
+            console.error(error);
+            errorMsg = error instanceof Error ? error.message : `${error}`;
+            rawChats = [];
+            fileName = '';
+        } finally {
+            loading = false;
+        }
+    };
 
-			try {
-				parsed = JSON.parse(text);
-			} catch (e) {
-				throw new Error('JSON 解析失败，请检查文件格式');
-			}
+    // 切换选择
+    const toggleRow = (idx: number) => {
+        const next = new Set(selectedIndices);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        selectedIndices = next;
+    };
 
-			// 校验格式：必须是数组 [{}, {}]
-			if (!Array.isArray(parsed)) {
-				throw new Error('文件格式错误：JSON 根节点必须是数组 `[...]`');
-			}
+    // 过滤显示的行 (支持搜索)
+    $: filteredChats = rawChats.map((chat, originalIdx) => ({...chat, originalIdx})).filter(item => {
+        if (!searchQuery) return true;
+        return (item.title || '').toLowerCase().includes(searchQuery.toLowerCase());
+    });
 
-			if (parsed.length === 0) {
-				throw new Error('JSON 数组为空');
-			}
+    // 全选/反选 (仅针对当前搜索结果)
+    const toggleSelectAll = (checked: boolean) => {
+        const next = new Set(selectedIndices);
+        filteredChats.forEach(item => {
+            if (checked) next.add(item.originalIdx);
+            else next.delete(item.originalIdx);
+        });
+        selectedIndices = next;
+    };
 
-			rawChats = parsed;
-			successMsg = `解析成功，共 ${rawChats.length} 条记录`;
-			
-			// 默认不全选，或者全选，取决于你的偏好。这里保持原有逻辑（不选或全选）
-			// 这里改为：解析后默认显示列表，但不选中（等待用户操作），或者全选
-			// 之前的 HTML 逻辑是空的，这里为了方便用户，可以默认不选，或者全选。
-			// 让我们默认不选，让用户决定。
-			selectedIndices = new Set(); 
-			filterOpen = true;
+    // 检查是否全选 (针对当前搜索结果)
+    $: isAllSelected = filteredChats.length > 0 && filteredChats.every(item => selectedIndices.has(item.originalIdx));
+    $: isIndeterminate = filteredChats.some(item => selectedIndices.has(item.originalIdx)) && !isAllSelected;
 
-		} catch (error) {
-			console.error(error);
-			errorMsg = error instanceof Error ? error.message : `${error}`;
-			rawChats = [];
-		} finally {
-			loading = false;
-		}
-	};
+    // 导入逻辑
+    const confirmImport = async () => {
+        if (!selectedIndices.size) return toast.error('未选择任何记录');
+        
+        const chatsToImport = rawChats.filter((_, idx) => selectedIndices.has(idx));
 
-	// 行选择切换
-	const toggleRow = (idx: number) => {
-		const next = new Set(selectedIndices);
-		if (next.has(idx)) {
-			next.delete(idx);
-		} else {
-			next.add(idx);
-		}
-		selectedIndices = next;
-	};
-
-	// 全选/取消全选
-	const toggleSelectAll = (checked: boolean) => {
-		selectedIndices = checked ? new Set(rawChats.map((_, idx) => idx)) : new Set();
-	};
-
-	// 导出并导入 (Export & Import)
-	const confirmImport = async () => {
-		if (!rawChats.length) {
-			toast.error('请先上传文件');
-			return;
-		}
-
-		if (selectedIndices.size === 0) {
-			toast.error('未选择任何记录');
-			return;
-		}
-
-		// 筛选数据
-		const chatsToImport = rawChats.filter((_, idx) => selectedIndices.has(idx));
-
-		try {
-			importing = true;
-
-			// 1. 生成并下载 JSON 文件 (对应 HTML 工具的导出功能)
-			// 使用 null, 2 进行美化输出
-			const jsonString = JSON.stringify(chatsToImport, null, 2); 
-			const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = `filtered_chats_${new Date().toISOString().slice(0, 10)}.json`;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
-			URL.revokeObjectURL(url);
-
-			toast.success(`已导出 ${chatsToImport.length} 条记录`);
-
-			// 2. 执行回调，将数据导入应用
-			await onImport(chatsToImport);
-			show = false;
-			
-		} catch (error) {
-			console.error(error);
-			toast.error(error instanceof Error ? error.message : `${error}`);
-		} finally {
-			importing = false;
-		}
-	};
-
-	// 辅助显示函数 (对应 HTML 中的 renderTable)
-	const formatDate = (value) => {
-		if (!value) return '-';
-		const dateObj = new Date(value);
-		if (isNaN(dateObj.getTime())) return value;
-		return dateObj.toLocaleString();
-	};
-
-	const displayRows = () =>
-		rawChats.map((chat, idx) => {
-			// 宽容处理字段
-			const title = chat.title || '<无标题>';
-			const dateRaw = chat.inserted_at || chat.created_at || chat.timestamp || chat.date || '-';
-			const date = formatDate(dateRaw);
-			return { idx, title, date };
-		});
-
-	const handleFileInputChange = (event: Event) => {
-		const input = event.currentTarget as HTMLInputElement;
-		handleFiles(input.files ?? []);
-	};
-
-	const handleSelectAllChange = (event: Event) => {
-		const input = event.currentTarget as HTMLInputElement;
-		toggleSelectAll(input.checked);
-	};
+        try {
+            importing = true;
+            await onImport(chatsToImport);
+            show = false;
+            toast.success(`成功导入 ${chatsToImport.length} 条对话`);
+        } catch (error) {
+            toast.error(String(error));
+        } finally {
+            importing = false;
+        }
+    };
 </script>
 
-<Modal bind:show size="xl" className="bg-white/95 dark:bg-gray-900/95 rounded-4xl p-1">
-	<div class="p-6 space-y-6 font-primary">
-		<div class="flex items-start justify-between gap-4">
-			<div>
-				<div class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-					<span class="w-3 h-3 rounded bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>
-					上传聊天记录
-				</div>
-				<div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-					仅支持 JSON 格式，导入前请先选择或拖入文件
-				</div>
-			</div>
-			<button
-				class="text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-				on:click={() => (show = false)}
-				aria-label="Close"
-			>
-				✕
-			</button>
-		</div>
+<Modal bind:show size="xl" className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md rounded-3xl overflow-hidden">
+    <div class="flex flex-col h-[80vh] max-h-[700px] font-primary">
+        
+        <div class="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-white dark:bg-gray-900">
+            <div>
+                <h2 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <span class="text-blue-500"><ArrowUpTray className="size-5 stroke-2"/></span>
+                    导入聊天记录
+                </h2>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI JSON 格式导出文件</p>
+            </div>
+            <button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" on:click={() => show = false}>
+                <span class="text-xl leading-none">&times;</span>
+            </button>
+        </div>
 
-		<div class="space-y-4">
-			<div class="rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
-				<div class="flex items-center justify-between">
-					<div class="text-sm font-semibold text-gray-800 dark:text-gray-100">上传聊天记录</div>
-					{#if loading}
-						<div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-							<Spinner className="size-4" />
-							<span>正在解析...</span>
-						</div>
-					{/if}
-				</div>
+        <div class="flex-1 overflow-hidden flex flex-col p-6 gap-5 bg-gray-50/50 dark:bg-black/20">
+            
+            {#if rawChats.length === 0}
+                <div 
+                    class="flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-10 transition-all duration-200
+                    {dropActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-700 hover:border-blue-400 hover:bg-white dark:hover:bg-gray-800/50'}"
+                    on:dragover|preventDefault={() => dropActive = true}
+                    on:dragleave|preventDefault={() => dropActive = false}
+                    on:drop|preventDefault={(e) => { dropActive = false; handleFiles(e.dataTransfer?.files ?? []); }}
+                    role="button"
+                    tabindex="0"
+                >
+                    {#if loading}
+                        <Spinner className="size-10 text-blue-500" />
+                        <div class="mt-4 text-sm text-gray-500">正在解析文件...</div>
+                    {:else}
+                        <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-full flex items-center justify-center mb-4 shadow-sm">
+                            <DocumentText className="size-8" />
+                        </div>
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">点击或拖拽 JSON 文件至此</h3>
+                        <p class="text-sm text-gray-500 mt-2 mb-6 max-w-xs text-center">只能上传符合格式的 JSON 数组文件</p>
+                        <button 
+                            class="px-6 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-medium shadow-lg hover:shadow-xl transition-transform active:scale-95"
+                            on:click={(e) => { e.stopPropagation(); fileInputEl.click(); }}
+                        >
+                            选择文件
+                        </button>
+                    {/if}
+                    
+                    {#if errorMsg}
+                        <div class="mt-6 px-4 py-2 bg-red-50 text-red-600 text-xs rounded-lg border border-red-100">
+                            {errorMsg}
+                        </div>
+                    {/if}
+                </div>
+            {:else}
+                <div class="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm shrink-0" transition:slide>
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 flex items-center justify-center shrink-0">
+                            <DocumentText className="size-6" />
+                        </div>
+                        <div class="min-w-0">
+                            <div class="font-medium text-gray-900 dark:text-white truncate" title={fileName}>{fileName}</div>
+                            <div class="text-xs text-gray-500">包含 {rawChats.length} 条记录</div>
+                        </div>
+                    </div>
+                    <button 
+                        class="text-xs text-blue-600 hover:text-blue-700 hover:underline px-2"
+                        on:click={resetState}
+                    >
+                        重新上传
+                    </button>
+                </div>
 
-				<div
-					class={`relative border-2 border-dashed rounded-xl p-6 transition flex flex-col items-center gap-3 text-center ${
-						dropActive
-							? 'border-blue-400 bg-blue-50/70 dark:border-blue-400/80 dark:bg-blue-950/40'
-							: 'border-gray-200 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-900'
-					}`}
-					on:dragover|preventDefault={() => (dropActive = true)}
-					on:dragleave|preventDefault={() => (dropActive = false)}
-					on:drop|preventDefault={(e) => {
-						dropActive = false;
-						handleFiles(e.dataTransfer?.files ?? []);
-					}}
-					role="button"
-					tabindex="0"
-				>
-					<div class="w-12 h-12 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-center text-blue-500">
-						<ArrowUpTray className="size-6" />
-					</div>
-					<div class="flex flex-col items-center gap-1 text-sm text-gray-700 dark:text-gray-200">
-						<div class="font-medium text-gray-900 dark:text-white font-mono">
-							{fileName ? `已选择：${fileName}` : '拖入 .json 文件'}
-						</div>
-						<div class="text-xs text-gray-500 dark:text-gray-400">仅支持 JSON 格式</div>
-						<div class="flex items-center gap-2 mt-1">
-							<button
-								class="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-850 text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition shadow-sm text-xs"
-								on:click={() => fileInputEl.click()}
-								type="button"
-							>
-								选择文件
-							</button>
-							<div class="text-xs text-gray-500 dark:text-gray-400">
-								格式要求: <code>[&#123;...&#125;, &#123;...&#125;]</code>
-							</div>
-						</div>
-					</div>
-					<input
-						bind:this={fileInputEl}
-						type="file"
-						accept=".json,application/json"
-						hidden
-						on:change={handleFileInputChange}
-					/>
+                <div class="flex-1 flex flex-col bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden" transition:fly={{y: 20}}>
+                    
+                    <div class="p-3 border-b border-gray-100 dark:border-gray-800 flex flex-wrap gap-3 items-center justify-between">
+                        <div class="flex items-center gap-3 pl-1">
+                            <input 
+                                type="checkbox" 
+                                class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 transition cursor-pointer"
+                                checked={isAllSelected}
+                                indeterminate={isIndeterminate}
+                                on:change={(e) => toggleSelectAll(e.currentTarget.checked)}
+                            />
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {selectedIndices.size > 0 ? `已选 ${selectedIndices.size} 项` : '选择记录'}
+                            </span>
+                        </div>
+                        
+                        <div class="relative w-full sm:w-64">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                                <MagnifyingGlass className="size-4" />
+                            </div>
+                            <input 
+                                type="text"
+                                bind:value={searchQuery}
+                                placeholder="搜索标题..."
+                                class="w-full pl-9 pr-4 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border-none rounded-lg focus:ring-2 focus:ring-blue-500/50 text-gray-900 dark:text-white"
+                            />
+                        </div>
+                    </div>
 
-					{#if errorMsg}
-						<div class="w-full mt-2 text-xs text-red-500 bg-red-50/60 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2 text-left">
-							{errorMsg}
-						</div>
-					{:else if successMsg}
-						<div class="w-full mt-2 text-xs text-green-600 dark:text-green-400 bg-green-50/70 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2 text-left">
-							{successMsg}
-						</div>
-					{/if}
+                    <div class="flex-1 overflow-y-auto min-h-0">
+                        {#if filteredChats.length === 0}
+                            <div class="h-full flex flex-col items-center justify-center text-gray-400">
+                                <ArchiveBox className="size-8 opacity-50 mb-2" />
+                                <span class="text-sm">没有找到匹配的记录</span>
+                            </div>
+                        {:else}
+                            <div class="divide-y divide-gray-100 dark:divide-gray-800">
+                                {#each filteredChats as item (item.originalIdx)}
+                                    <div 
+                                        class="flex items-center gap-4 px-4 py-3 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors group {selectedIndices.has(item.originalIdx) ? 'bg-blue-50/80 dark:bg-blue-900/20' : ''}"
+                                        on:click={() => toggleRow(item.originalIdx)}
+                                        role="button"
+                                        tabindex="0"
+                                    >
+                                        <div class="shrink-0 flex items-center">
+                                            <input 
+                                                type="checkbox" 
+                                                class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-offset-0 cursor-pointer pointer-events-none"
+                                                checked={selectedIndices.has(item.originalIdx)}
+                                            />
+                                        </div>
+                                        
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <div class="font-medium text-gray-900 dark:text-gray-100 truncate text-sm">
+                                                    {item.title || '无标题对话'}
+                                                </div>
+                                                {#if item.messages}
+                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 shrink-0">
+                                                        {item.messages.length} msg
+                                                    </span>
+                                                {/if}
+                                            </div>
+                                            
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex gap-2">
+                                                <span>#{item.originalIdx + 1}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                    
+                    <div class="px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-500 flex justify-between">
+                        <span>显示 {filteredChats.length} 条</span>
+                        {#if selectedIndices.size > 0}
+                            <span class="text-blue-600 dark:text-blue-400">准备导入 {selectedIndices.size} 条</span>
+                        {/if}
+                    </div>
+                </div>
+            {/if}
+        </div>
 
-					{#if loading}
-						<div class="absolute inset-0 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-xl flex items-center justify-center">
-							<Spinner className="size-6 text-blue-500" />
-						</div>
-					{/if}
-				</div>
-			</div>
-
-			<div class="rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
-				<div class="flex items-center justify-between">
-					<div class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-						2. 筛选记录
-					</div>
-					
-					{#if rawChats.length > 0}
-					<div class="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
-						<span class="font-mono">总计: {rawChats.length} | 已选: {selectedIndices.size}</span>
-						<label class="flex items-center gap-2 cursor-pointer select-none hover:text-gray-900 dark:hover:text-white transition-colors">
-							<input
-								type="checkbox"
-								class="accent-blue-600 rounded"
-								checked={rawChats.length > 0 && selectedIndices.size === rawChats.length}
-								indeterminate={selectedIndices.size > 0 && selectedIndices.size < rawChats.length}
-								on:change={handleSelectAllChange}
-							/>
-							<span>全选</span>
-						</label>
-					</div>
-					{/if}
-				</div>
-
-				{#if filterOpen}
-					<div class="max-h-64 overflow-auto rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/30 dark:bg-black/20">
-						<table class="w-full text-sm border-collapse">
-							<thead class="text-left bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 sticky top-0 backdrop-blur-md">
-								<tr>
-									<th class="w-12 py-1.5 px-3 text-center">
-										<input
-											type="checkbox"
-											class="accent-blue-600 rounded"
-											checked={rawChats.length > 0 && selectedIndices.size === rawChats.length}
-											indeterminate={selectedIndices.size > 0 && selectedIndices.size < rawChats.length}
-											on:change={handleSelectAllChange}
-										/>
-									</th>
-									<th class="py-1.5 px-3 font-medium text-xs uppercase tracking-wider w-full">标题</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#if !rawChats.length}
-									<tr>
-										<td colspan="3" class="py-10 text-center text-gray-500 dark:text-gray-500 text-xs">
-											<div class="flex flex-col items-center gap-2 text-sm text-gray-500">
-												<div class="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-400">
-													<ArchiveBox className="size-5" />
-												</div>
-												<div>暂无数据，请先在上方上传文件</div>
-											</div>
-										</td>
-									</tr>
-								{:else}
-									{#each displayRows() as row (row.idx)}
-										<tr 
-											class="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors group"
-										>
-											<td class="py-2 px-3 text-center">
-												<input
-													type="checkbox"
-													class="accent-blue-600 cursor-pointer"
-													checked={selectedIndices.has(row.idx)}
-													on:change={() => toggleRow(row.idx)}
-												/>
-											</td>
-											<td class="py-2 px-3">
-												<div class="text-gray-900 dark:text-gray-200 font-medium truncate max-w-[300px]" title={row.title}>
-													{row.title}
-												</div>
-											</td>
-											<td class="py-2 px-3 text-xs font-mono text-blue-600 dark:text-blue-400 text-right hidden sm:table-cell">
-												{row.date}
-											</td>
-										</tr>
-									{/each}
-								{/if}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-			</div>
-
-			<div class="flex items-center justify-end gap-3 pt-2">
-				<button
-					class="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition underline-offset-2 hover:underline"
-					on:click={() => (show = false)}
-					type="button"
-				>
-					取消
-				</button>
-				<button
-					class="px-4 py-2 text-sm rounded-xl bg-green-600 text-white hover:bg-green-700 hover:shadow-[0_0_12px_rgba(22,163,74,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-2 transition-all font-medium"
-					on:click={confirmImport}
-					disabled={loading || importing || selectedIndices.size === 0}
-					type="button"
-				>
-					{#if importing}
-						<Spinner className="size-4" />
-					{/if}
-					<span>导入 ({selectedIndices.size})</span>
-				</button>
-			</div>
-		</div>
-	</div>
+        <div class="px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 flex justify-end gap-3 shrink-0">
+            <button 
+                class="px-5 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition font-medium"
+                on:click={() => show = false}
+            >
+                取消
+            </button>
+            <button 
+                class="px-6 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed transition-all font-medium flex items-center gap-2"
+                on:click={confirmImport}
+                disabled={loading || importing || selectedIndices.size === 0}
+            >
+                {#if importing}
+                    <Spinner className="size-4" />
+                {/if}
+                确认导入 ({selectedIndices.size})
+            </button>
+        </div>
+    </div>
+    
+    <input 
+        bind:this={fileInputEl}
+        type="file" 
+        accept=".json"
+        class="hidden"
+        on:change={(e) => handleFiles(e.currentTarget.files ?? [])}
+    />
 </Modal>
