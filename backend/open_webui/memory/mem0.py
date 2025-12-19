@@ -28,7 +28,6 @@ def _charge_mem0(user_id: str, model_id: str):
         model_id=model_id,
         prompt_tokens=BILLING_UNIT_TOKENS,
         completion_tokens=0,
-        estimated_tokens=BILLING_UNIT_TOKENS,
         log_type="RAG",
     )
 
