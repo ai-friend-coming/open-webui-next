@@ -128,6 +128,7 @@ def deduct_balance(
     prompt_tokens: int,
     completion_tokens: int,
     log_type: str = "deduct",
+    estimated_tokens: Optional[int] = None,
     custom_input_price: Optional[int] = None,
     custom_output_price: Optional[int] = None,
 ) -> Tuple[int, int]:

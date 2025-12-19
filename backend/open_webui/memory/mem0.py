@@ -58,7 +58,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
     """
     try:
         # 先对检索计费
-        # _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
+        _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
         # TODO: 接入真实 Mem0 检索
         log.info(f"mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         serach_rst = memory_client.search(
