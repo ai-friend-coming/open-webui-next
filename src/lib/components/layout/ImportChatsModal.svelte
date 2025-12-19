@@ -20,6 +20,7 @@
     let fileInputEl: HTMLInputElement;
     let fileName = '';
     let searchQuery = '';
+    let showExportGuide = false;
 
     // 重置状态
     const resetState = () => {
@@ -28,6 +29,7 @@
         rawChats = [];
         selectedIndices = new Set();
         searchQuery = '';
+        showExportGuide = false;
         if (fileInputEl) fileInputEl.value = '';
     };
 
@@ -125,7 +127,7 @@
                     <span class="text-blue-500"><ArrowUpTray className="size-5 stroke-2"/></span>
                     导入聊天记录
                 </h2>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI JSON 格式导出文件</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI、DeepSeek、ChatGPT、Gemini、Grok JSON 格式</p>
             </div>
             <button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" on:click={() => show = false}>
                 <span class="text-xl leading-none">&times;</span>
@@ -160,10 +162,59 @@
                             选择文件
                         </button>
                     {/if}
-                    
+
                     {#if errorMsg}
                         <div class="mt-6 px-4 py-2 bg-red-50 text-red-600 text-xs rounded-lg border border-red-100">
                             {errorMsg}
+                        </div>
+                    {/if}
+                </div>
+
+                <!-- 导出指南 -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <button
+                        class="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                        on:click={() => showExportGuide = !showExportGuide}
+                    >
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">💡 如何导出聊天记录 (JSON)</span>
+                        </div>
+                        <span class="text-gray-400 transform transition-transform {showExportGuide ? 'rotate-180' : ''}">▼</span>
+                    </button>
+
+                    {#if showExportGuide}
+                        <div class="px-4 pb-4 pt-2 space-y-3 text-sm" transition:slide>
+                            <div class="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                                <span class="text-lg shrink-0">🌊</span>
+                                <div>
+                                    <div class="font-medium text-gray-900 dark:text-white mb-1">DeepSeek</div>
+                                    <div class="text-xs text-gray-600 dark:text-gray-400">设置 → 数据 → 导出</div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                                <span class="text-lg shrink-0">💬</span>
+                                <div>
+                                    <div class="font-medium text-gray-900 dark:text-white mb-1">ChatGPT</div>
+                                    <div class="text-xs text-gray-600 dark:text-gray-400">设置 → 数据控制 → 导出数据 → 解压缩提取 conversations.json</div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                <span class="text-lg shrink-0">✨</span>
+                                <div>
+                                    <div class="font-medium text-gray-900 dark:text-white mb-1">Gemini</div>
+                                    <div class="text-xs text-gray-600 dark:text-gray-400">前往 Google Takeout → 仅勾选 Gemini Apps</div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <span class="text-lg shrink-0">𝕏</span>
+                                <div>
+                                    <div class="font-medium text-gray-900 dark:text-white mb-1">Grok</div>
+                                    <div class="text-xs text-gray-600 dark:text-gray-400">X 设置 → 您的账户 → 下载数据归档</div>
+                                </div>
+                            </div>
                         </div>
                     {/if}
                 </div>
