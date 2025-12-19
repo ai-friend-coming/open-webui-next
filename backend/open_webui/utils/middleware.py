@@ -2141,6 +2141,7 @@ async def process_chat_response(
                             is_user_model = form_data.get("is_user_model", False)
 
                             # 调用摘要生成（复用主对话 API，自动判断是否扣费）
+                            # 传递 model_config 以直接复用主对话的已验证模型配置，避免重复查找
                             summary_text = await summarize(
                                 messages=summary_messages,
                                 old_summary=old_summary,
@@ -2148,6 +2149,7 @@ async def process_chat_response(
                                 user=user,
                                 request=request,
                                 is_user_model=is_user_model,
+                                model_config=model,  # 传递完整的模型配置对象
                             )
                             last_msg_id = (
                                 summary_messages[-1].get("id")

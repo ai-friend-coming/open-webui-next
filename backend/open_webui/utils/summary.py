@@ -493,6 +493,7 @@ async def summarize(
     user: Optional[Any] = None,
     request: Optional[Request] = None,
     is_user_model: bool = False,
+    model_config: Optional[Dict] = None,
 ) -> str:
     """
     生成对话摘要（新版：复用主对话 API）
@@ -504,6 +505,7 @@ async def summarize(
         user: 用户对象（用于计费）
         request: FastAPI Request 对象（用于调用主对话 API）
         is_user_model: 是否为用户自己的模型（True 时不扣费）
+        model_config: 已验证的模型配置对象（用于直接复用主对话的模型连接）
 
     返回：
         摘要字符串
@@ -517,6 +519,7 @@ async def summarize(
             user=user,
             request=request,
             is_user_model=is_user_model,
+            model_config=model_config,
         )
     else:
         # 向后兼容：使用旧逻辑（独立 OpenAI client）
@@ -533,6 +536,7 @@ async def _summarize_with_main_api(
     user: Any,
     request: Request,
     is_user_model: bool,
+    model_config: Optional[Dict] = None,
 ) -> str:
     """
     使用主对话 API 生成摘要（内部函数）
@@ -541,8 +545,25 @@ async def _summarize_with_main_api(
     1. 自动复用用户的 API 配置（base_url, api_key）
     2. 自动判断是否扣费（is_user_model=True 时不扣费）
     3. 使用当前会话的模型（而不是固定的 gpt-4.1-mini）
+    4. 通过 request.state 直接传递已验证的模型配置,避免重复查找和验证
     """
     from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
+
+    # 【关键】如果没有提供已验证的模型配置,记录警告
+    # 对于非 OpenAI 官方模型(如 Gemini, Claude 等),必须传递 model_config
+    # 否则会因为缓存查找失败而导致摘要生成失败
+    if not model_config:
+        log.warning(
+            f"摘要生成未收到 model_config,将尝试从缓存查找模型 {model_id}。"
+            f"对于非 OpenAI 模型,这可能会失败。建议调用方传递 model_config 参数。"
+        )
+    else:
+        # 如果提供了已验证的模型配置,注入到 request.state 中
+        # 这样 generate_openai_chat_completion 就会使用"私有模型"路径(openai.py lines 878-888)
+        # 绕过模型缓存查找(lines 920-926),直接使用已验证的配置
+        request.state.direct = True
+        request.state.model = model_config
+        log.debug(f"摘要生成使用传入的 model_config: {model_config.get('id', 'unknown')}")
 
     # 1. 构建摘要 prompt
     # 排序并截断消息（最近 120 条）
@@ -596,7 +617,9 @@ async def _summarize_with_main_api(
             return ""
 
     except Exception as e:
-        log.error(f"摘要生成失败: {e}")
+        log.error(f"摘要生成失败 (model={model_id}): {e}")
+        # 不再使用后备模型，直接失败
+        # 原因：用户希望摘要使用与主对话完全一致的模型，不应该回退到其他模型
         return ""
 
 def compute_token_count(messages: List[Dict]) -> int:

@@ -1682,6 +1682,7 @@ async def chat_completion(
                         user=user,
                         request=request,
                         is_user_model=is_user_model,
+                        model_config=model,  # 传递完整的模型配置对象
                     )
                 else:
                     # 3. 如果消息量很大，进行分块压缩
@@ -1718,6 +1719,7 @@ async def chat_completion(
                         user=user,
                         request=request,
                         is_user_model=is_user_model,
+                        model_config=model,  # 传递完整的模型配置对象
                     )
 
                     if CHAT_DEBUG_FLAG:
@@ -1730,6 +1732,7 @@ async def chat_completion(
                         user=user,
                         request=request,
                         is_user_model=is_user_model,
+                        model_config=model,  # 传递完整的模型配置对象
                     )
                     
                     messages_for_summary = recent_messages # 用于后续计算 last_id 等
