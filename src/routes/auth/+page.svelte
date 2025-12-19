@@ -29,6 +29,7 @@
 	import Modal from '$lib/components/common/Modal.svelte';
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
+	import TextSecurityInput from '$lib/components/common/TextSecurityInput.svelte';
 	import { redirect } from '@sveltejs/kit';
 
 	const i18n = getContext('i18n');
@@ -97,11 +98,10 @@
 	};
 
 	const signUpHandler = async () => {
-		if ($config?.features?.enable_signup_password_confirmation) {
-			if (password !== confirmPassword) {
-				toast.error($i18n.t('Passwords do not match.'));
-				return;
-			}
+		// 强制验证两次密码必须一致
+		if (password !== confirmPassword) {
+			toast.error($i18n.t('Passwords do not match.'));
+			return;
 		}
 
 		if (!verificationCode) {
@@ -494,16 +494,26 @@
 											<label for="password" class="text-sm font-medium text-left mb-1 block"
 												>{$i18n.t('Password')}</label
 											>
-											<SensitiveInput
-												bind:value={password}
-												type="password"
-												id="password"
-												class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
-												placeholder={$i18n.t('Enter Your Password')}
-												autocomplete={mode === 'signup' ? 'new-password' : 'current-password'}
-												name="password"
-												required
-											/>
+											{#if mode === 'signup' || mode === 'reset'}
+												<TextSecurityInput
+													bind:value={password}
+													id="password"
+													inputClassName="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
+													placeholder={$i18n.t('Enter Your Password')}
+													required
+												/>
+											{:else}
+												<SensitiveInput
+													bind:value={password}
+													type="password"
+													id="password"
+													class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
+													placeholder={$i18n.t('Enter Your Password')}
+													autocomplete="current-password"
+													name="password"
+													required
+												/>
+											{/if}
 										</div>
 
 										{#if mode === 'signin'}
@@ -565,39 +575,18 @@
 											</div>
 										{/if}
 
-										{#if mode === 'signup' && $config?.features?.enable_signup_password_confirmation}
+										{#if mode === 'signup' || mode === 'reset'}
 											<div class="mt-2">
 												<label
 													for="confirm-password"
 													class="text-sm font-medium text-left mb-1 block"
 													>{$i18n.t('Confirm Password')}</label
 												>
-												<SensitiveInput
+												<TextSecurityInput
 													bind:value={confirmPassword}
-													type="password"
 													id="confirm-password"
-													class="my-0.5 w-full text-sm outline-hidden bg-transparent"
+													inputClassName="my-0.5 w-full text-sm outline-hidden bg-transparent"
 													placeholder={$i18n.t('Confirm Your Password')}
-													autocomplete="new-password"
-													name="confirm-password"
-													required
-												/>
-											</div>
-										{:else if mode === 'reset'}
-											<div class="mt-2">
-												<label
-													for="confirm-password"
-													class="text-sm font-medium text-left mb-1 block"
-													>{$i18n.t('Confirm Password')}</label
-												>
-												<SensitiveInput
-													bind:value={confirmPassword}
-													type="password"
-													id="confirm-password"
-													class="my-0.5 w-full text-sm outline-hidden bg-transparent"
-													placeholder={$i18n.t('Confirm Your Password')}
-													autocomplete="new-password"
-													name="confirm-password"
 													required
 												/>
 											</div>
