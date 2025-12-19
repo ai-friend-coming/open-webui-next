@@ -28,9 +28,7 @@ DEFAULT_PRICING = {
     # - mem0.search: 0.0005元 -> 5毫
     # - mem0.add:    0.0035元 -> 35毫
     # 计费时可用 1,000,000 tokens 作为单位，配合以下单价得到固定费用
-    "rag.mem0.search": {"input": 5, "output": 0},
-    "rag.mem0.add": {"input": 35, "output": 0},
-
+    "rag": {"input": 50000, "output": 0},  # 0.0005元/M -> 5毫/M
     # 默认价格（未配置的模型使用此价格）
     "default": {"input": 10000, "output": 20000},  # 1元/M -> 10000毫/M
 }

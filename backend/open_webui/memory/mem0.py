@@ -15,21 +15,30 @@ memory_client = MemoryClient(api_key=mem0_api_key)
 
 # 计费常量
 BILLING_UNIT_TOKENS = 1
-MEM0_SEARCH_MODEL_ID = "rag.mem0.search"
-MEM0_ADD_MODEL_ID = "rag.mem0.add"
+MEM0_SEARCH_MODEL_ID = "rag"
+MEM0_ADD_MODEL_ID = "rag"
 
 
-def _charge_mem0(user_id: str, model_id: str):
+def _charge_mem0(user_id: str, model_id: str, type: str = "search"):
     """
     为 mem0 操作扣费。利用固定 token 单位和 ratio.py 中的定价得到固定费用。
     """
-    deduct_balance(
-        user_id=user_id,
-        model_id=model_id,
-        prompt_tokens=BILLING_UNIT_TOKENS,
-        completion_tokens=0,
-        log_type="RAG",
-    )
+    if type == "search":
+        deduct_balance(
+            user_id=user_id,
+            model_id=model_id,
+            prompt_tokens=1,
+            completion_tokens=0,
+            log_type="RAG",
+        )
+    else:
+        deduct_balance(
+            user_id=user_id,
+            model_id=model_id,
+            prompt_tokens=7,
+            completion_tokens=0,
+            log_type="RAG",
+        )
 
 async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str]:
     """
@@ -58,7 +67,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
     """
     try:
         # 先对检索计费
-        _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
+        _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID, type="search")
         # TODO: 接入真实 Mem0 检索
         log.info(f"mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         serach_rst = memory_client.search(
@@ -74,7 +83,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
         added_messages= [{"role": "user", "content": last_message}]
         memory_client.add(added_messages, user_id=user_id,enable_graph=True,async_mode=True, metadata={"session_id": chat_id})
         # 再对添加计费
-        # _charge_mem0(user_id, MEM0_ADD_MODEL_ID)
+        _charge_mem0(user_id, MEM0_ADD_MODEL_ID, type="add")
         log.info(f"mem0_add added message for user_id: {user_id}")
         return memories
     except Exception as e:
