@@ -106,11 +106,37 @@ class HistorySummarizer:
             else:
                 try:
                     # 尝试从配置获取 API Key 和 Base URL
+                    from open_webui.config import OPENAI_API_CONFIGS
+                    
                     api_keys = OPENAI_API_KEYS.value if hasattr(OPENAI_API_KEYS, "value") else []
                     base_urls = OPENAI_API_BASE_URLS.value if hasattr(OPENAI_API_BASE_URLS, "value") else []
+                    configs = OPENAI_API_CONFIGS.value if hasattr(OPENAI_API_CONFIGS, "value") else {}
                     
-                    api_key = api_keys[0] if api_keys else os.environ.get("OPENAI_API_KEY")
-                    base_url = base_urls[0] if base_urls else os.environ.get("OPENAI_API_BASE_URL")
+                    api_key = None
+                    base_url = None
+                    
+                    # 1. 尝试从 OPENAI_API_CONFIGS 中查找模型对应的配置
+                    if configs:
+                        for key, config in configs.items():
+                            # 检查模型是否在该配置的模型列表中
+                            if model in config.get("model_ids", []):
+                                try:
+                                    idx = int(key)
+                                    if idx < len(api_keys):
+                                        api_key = api_keys[idx]
+                                    if idx < len(base_urls):
+                                        base_url = base_urls[idx]
+                                    log.info(f"Using config for model {model}: base_url={base_url}")
+                                    break
+                                except ValueError:
+                                    pass
+                    
+                    # 2. 如果没找到特定配置，回退到默认（第一个）配置
+                    if not api_key:
+                        api_key = api_keys[0] if api_keys else os.environ.get("OPENAI_API_KEY")
+                        
+                    if not base_url:
+                        base_url = base_urls[0] if base_urls else os.environ.get("OPENAI_API_BASE_URL")
                     
                     if api_key:
                         kwargs = {"api_key": api_key}
@@ -221,6 +247,31 @@ class HistorySummarizer:
             log.warning(f"Summarization failed: {e}")
             return None
 
+    def _parse_response(self, payload: str) -> HistorySummary:
+        data = _safe_json_loads(payload)
+        
+        # 如果解析出的 data 是空或者不是 dict，尝试直接用 payload
+        if not isinstance(data, dict) or (not data and not payload.strip().startswith("{")):
+             summary = payload.strip()
+             table = {}
+        else:
+            summary = str(data.get("summary", "")).strip()
+            table_payload = data.get("table", {}) or {}
+            table = {
+                "who": str(table_payload.get("who", "")).strip(),
+                "how": str(table_payload.get("how", "")).strip(),
+                "why": str(table_payload.get("why", "")).strip(),
+                "what": str(table_payload.get("what", "")).strip(),
+            }
+
+        if not summary:
+            summary = payload.strip()
+            
+        if len(summary) > 1000:
+            summary = summary[:1000].rstrip() + "..."
+            
+        return HistorySummary(summary=summary, table=table)
+
     def merge_summaries(
         self,
         summary_a: str,
@@ -284,30 +335,6 @@ class HistorySummarizer:
             log.warning(f"Merge failed: {e}")
             return None
 
-    def _parse_response(self, payload: str) -> HistorySummary:
-        data = _safe_json_loads(payload)
-        
-        # 如果解析出的 data 是空或者不是 dict，尝试直接用 payload
-        if not isinstance(data, dict) or (not data and not payload.strip().startswith("{")):
-             summary = payload.strip()
-             table = {}
-        else:
-            summary = str(data.get("summary", "")).strip()
-            table_payload = data.get("table", {}) or {}
-            table = {
-                "who": str(table_payload.get("who", "")).strip(),
-                "how": str(table_payload.get("how", "")).strip(),
-                "why": str(table_payload.get("why", "")).strip(),
-                "what": str(table_payload.get("what", "")).strip(),
-            }
-
-        if not summary:
-            summary = payload.strip()
-            
-        if len(summary) > 1000:
-            summary = summary[:1000].rstrip() + "..."
-            
-        return HistorySummary(summary=summary, table=table)
 
 def _safe_json_loads(raw: str) -> Dict[str, Any]:
     try:
@@ -549,21 +576,19 @@ async def _summarize_with_main_api(
     """
     from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
 
-    # 【关键】如果没有提供已验证的模型配置,记录警告
-    # 对于非 OpenAI 官方模型(如 Gemini, Claude 等),必须传递 model_config
-    # 否则会因为缓存查找失败而导致摘要生成失败
-    if not model_config:
-        log.warning(
-            f"摘要生成未收到 model_config,将尝试从缓存查找模型 {model_id}。"
-            f"对于非 OpenAI 模型,这可能会失败。建议调用方传递 model_config 参数。"
-        )
-    else:
-        # 如果提供了已验证的模型配置,注入到 request.state 中
-        # 这样 generate_openai_chat_completion 就会使用"私有模型"路径(openai.py lines 878-888)
-        # 绕过模型缓存查找(lines 920-926),直接使用已验证的配置
+    # 【关键】判断是否需要设置 direct 模式
+    # - 只有当 model_config 中包含 base_url（真正的私有模型）时才设置 direct 模式
+    # - 对于平台模型（只有 urlIdx），让 openai.py 走正常路径，通过 urlIdx 获取配置
+    #   这样可以利用 openai.py 中的 Gemini/Azure 特殊处理逻辑
+    if model_config and model_config.get("base_url"):
+        # 私有模型路径：直接使用 model_config 中的 base_url 和 api_key
         request.state.direct = True
         request.state.model = model_config
-        log.debug(f"摘要生成使用传入的 model_config: {model_config.get('id', 'unknown')}")
+        log.debug(f"摘要生成使用私有模型: {model_config.get('id', 'unknown')}, base_url={model_config.get('base_url')}")
+    else:
+        # 平台模型路径：不设置 direct，让 openai.py 自己查找模型配置
+        # 这样可以：1. 通过 urlIdx 获取正确的 API 配置  2. 应用 Gemini/Azure 特殊处理
+        log.debug(f"摘要生成使用平台模型: {model_id}")
 
     # 1. 构建摘要 prompt
     # 排序并截断消息（最近 120 条）
