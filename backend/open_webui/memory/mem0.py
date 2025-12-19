@@ -58,7 +58,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
     """
     try:
         # 先对检索计费
-        _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
+        # _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID)
         # TODO: 接入真实 Mem0 检索
         log.info(f"mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         serach_rst = memory_client.search(
@@ -74,7 +74,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
         added_messages= [{"role": "user", "content": last_message}]
         memory_client.add(added_messages, user_id=user_id,enable_graph=True,async_mode=True, metadata={"session_id": chat_id})
         # 再对添加计费
-        _charge_mem0(user_id, MEM0_ADD_MODEL_ID)
+        # _charge_mem0(user_id, MEM0_ADD_MODEL_ID)
         log.info(f"mem0_add added message for user_id: {user_id}")
         return memories
     except Exception as e:
