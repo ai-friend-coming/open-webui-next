@@ -14,9 +14,9 @@ mem0_api_key = os.getenv("MEM0_API_KEY")
 memory_client = MemoryClient(api_key=mem0_api_key)
 
 # 计费常量
-BILLING_UNIT_TOKENS = 0  # 以 100 万 tokens 作为固定计费单位
-MEM0_SEARCH_MODEL_ID = "rag"
-MEM0_ADD_MODEL_ID = "rag"
+BILLING_UNIT_TOKENS = 1
+MEM0_SEARCH_MODEL_ID = "RAG"
+MEM0_ADD_MODEL_ID = "RAG"
 
 
 def _charge_mem0(user_id: str, model_id: str):
@@ -29,7 +29,7 @@ def _charge_mem0(user_id: str, model_id: str):
         prompt_tokens=BILLING_UNIT_TOKENS,
         completion_tokens=0,
         estimated_tokens=BILLING_UNIT_TOKENS,
-        log_type="deduct",
+        log_type="RAG",
     )
 
 async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str]:
@@ -73,7 +73,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
             log.info(f"mem0_search_and_add found {len(serach_rst['results'])} results")
             memories=serach_rst["results"]
         added_messages= [{"role": "user", "content": last_message}]
-        memory_client.add(added_messages, user_id=user_id,enable_graph=True,async_mode=False, metadata={"session_id": chat_id})
+        memory_client.add(added_messages, user_id=user_id,enable_graph=True,async_mode=True, metadata={"session_id": chat_id})
         # 再对添加计费
         _charge_mem0(user_id, MEM0_ADD_MODEL_ID)
         log.info(f"mem0_add added message for user_id: {user_id}")
