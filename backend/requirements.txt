@@ -153,3 +153,4 @@ opentelemetry-instrumentation-aiohttp-client==0.58b0
 
 # mem0
 mem0ai>=1.0.1
+jieba>=0.42.0
