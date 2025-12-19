@@ -517,20 +517,11 @@
     const importChatsHandler = async (_chats) => {
         let chatsToImport = _chats;
 
-        // [MODIFIED] Logic to intercept DeepSeek/OpenAI imports
-        // Check if the input is in OpenAI/DeepSeek export format (has 'mapping')
-        // and convert if necessary before passing to the standard import logic.
-        if (Array.isArray(chatsToImport)) {
-             chatsToImport = chatsToImport.map(item => {
-                 if (item.mapping) {
-                     return { chat: convertLegacyChat(item), meta: {} };
-                 }
-                 return item;
-             });
-        }
-
+        // 先检测原始数据的格式，再根据格式选择对应的转换函数
         const origin = getImportOrigin(chatsToImport);
+
         if (origin === 'deepseek') {
+            // 使用 DeepSeek 专用转换函数
             try {
                 chatsToImport = convertDeepseekChats(chatsToImport);
             } catch (error) {
@@ -538,7 +529,18 @@
                 toast.error('DeepSeek 聊天转换失败');
                 return;
             }
+        } else if (origin === 'openai') {
+            // 使用 OpenAI 转换函数
+            if (Array.isArray(chatsToImport)) {
+                chatsToImport = chatsToImport.map(item => {
+                    if (item.mapping) {
+                        return { chat: convertLegacyChat(item), meta: {} };
+                    }
+                    return item;
+                });
+            }
         }
+        // else origin === 'webui', 原生格式不需要转换
 
         for (const chat of chatsToImport) {
             console.log(chat);
