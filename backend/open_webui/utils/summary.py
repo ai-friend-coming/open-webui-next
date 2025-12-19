@@ -350,6 +350,33 @@ def _safe_json_loads(raw: str) -> Dict[str, Any]:
         return {}
 
 
+def _parse_response(payload: str) -> HistorySummary:
+    """解析摘要 API 响应（独立函数，供 _summarize_with_main_api 使用）"""
+    data = _safe_json_loads(payload)
+
+    # 如果解析出的 data 是空或者不是 dict，尝试直接用 payload
+    if not isinstance(data, dict) or (not data and not payload.strip().startswith("{")):
+        summary = payload.strip()
+        table = {}
+    else:
+        summary = str(data.get("summary", "")).strip()
+        table_payload = data.get("table", {}) or {}
+        table = {
+            "who": str(table_payload.get("who", "")).strip(),
+            "how": str(table_payload.get("how", "")).strip(),
+            "why": str(table_payload.get("why", "")).strip(),
+            "what": str(table_payload.get("what", "")).strip(),
+        }
+
+    if not summary:
+        summary = payload.strip()
+
+    if len(summary) > 1000:
+        summary = summary[:1000].rstrip() + "..."
+
+    return HistorySummary(summary=summary, table=table)
+
+
 # --- Core Logic Modules ---
 
 def build_ordered_messages(
@@ -556,6 +583,22 @@ async def summarize(
         return result.summary if result else ""
 
 
+def _extract_text_content(content) -> str:
+    """从消息 content 中提取文本（处理字符串和列表格式）"""
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        # 多模态消息，提取 text 部分
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                texts.append(item)
+        return " ".join(texts)
+    return str(content) if content else ""
+
+
 async def _summarize_with_main_api(
     messages: List[Dict],
     old_summary: Optional[str],
@@ -575,45 +618,56 @@ async def _summarize_with_main_api(
     4. 通过 request.state 直接传递已验证的模型配置,避免重复查找和验证
     """
     from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
+    from starlette.responses import JSONResponse, Response
 
-    # 【关键】判断是否需要设置 direct 模式
-    # - 只有当 model_config 中包含 base_url（真正的私有模型）时才设置 direct 模式
-    # - 对于平台模型（只有 urlIdx），让 openai.py 走正常路径，通过 urlIdx 获取配置
-    #   这样可以利用 openai.py 中的 Gemini/Azure 特殊处理逻辑
-    if model_config and model_config.get("base_url"):
-        # 私有模型路径：直接使用 model_config 中的 base_url 和 api_key
-        request.state.direct = True
-        request.state.model = model_config
-        log.debug(f"摘要生成使用私有模型: {model_config.get('id', 'unknown')}, base_url={model_config.get('base_url')}")
-    else:
-        # 平台模型路径：不设置 direct，让 openai.py 自己查找模型配置
-        # 这样可以：1. 通过 urlIdx 获取正确的 API 配置  2. 应用 Gemini/Azure 特殊处理
-        log.debug(f"摘要生成使用平台模型: {model_id}")
+    # 0. 空消息检查
+    if not messages and not old_summary:
+        log.warning("摘要生成跳过：无消息且无旧摘要")
+        return ""
 
-    # 1. 构建摘要 prompt
-    # 排序并截断消息（最近 120 条）
-    sorted_messages = sorted(messages, key=lambda m: m.get('timestamp', 0) if isinstance(m.get('timestamp'), (int, float)) else 0)
-    trail = sorted_messages[-120:]
-    transcript = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in trail)
-
-    prompt = SUMMARY_PROMPT.format(
-        existing_summary=old_summary.strip() if old_summary else "无",
-        chat_transcript=transcript,
-    )
-
-    # 2. 构造请求参数（OpenAI 格式）
-    form_data = {
-        "model": model_id or "gpt-4o-mini",  # 默认使用 gpt-4o-mini
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,  # 摘要不使用流式
-        "max_tokens": 2000,  # 安全值，防止截断
-        "temperature": 0.1,  # 低温度保证稳定性
-        "is_user_model": is_user_model,  # ← 关键：用户模型标记（控制是否扣费）
-    }
-
-    log.info(f"开始生成摘要: model={model_id}, is_user_model={is_user_model}, messages_count={len(messages)}")
+    # 保存原始 request.state 值，用于后续恢复
+    original_direct = getattr(request.state, "direct", None)
+    original_model = getattr(request.state, "model", None)
 
     try:
+        # 【关键】判断是否需要设置 direct 模式
+        # - 只有当 model_config 中包含 base_url（真正的私有模型）时才设置 direct 模式
+        # - 对于平台模型（只有 urlIdx），让 openai.py 走正常路径，通过 urlIdx 获取配置
+        #   这样可以利用 openai.py 中的 Gemini/Azure 特殊处理逻辑
+        if model_config and model_config.get("base_url"):
+            # 私有模型路径：直接使用 model_config 中的 base_url 和 api_key
+            request.state.direct = True
+            request.state.model = model_config
+            log.debug(f"摘要生成使用私有模型: {model_config.get('id', 'unknown')}, base_url={model_config.get('base_url')}")
+        else:
+            # 平台模型路径：不设置 direct，让 openai.py 自己查找模型配置
+            # 这样可以：1. 通过 urlIdx 获取正确的 API 配置  2. 应用 Gemini/Azure 特殊处理
+            log.debug(f"摘要生成使用平台模型: {model_id}")
+
+        # 1. 构建摘要 prompt
+        # 排序并截断消息（最近 120 条）
+        sorted_messages = sorted(messages, key=lambda m: m.get('timestamp', 0) if isinstance(m.get('timestamp'), (int, float)) else 0)
+        trail = sorted_messages[-120:]
+        # 使用 _extract_text_content 处理多模态消息
+        transcript = "\n".join(f"{m.get('role', 'user')}: {_extract_text_content(m.get('content', ''))}" for m in trail)
+
+        prompt = SUMMARY_PROMPT.format(
+            existing_summary=old_summary.strip() if old_summary else "无",
+            chat_transcript=transcript,
+        )
+
+        # 2. 构造请求参数（OpenAI 格式）
+        form_data = {
+            "model": model_id or "gpt-4o-mini",  # 默认使用 gpt-4o-mini
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,  # 摘要不使用流式
+            "max_tokens": 2000,  # 安全值，防止截断
+            "temperature": 0.1,  # 低温度保证稳定性
+            "is_user_model": is_user_model,  # ← 关键：用户模型标记（控制是否扣费）
+        }
+
+        log.info(f"开始生成摘要: model={model_id}, is_user_model={is_user_model}, messages_count={len(messages)}")
+
         # 3. 调用主对话 API
         response = await generate_openai_chat_completion(
             request=request,
@@ -622,8 +676,9 @@ async def _summarize_with_main_api(
             bypass_filter=True,  # 跳过权限检查（摘要是系统内部调用）
         )
 
-        # 4. 解析响应
+        # 4. 解析响应（处理多种返回类型）
         if isinstance(response, dict):
+            # 正常响应：直接是 dict
             payload = response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
             # 记录 usage 信息（调试用）
@@ -637,6 +692,22 @@ async def _summarize_with_main_api(
             # 5. 解析 JSON 并提取摘要
             result = _parse_response(payload)
             return result.summary if result else ""
+
+        elif isinstance(response, JSONResponse):
+            # 错误响应：JSONResponse
+            # 尝试从 body 中提取错误信息
+            try:
+                error_body = response.body.decode("utf-8") if hasattr(response, "body") else str(response)
+                log.error(f"摘要 API 返回错误 (JSONResponse): status={response.status_code}, body={error_body[:500]}")
+            except Exception:
+                log.error(f"摘要 API 返回错误 (JSONResponse): status={response.status_code}")
+            return ""
+
+        elif isinstance(response, Response):
+            # 其他 Response 类型
+            log.error(f"摘要 API 返回意外响应类型: {type(response).__name__}, status={getattr(response, 'status_code', 'unknown')}")
+            return ""
+
         else:
             log.error(f"摘要 API 返回格式错误: {type(response)}")
             return ""
@@ -647,21 +718,40 @@ async def _summarize_with_main_api(
         # 原因：用户希望摘要使用与主对话完全一致的模型，不应该回退到其他模型
         return ""
 
+    finally:
+        # 【重要】恢复 request.state，避免污染后续请求
+        if original_direct is None:
+            if hasattr(request.state, "direct"):
+                delattr(request.state, "direct")
+        else:
+            request.state.direct = original_direct
+
+        if original_model is None:
+            if hasattr(request.state, "model"):
+                delattr(request.state, "model")
+        else:
+            request.state.model = original_model
+
 def compute_token_count(messages: List[Dict]) -> int:
     """
-    计算消息的 token 数量（占位实现）
+    计算消息的 token 数量（使用 tiktoken）
 
-    当前算法：4 字符 ≈ 1 token（粗略估算）
-    TODO：接入真实 tokenizer（如 tiktoken for OpenAI models）
+    复用 billing/core.py 中的 estimate_prompt_tokens 函数，
+    使用 cl100k_base encoding 进行准确的 token 计算。
     """
-    total_chars = 0
-    for msg in messages:
-        content = msg.get('content')
-        if isinstance(content, str):
-            total_chars += len(content)
-        elif isinstance(content, list):
-             for item in content:
-                 if isinstance(item, dict) and 'text' in item:
-                     total_chars += len(item['text'])
-    
-    return max(total_chars // 4, 0)
+    try:
+        from open_webui.billing.core import estimate_prompt_tokens
+        return estimate_prompt_tokens(messages, model_id="default")
+    except ImportError:
+        # 如果 billing 模块不可用，降级为字符估算
+        log.warning("billing 模块不可用，降级为字符估算")
+        total_chars = 0
+        for msg in messages:
+            content = msg.get('content')
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get('type') == 'text':
+                        total_chars += len(item.get('text', ''))
+        return max(total_chars // 4, 0)
