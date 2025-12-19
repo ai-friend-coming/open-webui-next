@@ -302,8 +302,11 @@
 
             let acceptedId = null;
 
-            // Accept nodes with content/system role; require model for non-user, but allow user without model
-            if (msg && effectiveModelId && (content || role === 'system')) {
+            // 跳过 OpenAI/ChatGPT 中标记为隐藏的消息
+            const isHidden = msg?.metadata?.is_visually_hidden_from_conversation === true;
+
+            // Accept nodes with content; skip empty system messages and hidden messages
+            if (msg && effectiveModelId && content && !isHidden) {
                 const messageId = msg.id || id;
                 acceptedId = messageId;
 

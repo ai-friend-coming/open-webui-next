@@ -764,8 +764,11 @@ const convertOpenAIMessages = (convo) => {
 
 		let acceptedId: string | null = null;
 
-		// Accept nodes with content or explicit system messages (even if empty content)
-		if (msg && (content || role === 'system')) {
+		// 跳过 OpenAI/ChatGPT 中标记为隐藏的消息
+		const isHidden = msg?.metadata?.is_visually_hidden_from_conversation === true;
+
+		// Accept nodes with content; skip empty messages and hidden messages
+		if (msg && content && !isHidden) {
 			const messageId = msg.id || id;
 			acceptedId = messageId;
 
