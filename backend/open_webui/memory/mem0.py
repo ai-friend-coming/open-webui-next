@@ -29,7 +29,7 @@ def _charge_mem0(user_id: str, model_id: str, type: str = "search"):
             model_id=model_id,
             prompt_tokens=1,
             completion_tokens=0,
-            log_type="deduct",
+            log_type="RAG",
         )
     else:
         deduct_balance(
@@ -37,7 +37,7 @@ def _charge_mem0(user_id: str, model_id: str, type: str = "search"):
             model_id=model_id,
             prompt_tokens=7,
             completion_tokens=0,
-            log_type="deduct",
+            log_type="RAG",
         )
 
 async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str]:

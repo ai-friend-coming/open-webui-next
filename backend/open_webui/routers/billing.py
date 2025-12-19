@@ -254,7 +254,7 @@ async def get_stats(
                 .filter(
                     BillingLog.user_id == user.id,
                     BillingLog.created_at >= cutoff,
-                    BillingLog.log_type.in_(["deduct", "settle"]),
+                    BillingLog.log_type.in_(["deduct", "settle","RAG"]),
                 )
                 .group_by("date", BillingLog.model_id)
                 .order_by("date")
@@ -296,7 +296,7 @@ async def get_stats(
                 .filter(
                     BillingLog.user_id == user.id,
                     BillingLog.created_at >= cutoff,
-                    BillingLog.log_type.in_(["deduct", "settle"]),
+                    BillingLog.log_type.in_(["deduct", "settle","RAG"]),
                 )
                 .group_by(BillingLog.model_id)
                 .order_by(func.sum(BillingLog.total_cost).desc())
