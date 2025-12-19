@@ -15,8 +15,8 @@ memory_client = MemoryClient(api_key=mem0_api_key)
 
 # 计费常量
 BILLING_UNIT_TOKENS = 1
-MEM0_SEARCH_MODEL_ID = "RAG"
-MEM0_ADD_MODEL_ID = "RAG"
+MEM0_SEARCH_MODEL_ID = "rag.mem0.search"
+MEM0_ADD_MODEL_ID = "rag.mem0.add"
 
 
 def _charge_mem0(user_id: str, model_id: str):
