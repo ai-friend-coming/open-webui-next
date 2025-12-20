@@ -84,6 +84,7 @@
     // Pagination variables
     let chatListLoading = false;
     let allChatsLoaded = false;
+    let initChatListLoading = false;
 
     let showCreateFolderModal = false;
 
@@ -183,48 +184,98 @@
     };
 
     const initChatList = async () => {
-        // Reset pagination variables
-        console.log('initChatList');
-        currentChatPage.set(1);
-        allChatsLoaded = false;
+        // 防止重复调用
+        if (initChatListLoading) {
+            console.log('initChatList already loading, skipping...');
+            return;
+        }
 
-        initFolders();
-        await Promise.all([
-            await (async () => {
-                console.log('Init tags');
-                const _tags = await getAllTags(localStorage.token);
-                tags.set(_tags);
-            })(),
-            await (async () => {
-                console.log('Init pinned chats');
-                const _pinnedChats = await getPinnedChatList(localStorage.token);
-                pinnedChats.set(_pinnedChats);
-            })(),
-            await (async () => {
-                console.log('Init chat list');
-                const _chats = await getChatList(localStorage.token, $currentChatPage);
-                await chats.set(_chats);
-            })()
-        ]);
+        initChatListLoading = true;
 
-        // Enable pagination
-        scrollPaginationEnabled.set(true);
+        try {
+            // Reset pagination variables
+            console.log('initChatList');
+            currentChatPage.set(1);
+            allChatsLoaded = false;
+
+            initFolders();
+
+            // 移除多余的 await，为每个请求添加独立的错误处理
+            await Promise.all([
+                (async () => {
+                    console.log('Init tags');
+                    try {
+                        const _tags = await getAllTags(localStorage.token);
+                        tags.set(_tags);
+                    } catch (err) {
+                        console.error('Failed to load tags:', err);
+                        toast.error($i18n.t('Failed to load tags'));
+                        tags.set([]);
+                    }
+                })(),
+                (async () => {
+                    console.log('Init pinned chats');
+                    try {
+                        const _pinnedChats = await getPinnedChatList(localStorage.token);
+                        pinnedChats.set(_pinnedChats);
+                    } catch (err) {
+                        console.error('Failed to load pinned chats:', err);
+                        toast.error($i18n.t('Failed to load pinned chats'));
+                        pinnedChats.set([]);
+                    }
+                })(),
+                (async () => {
+                    console.log('Init chat list');
+                    try {
+                        const _chats = await getChatList(localStorage.token, $currentChatPage);
+                        await chats.set(_chats);
+                    } catch (err) {
+                        console.error('Failed to load chat list:', err);
+                        toast.error($i18n.t('Failed to load chat list'));
+                        await chats.set([]);
+                    }
+                })()
+            ]);
+
+            // Enable pagination
+            scrollPaginationEnabled.set(true);
+        } catch (err) {
+            console.error('Unexpected error in initChatList:', err);
+        } finally {
+            initChatListLoading = false;
+        }
     };
 
     const loadMoreChats = async () => {
+        // 防止重复加载
+        if (chatListLoading || allChatsLoaded) {
+            return;
+        }
+
         chatListLoading = true;
 
-        currentChatPage.set($currentChatPage + 1);
+        try {
+            currentChatPage.set($currentChatPage + 1);
 
-        let newChatList = [];
+            // 添加错误处理
+            const newChatList = await getChatList(localStorage.token, $currentChatPage).catch((err) => {
+                console.error('Failed to load more chats:', err);
+                toast.error($i18n.t('Failed to load more chats'));
+                return [];
+            });
 
-        newChatList = await getChatList(localStorage.token, $currentChatPage);
+            // once the bottom of the list has been reached (no results) there is no need to continue querying
+            allChatsLoaded = newChatList.length === 0;
 
-        // once the bottom of the list has been reached (no results) there is no need to continue querying
-        allChatsLoaded = newChatList.length === 0;
-        await chats.set([...($chats ? $chats : []), ...newChatList]);
-
-        chatListLoading = false;
+            if (newChatList.length > 0) {
+                await chats.set([...($chats ? $chats : []), ...newChatList]);
+            }
+        } catch (err) {
+            console.error('Unexpected error in loadMoreChats:', err);
+        } finally {
+            // 确保总是重置 loading 状态
+            chatListLoading = false;
+        }
     };
 
     // Helper to convert OpenAI/DeepSeek "mapping" format to OpenWebUI format
@@ -1145,7 +1196,25 @@
 
                     <div class=" flex-1 flex flex-col overflow-y-auto scrollbar-hidden">
                         <div class="pt-1.5">
-                            {#if $chats}
+                            {#if $chats === null}
+                                <!-- 加载中状态 -->
+                                <div
+                                    class="w-full flex justify-center py-1 text-xs animate-pulse items-center gap-2"
+                                >
+                                    <Spinner className=" size-4" />
+                                    <div class=" ">{$i18n.t('Loading...')}</div>
+                                </div>
+                            {:else if $chats.length === 0}
+                                <!-- 空状态 UI -->
+                                <div class="flex flex-col items-center justify-center py-8 text-gray-500">
+                                    <div class="text-4xl mb-2">💬</div>
+                                    <div class="text-sm">还没有聊天</div>
+                                    <div class="text-xs mt-1 text-center px-4">
+                                        开始新对话
+                                    </div>
+                                </div>
+                            {:else}
+                                <!-- 聊天列表 -->
                                 {#each $chats as chat, idx (`chat-${chat?.id ?? idx}`)}
                                     {#if idx === 0 || (idx > 0 && chat.time_range !== $chats[idx - 1].time_range)}
                                         <div
@@ -1196,13 +1265,6 @@
                                         </div>
                                     </Loader>
                                 {/if}
-                            {:else}
-                                <div
-                                    class="w-full flex justify-center py-1 text-xs animate-pulse items-center gap-2"
-                                >
-                                    <Spinner className=" size-4" />
-                                    <div class=" ">{$i18n.t('Loading...')}</div>
-                                </div>
                             {/if}
                         </div>
                     </div>

@@ -155,6 +155,11 @@ export const getChatList = async (
 		throw error;
 	}
 
+	// 防止 null.map() 崩溃
+	if (!res || !Array.isArray(res)) {
+		return [];
+	}
+
 	return res.map((chat) => ({
 		...chat,
 		time_range: getTimeRange(chat.updated_at)
@@ -209,6 +214,11 @@ export const getChatListByUserId = async (
 		throw error;
 	}
 
+	// 防止 null.map() 崩溃
+	if (!res || !Array.isArray(res)) {
+		return [];
+	}
+
 	return res.map((chat) => ({
 		...chat,
 		time_range: getTimeRange(chat.updated_at)
@@ -256,6 +266,11 @@ export const getArchivedChatList = async (
 
 	if (error) {
 		throw error;
+	}
+
+	// 防止 null.map() 崩溃
+	if (!res || !Array.isArray(res)) {
+		return [];
 	}
 
 	return res.map((chat) => ({
@@ -325,6 +340,11 @@ export const getChatListBySearchText = async (token: string, text: string, page:
 
 	if (error) {
 		throw error;
+	}
+
+	// 防止 null.map() 崩溃
+	if (!res || !Array.isArray(res)) {
+		return [];
 	}
 
 	return res.map((chat) => ({
@@ -524,6 +544,11 @@ export const getPinnedChatList = async (token: string = '') => {
 		throw error;
 	}
 
+	// 防止 null.map() 崩溃
+	if (!res || !Array.isArray(res)) {
+		return [];
+	}
+
 	return res.map((chat) => ({
 		...chat,
 		time_range: getTimeRange(chat.updated_at)
@@ -559,6 +584,11 @@ export const getChatListByTagName = async (token: string = '', tagName: string) 
 
 	if (error) {
 		throw error;
+	}
+
+	// 防止 null.map() 崩溃
+	if (!res || !Array.isArray(res)) {
+		return [];
 	}
 
 	return res.map((chat) => ({
