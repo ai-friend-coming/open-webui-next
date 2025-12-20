@@ -4,6 +4,7 @@ import sys
 import os
 import base64
 import textwrap
+from datetime import datetime
 
 import asyncio
 from aiocache import cached
@@ -1220,6 +1221,24 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             )
         except:
             pass
+
+    # === 2.5 注入北京时间到系统消息 ===
+    try:
+        # 获取当前 UTC 时间并转换为北京时间 (UTC+8)
+        utc_now = datetime.utcnow()
+        beijing_time = datetime.fromtimestamp(utc_now.timestamp() + 8 * 3600)
+        beijing_time_str = beijing_time.strftime("%Y年%m月%d日 %H:%M:%S")
+        weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        weekday = weekday_names[beijing_time.weekday()]
+
+        time_context = f"Current Time (Beijing): {beijing_time_str} {weekday}"
+
+        # 将时间信息注入到系统消息中
+        form_data["messages"] = add_or_update_system_message(
+            time_context, form_data["messages"], append=True
+        )
+    except Exception as e:
+        log.error(f"Error injecting Beijing time: {e}")
 
     # === 3. 初始化事件发射器和回调 ===
     event_emitter = get_event_emitter(metadata)  # WebSocket 事件发射器
