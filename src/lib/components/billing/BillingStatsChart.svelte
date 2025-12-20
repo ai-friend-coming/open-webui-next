@@ -2,6 +2,7 @@
 	import { onMount, onDestroy, getContext, tick } from 'svelte';
 	import { billingStats } from '$lib/stores';
 	import { getBillingStats } from '$lib/apis/billing';
+	import { getModelColor } from '$lib/utils/colors';
 	import { toast } from 'svelte-sonner';
 
 	const i18n = getContext('i18n');
@@ -58,22 +59,6 @@
 		}
 	};
 
-	// 模型颜色配置
-	const MODEL_COLORS = [
-		'#4F46E5', // indigo
-		'#10B981', // emerald
-		'#F59E0B', // amber
-		'#EF4444', // red
-		'#8B5CF6', // violet
-		'#06B6D4', // cyan
-		'#EC4899', // pink
-		'#84CC16', // lime
-		'#F97316', // orange
-		'#6366F1', // indigo-light
-	];
-
-	const getModelColor = (index: number) => MODEL_COLORS[index % MODEL_COLORS.length];
-
 	const renderChart = () => {
 		if (!$billingStats || !echarts || !chart) return;
 
@@ -94,7 +79,7 @@
 					barWidth: '50%',
 					data: data.map((d: any) => d.by_model?.[model] || 0),
 					itemStyle: {
-						color: getModelColor(index),
+						color: getModelColor(model),
 						// 只有最后一个（堆叠顶部）才有圆角
 						borderRadius: index === models.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]
 					}

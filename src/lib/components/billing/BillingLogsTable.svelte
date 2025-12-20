@@ -3,6 +3,7 @@
 	import { billingLogs } from '$lib/stores';
 	import { getBillingLogs } from '$lib/apis/billing';
 	import { formatCurrency, formatDate } from '$lib/stores';
+	import { getModelColor } from '$lib/utils/colors';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { toast } from 'svelte-sonner';
 
@@ -152,12 +153,18 @@
 					<tr class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
 						<td class="px-4 py-3 text-sm whitespace-nowrap">{formatDate(log.created_at)}</td>
 						<td class="px-4 py-3 whitespace-nowrap">
-							<code
-								class="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono max-w-[160px] truncate inline-block align-middle"
-								title={log.model_id}
-							>
-								{log.model_id}
-							</code>
+							<div class="flex items-center gap-1.5">
+								<span
+									class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+									style="background-color: {getModelColor(log.model_id)}"
+								></span>
+								<code
+									class="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono max-w-[160px] truncate inline-block align-middle"
+									title={log.model_id}
+								>
+									{log.model_id}
+								</code>
+							</div>
 						</td>
 						<td class="px-4 py-3 whitespace-nowrap">
 							<div class="flex items-center gap-2">
