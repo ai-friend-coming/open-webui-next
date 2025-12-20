@@ -616,6 +616,11 @@ async def _summarize_with_main_api(
     2. 自动判断是否扣费（is_user_model=True 时不扣费）
     3. 使用当前会话的模型（而不是固定的 gpt-4.1-mini）
     4. 通过 request.state 直接传递已验证的模型配置,避免重复查找和验证
+
+    计费策略：
+    - 使用后付费模式（与 HistorySummarizer 一致）
+    - 成功时根据实际 usage 扣费，带 log_type="deduct_summary" 标签
+    - 失败时不扣费（API 返回错误或异常）
     """
     from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
     from starlette.responses import JSONResponse, Response
@@ -663,12 +668,11 @@ async def _summarize_with_main_api(
             "stream": False,  # 摘要不使用流式
             "max_tokens": 2000,  # 安全值，防止截断
             "temperature": 0.1,  # 低温度保证稳定性
-            "is_user_model": is_user_model,  # ← 关键：用户模型标记（控制是否扣费）
         }
 
         log.info(f"开始生成摘要: model={model_id}, is_user_model={is_user_model}, messages_count={len(messages)}")
 
-        # 3. 调用主对话 API
+        # 3. 直接调用 API（不使用 chat_with_billing，采用后付费模式）
         response = await generate_openai_chat_completion(
             request=request,
             form_data=form_data,
@@ -681,21 +685,48 @@ async def _summarize_with_main_api(
             # 正常响应：直接是 dict
             payload = response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-            # 记录 usage 信息（调试用）
+            # 提取 usage 信息
             usage = response.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+
             log.info(
                 f"摘要生成完成: model={model_id}, is_user_model={is_user_model}, "
-                f"tokens={usage.get('prompt_tokens', 0)}+{usage.get('completion_tokens', 0)}, "
+                f"tokens={prompt_tokens}+{completion_tokens}, "
                 f"payload_length={len(payload)}"
             )
 
-            # 5. 解析 JSON 并提取摘要
+            # 5. 后付费扣费（与 HistorySummarizer 一致的计费逻辑）
+            if not is_user_model and user and (prompt_tokens > 0 or completion_tokens > 0):
+                try:
+                    from open_webui.billing.core import deduct_balance
+
+                    user_id = getattr(user, "id", str(user))
+                    actual_model = model_id or "gpt-4o-mini"
+
+                    cost, balance = deduct_balance(
+                        user_id=user_id,
+                        model_id=actual_model,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        log_type="deduct_summary"  # 标记为摘要扣费
+                    )
+
+                    log.info(
+                        f"摘要生成计费成功: user={user_id} model={actual_model} "
+                        f"tokens={prompt_tokens}+{completion_tokens} "
+                        f"cost={cost / 10000:.4f}元 balance={balance / 10000:.4f}元"
+                    )
+                except Exception as e:
+                    # 计费失败不应中断摘要生成，只记录日志
+                    log.error(f"摘要生成计费失败: {e}")
+
+            # 6. 解析 JSON 并提取摘要
             result = _parse_response(payload)
             return result.summary if result else ""
 
         elif isinstance(response, JSONResponse):
-            # 错误响应：JSONResponse
-            # 尝试从 body 中提取错误信息
+            # 错误响应：JSONResponse（不扣费）
             try:
                 error_body = response.body.decode("utf-8") if hasattr(response, "body") else str(response)
                 log.error(f"摘要 API 返回错误 (JSONResponse): status={response.status_code}, body={error_body[:500]}")
@@ -704,7 +735,7 @@ async def _summarize_with_main_api(
             return ""
 
         elif isinstance(response, Response):
-            # 其他 Response 类型
+            # 其他 Response 类型（不扣费）
             log.error(f"摘要 API 返回意外响应类型: {type(response).__name__}, status={getattr(response, 'status_code', 'unknown')}")
             return ""
 
@@ -713,9 +744,8 @@ async def _summarize_with_main_api(
             return ""
 
     except Exception as e:
+        # 异常时不扣费
         log.error(f"摘要生成失败 (model={model_id}): {e}")
-        # 不再使用后备模型，直接失败
-        # 原因：用户希望摘要使用与主对话完全一致的模型，不应该回退到其他模型
         return ""
 
     finally:
