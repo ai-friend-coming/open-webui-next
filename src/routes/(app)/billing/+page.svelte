@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dev } from '$app/environment';
 	import { onMount, getContext } from 'svelte';
 	import { balance, showSidebar } from '$lib/stores';
 	import { getBalance } from '$lib/apis/billing';
@@ -53,8 +54,10 @@
 					<!-- 统计图表 -->
 					<BillingStatsChart />
 
-					<!-- 消费记录 -->
-					<BillingLogsTable />
+					<!-- 消费记录 (仅 debug 模式显示) -->
+					{#if dev}
+						<BillingLogsTable />
+					{/if}
 				</div>
 
 				<!-- 右侧充值卡片（固定宽度，移动端显示在上方） -->
