@@ -777,7 +777,7 @@
                         <div class=" self-center flex items-center justify-center size-9">
                             <img
                                 crossorigin="anonymous"
-                                src="static/favicon.png"
+                                src="{WEBUI_BASE_URL}/static/favicon.png"
                                 class="sidebar-new-chat-icon size-6 rounded-full group-hover:hidden invert"
                                 alt=""
                             />
@@ -900,7 +900,7 @@
                 >
                     <img
                         crossorigin="anonymous"
-                        src="static/favicon.png"
+                        src="{WEBUI_BASE_URL}/static/favicon.png"
                         class="sidebar-new-chat-icon size-6 rounded-full dark:invert"
                         alt=""
                     />
