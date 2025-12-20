@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { dev } from '$app/environment';
 	import { onMount, getContext } from 'svelte';
-	import { balance, showSidebar } from '$lib/stores';
+	import { balance, mobile, showSidebar } from '$lib/stores';
 	import { getBalance } from '$lib/apis/billing';
 	import BalanceDisplay from '$lib/components/billing/BalanceDisplay.svelte';
 	import BillingLogsTable from '$lib/components/billing/BillingLogsTable.svelte';
 	import BillingStatsChart from '$lib/components/billing/BillingStatsChart.svelte';
 	import LowBalanceAlert from '$lib/components/billing/LowBalanceAlert.svelte';
 	import RechargeCard from '$lib/components/billing/RechargeCard.svelte';
+	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import Sidebar from '$lib/components/icons/Sidebar.svelte';
 	import { toast } from 'svelte-sonner';
 
 	const i18n = getContext('i18n');
@@ -29,17 +31,44 @@
 <div
 	class="flex flex-col h-screen max-h-[100dvh] flex-1 transition-width duration-200 ease-in-out w-full max-w-full {$showSidebar
 		? 'md:max-w-[calc(100%-260px)]'
-		: 'md:max-w-[calc(100%-49px)]'}"
+		: ''}"
 >
-	<div class="flex-1 overflow-y-auto min-w-[320px]">
-		<div class="billing-page max-w-7xl mx-auto px-4 py-6 pb-16">
-			<!-- 页面标题 -->
-			<div class="page-header mb-6">
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">{$i18n.t('计费中心')}</h1>
-				<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-					{$i18n.t('查看您的余额、消费记录和统计信息')}
-				</p>
+	<!-- 顶部导航栏 -->
+	<nav class="px-2 pt-1.5 backdrop-blur-xl w-full drag-region">
+		<div class="flex items-center">
+			{#if $mobile}
+				<div class="{$showSidebar ? 'md:hidden' : ''} flex flex-none items-center">
+					<Tooltip
+						content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
+					>
+						<button
+							id="sidebar-toggle-button"
+							class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+							on:click={() => {
+								showSidebar.set(!$showSidebar);
+							}}
+						>
+							<div class="self-center p-1.5">
+								<Sidebar />
+							</div>
+						</button>
+					</Tooltip>
+				</div>
+			{/if}
+			<div class="ml-2 py-0.5 self-center flex items-center">
+				<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+					{$i18n.t('计费中心')}
+				</h1>
 			</div>
+		</div>
+	</nav>
+
+	<div class="flex-1 overflow-y-auto min-w-[320px]">
+		<div class="billing-page max-w-7xl mx-auto px-4 py-4 pb-16">
+			<!-- 页面副标题 -->
+			<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+				{$i18n.t('查看您的余额、消费记录和统计信息')}
+			</p>
 
 			<!-- 余额不足警告 -->
 			<LowBalanceAlert />
