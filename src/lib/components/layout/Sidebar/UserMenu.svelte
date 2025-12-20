@@ -23,7 +23,6 @@
 	import UserGroup from '$lib/components/icons/UserGroup.svelte';
 	import SignOut from '$lib/components/icons/SignOut.svelte';
 	import BalanceDisplay from '$lib/components/billing/BalanceDisplay.svelte';
-	import UserSuggestionModal from '$lib/components/common/UserSuggestionModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -35,7 +34,7 @@
 	const dispatch = createEventDispatcher();
 
 	let usage = null;
-	let showSuggestionModal = false;
+
 	const getUsageInfo = async () => {
 		const res = await getUsage(localStorage.token).catch((error) => {
 			console.error('Error fetching usage info:', error);
@@ -315,11 +314,15 @@
 				</DropdownMenu.Item>
 			{/if}
 
-			<DropdownMenu.Item
+			<a
+				href="/feedback"
 				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
-				on:click={() => {
+				on:click={async () => {
 					show = false;
-					showSuggestionModal = true;
+					if ($mobile) {
+						await tick();
+						showSidebar.set(false);
+					}
 				}}
 			>
 				<div class=" self-center mr-3">
@@ -336,7 +339,7 @@
 					</svg>
 				</div>
 				<div class=" self-center truncate">{$i18n.t('反馈')}</div>
-			</DropdownMenu.Item>
+			</a>
 
 			<hr class=" border-gray-50 dark:border-gray-800 my-1 p-0" />
 
@@ -400,10 +403,3 @@
 		</DropdownMenu.Content>
 	</slot>
 </DropdownMenu.Root>
-
-<UserSuggestionModal
-	bind:show={showSuggestionModal}
-	onClose={() => {
-		showSuggestionModal = false;
-	}}
-/>
