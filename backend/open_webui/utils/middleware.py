@@ -1121,95 +1121,46 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if perf_logger:
         perf_logger.mark_payload_checkpoint("apply_params")
 
-    # === 1 基于摘要的上下文裁剪与系统提示 ===
-    # - backend/open_webui/utils/middleware.py:process_chat_payload：
-    # 每次请求先读取存量摘要，按 last_summary_id 切片"前 20 条 + 之后全部"消息，再用摘要构建唯一的 system prompt 置前；
     chat_id = metadata.get("chat_id", None)
-    summary_record = None
-    ordered_messages = form_data.get("messages", [])
+    chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+    summary_record = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
 
-    # 1.1 读取摘要记录并裁剪消息列表
-    if chat_id and user and not str(chat_id).startswith("local:"):
-        try:
-            # 获取当前会话的摘要记录
-            summary_record = Chats.get_summary_by_user_id_and_chat_id(
-                user.id, chat_id
-            )
+    def messages_loaded():
+        # 1 注入 system prompt
+        summary_system_message = {
+            "role": "system",
+            "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
+        }
 
-            if perf_logger:
-                perf_logger.mark_payload_checkpoint("db_get_summary")
+        # 2 准备冷启动消息（直接读取消息内容）
+        # 获取冷启动消息（用于注入关键历史消息）
+        cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
 
-            # 获取冷启动消息（用于注入关键历史消息）
-            chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
-            cold_start_messages = []
-            if chat_item and isinstance(chat_item.meta, dict):
-                cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
+        # 基于摘要边界裁剪消息：保留边界前 20 条 + 边界后全部
+        messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+        current_message_id = metadata.get("message_id")
+        ordered_messages = slice_messages_with_summary(
+            messages_map,
+            summary_record.get("last_message_id") if summary_record else None,
+            current_message_id,
+            pre_boundary=30,
+        )
 
-            if perf_logger:
-                perf_logger.mark_payload_checkpoint("db_get_chat")
+        if perf_logger:
+            perf_logger.mark_payload_checkpoint("db_get_messages_map")
 
-            # 基于摘要边界裁剪消息：保留边界前 20 条 + 边界后全部
-            messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+        # 移除旧的 system 消息
+        non_system_messages = [
+            m for m in ordered_messages if m.get("role") != "system"
+        ]
 
-            if perf_logger:
-                perf_logger.mark_payload_checkpoint("db_get_messages_map")
-
-            anchor_id = metadata.get("message_id")
-            ordered_messages = slice_messages_with_summary(
-                messages_map,
-                summary_record.get("last_message_id") if summary_record else None,
-                anchor_id,
-                pre_boundary=20,
-            )
-
-        except Exception as e:
-            print(f"summary preprocessing failed: {e}")
-
-    # 1.2 准备冷启动消息（直接读取消息内容）
-    cold_start_for_insertion = []
-    if cold_start_messages and chat_id and not str(chat_id).startswith("local:"):
-        try:
-            seen_ids = {m.get("id") for m in ordered_messages if m.get("id")}
-
-            for msg_data in cold_start_messages:
-                if msg_data.get("id") not in seen_ids:
-                    cold_start_for_insertion.append(msg_data)
-                    seen_ids.add(msg_data.get("id"))
-
-        except Exception as e:
-            print(f"cold start processing failed: {e}")
-
-    # 1.3 注入摘要系统提示（替换原有 system 消息）并重新组织消息顺序
-    summary_system_message = {
-        "role": "system",
-        "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
-    }
-    # 移除旧的 system 消息
-    non_system_messages = [
-        m for m in ordered_messages if m.get("role") != "system"
-    ]
-
-    # 标记开始装入上下文
-    perf_logger = metadata.get("perf_logger")
-    if perf_logger:
-        perf_logger.mark_context_load(start=True)
-
-    # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
-    ordered_messages = [summary_system_message, *cold_start_for_insertion, *non_system_messages]
-
-    if ordered_messages:
+        # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
+        ordered_messages = [summary_system_message, *cold_start_messages, *non_system_messages]
         # 合并连续的同角色消息，避免 LLM API 报错
         ordered_messages = merge_consecutive_messages(ordered_messages)
-        form_data["messages"] = ordered_messages
+        return ordered_messages
 
-    # 标记装入上下文完成
-    if perf_logger:
-        perf_logger.mark_context_load(
-            start=False,
-            system_prompt=summary_system_message.get("content"),
-            cold_start_messages=cold_start_for_insertion,
-            ordered_messages=ordered_messages
-        )
+    form_data["messages"] = messages_loaded()
 
     # === 2. 处理 System Prompt 变量替换 ===
     system_message = get_system_message(form_data.get("messages", []))
@@ -2094,153 +2045,94 @@ async def process_chat_response(
                 # ========================================
                 # 任务 4: 摘要更新（基于新增 token 阈值）
                 # ========================================
-                try:
-                    # 获取 chat_id
+                async def update_summary():
+                    perf_logger = metadata.get("perf_logger")
                     chat_id = metadata.get("chat_id")
-                    if chat_id and not str(chat_id).startswith("local:"):
-                        # 阈值来自配置或全局开关
-                        threshold = getattr(
-                            request.app.state.config,
-                            "SUMMARY_TOKEN_THRESHOLD",
-                            SUMMARY_TOKEN_THRESHOLD_DEFAULT,
+                    messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+                    threshold = getattr(request.app.state.config, "SUMMARY_TOKEN_THRESHOLD", SUMMARY_TOKEN_THRESHOLD_DEFAULT)
+                    existing_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+
+                    # 已有摘要：只计算新增部分的 token
+                    current_message_id = metadata.get("message_id")
+                    new_messages = slice_messages_with_summary(
+                        messages_map = messages_map,
+                        boundary_message_id = existing_summary.get("last_message_id"),
+                        anchor_id = current_message_id,
+                        pre_boundary = 0,
+                    )
+                    # 只统计 user 和 assistant 消息
+                    new_messages = [msg for msg in new_messages if msg.get("role") in ("user", "assistant")]
+                    tokens = compute_token_count(new_messages)
+                    
+                    if CHAT_DEBUG_FLAG:
+                        print(
+                            f"[summary:update] chat_id={chat_id} 已有摘要，"
+                            f"新增消息数={len(new_messages)} 新增token={tokens} 阈值={threshold}"
                         )
 
-                        # 读取已有的 summary（提前读取，用于判断是否需要更新）
-                        existing_summary = Chats.get_summary_by_user_id_and_chat_id(
-                            user.id, chat_id
+                    # 若超过阈值，才生成/更新摘要
+                    if tokens >= threshold:
+                        # 读取已有的 summary
+                        old_summary = existing_summary.get("content")
+                        to_be_summarized_summary_messages = slice_messages_with_summary(
+                            messages_map,
+                            existing_summary.get("last_message_id") if existing_summary else None,
+                            metadata.get("message_id"),
+                            pre_boundary=0,
+                        )
+                        # 过滤
+                        to_be_summarized_summary_messages = [
+                            msg for msg in to_be_summarized_summary_messages if msg.get("role") in ("user", "assistant")
+                        ]
+
+                        # 标记 summary 更新开始
+                        if perf_logger:
+                            perf_logger.mark_summary_update(
+                                start=True,
+                                tokens=tokens,
+                                threshold=threshold,
+                                messages_count=len(to_be_summarized_summary_messages),
+                            )
+                        
+                        # 获取当前模型ID和用户模型标记，确保使用正确的模型进行摘要更新
+                        model_id = model.get("id") if model else None
+                        is_user_model = form_data.get("is_user_model", False)
+
+                        # 调用摘要生成（复用主对话 API，自动判断是否扣费）
+                        # 传递 model_config 以直接复用主对话的已验证模型配置，避免重复查找
+                        summary_text = await summarize(
+                            messages=to_be_summarized_summary_messages,
+                            old_summary=old_summary,
+                            model_id=model_id,
+                            user=user,
+                            request=request,
+                            is_user_model=is_user_model,
+                            model_config=model,  # 传递完整的模型配置对象
+                        )
+                        last_message_id = to_be_summarized_summary_messages[-1].get("id")
+                        Chats.set_summary_by_user_id_and_chat_id(
+                            user.id,
+                            chat_id,
+                            summary_text,
+                            last_message_id,
+                            int(time.time()),
+                            cold_start_messages=[],
                         )
 
-                        # 计算需要检查的 token 数
-                        # 策略：如果已有摘要，只计算"摘要边界后的新增消息"的 token 数
-                        #       如果无摘要，计算全量消息的 token 数
-                        if existing_summary:
-                            # 已有摘要：只计算新增部分的 token
-                            messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
-                            new_messages = slice_messages_with_summary(
-                                messages_map,
-                                existing_summary.get("last_message_id"),
-                                metadata.get("message_id"),
-                                pre_boundary=0,  # 不保留边界前的消息，只要边界后的
+                        # 记录 summary 更新使用的材料（summarize 函数的完整参数）
+                        # 标记 summary 更新结束
+                        if perf_logger:
+                            perf_logger.record_summary_materials(
+                                messages=to_be_summarized_summary_messages,      # summarize 的第1个参数
+                                old_summary=old_summary,        # summarize 的第2个参数
+                                model=model_id,                 # summarize 的第3个参数
+                                user_id=user.id,                # summarize 的第4个参数（user对象的id）
+                                new_summary=summary_text,       # summarize 的返回值
                             )
-                            # 只统计 user 和 assistant 消息
-                            new_messages = [
-                                msg for msg in new_messages
-                                if msg.get("role") in ("user", "assistant")
-                            ]
-                            tokens = compute_token_count(new_messages)
-
-                            if CHAT_DEBUG_FLAG:
-                                print(
-                                    f"[summary:update] chat_id={chat_id} 已有摘要，"
-                                    f"新增消息数={len(new_messages)} 新增token={tokens} 阈值={threshold}"
-                                )
-                        else:
-                            # 无摘要：计算全量 token（首次生成摘要）
-                            tokens = None
-                            if isinstance(usage_holder.get("usage"), dict):
-                                usage = usage_holder["usage"]
-                                tokens = usage.get("total_tokens") or usage.get("prompt_tokens")
-                            if tokens is None:
-                                tokens = compute_token_count(messages or [])
-
-                            if CHAT_DEBUG_FLAG:
-                                print(
-                                    f"[summary:update] chat_id={chat_id} 无摘要，"
-                                    f"全量token={tokens} 阈值={threshold}"
-                                )
-
-                        # 若超过阈值，才生成/更新摘要
-                        if tokens >= threshold:
-                            # 获取性能日志记录器
-                            perf_logger = metadata.get("perf_logger")
-
-                            # 读取已有的 summary
-                            existing_summary = Chats.get_summary_by_user_id_and_chat_id(
-                                user.id, chat_id
-                            )
-                            old_summary = (
-                                existing_summary.get("content")
-                                if existing_summary
-                                else None
-                            )
-
-                            # 取摘要边界前 20 条 + 之后所有消息
-                            # 注意：如果上面已读取 messages_map，复用它；否则重新读取
-                            if existing_summary and 'messages_map' in locals():
-                                # 已在上面读取过，直接复用
-                                pass
-                            else:
-                                messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
-
-                            ordered = slice_messages_with_summary(
-                                messages_map,
-                                existing_summary.get("last_message_id") if existing_summary else None,
-                                metadata.get("message_id"),
-                                pre_boundary=0,
-                            )
-
-                            summary_messages = [
-                                msg
-                                for msg in ordered
-                                if msg.get("role") in ("user", "assistant")
-                            ]
-                            # 标记 summary 更新开始
-                            if perf_logger:
-                                perf_logger.mark_summary_update(
-                                    start=True,
-                                    tokens=tokens,
-                                    threshold=threshold,
-                                    messages_count=len(summary_messages),
-                                )
-                            
-                            # 获取当前模型ID和用户模型标记，确保使用正确的模型进行摘要更新
-                            model_id = model.get("id") if model else None
-                            is_user_model = form_data.get("is_user_model", False)
-
-                            # 调用摘要生成（复用主对话 API，自动判断是否扣费）
-                            # 传递 model_config 以直接复用主对话的已验证模型配置，避免重复查找
-                            summary_text = await summarize(
-                                messages=summary_messages,
-                                old_summary=old_summary,
-                                model_id=model_id,
-                                user=user,
-                                request=request,
-                                is_user_model=is_user_model,
-                                model_config=model,  # 传递完整的模型配置对象
-                            )
-                            last_msg_id = (
-                                summary_messages[-1].get("id")
-                                if summary_messages
-                                else metadata.get("message_id")
-                            )
-                            Chats.set_summary_by_user_id_and_chat_id(
-                                user.id,
-                                chat_id,
-                                summary_text,
-                                last_msg_id,
-                                int(time.time()),
-                                cold_start_messages=[],
-                            )
-
-                            # 记录 summary 更新使用的材料（summarize 函数的完整参数）
-                            if perf_logger:
-                                perf_logger.record_summary_materials(
-                                    messages=summary_messages,      # summarize 的第1个参数
-                                    old_summary=old_summary,        # summarize 的第2个参数
-                                    model=model_id,                 # summarize 的第3个参数
-                                    user_id=user.id,                # summarize 的第4个参数（user对象的id）
-                                    new_summary=summary_text,       # summarize 的返回值
-                                )
-
-                            # 标记 summary 更新结束
-                            if perf_logger:
-                                perf_logger.mark_summary_update(start=False)
-                        else:
-                            # tokens 未超过阈值，不执行摘要更新
-                            pass
-                except Exception as e:
-                    log.debug(f"summary update skipped: {e}")
-
+                            perf_logger.mark_summary_update(start=False)
+                    else: # tokens 未超过阈值，不执行摘要更新
+                        pass
+                await update_summary()
     # ========================================
     # 第一阶段：事件发射器初始化
     # ========================================

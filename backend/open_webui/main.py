@@ -1671,18 +1671,8 @@ async def chat_completion(
                 # 检查是否已有摘要
                 old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
 
-                # 标记 ensure_initial_summary 开始
-                if perf_logger:
-                    perf_logger.mark_ensure_summary_start(
-                        has_existing_summary=bool(old_summary)
-                    )
-
                 if old_summary:
                     return
-
-                # 获取消息列表
-                # 如果历史消息非常多（比如刚导入的），只取最近的 N 条可能会丢失早期上下文
-                # 策略：分块生成摘要。先取较早的消息生成基础摘要，再结合最近消息生成最终摘要
 
                 # 1. 获取全量消息（按时间排序）
                 all_messages = get_recent_messages_by_user_id(user.id, chat_id, -1) # -1 表示获取全部
@@ -1690,110 +1680,36 @@ async def chat_completion(
                 if not all_messages:
                     return
 
-                # 2. 如果消息量适中 (< 200)，直接生成
-                if len(all_messages) <= 200:
-                    messages_for_summary = all_messages
-                    model_id = form_data.get("model")
+                # 2. 获取全量消息的最新100条
+                split_idx = max(len(all_messages) - 100, 0)
+                messages_for_summary = all_messages[split_idx:]
+                model_id = form_data.get("model")
 
-                    # 标记摘要生成开始
-                    if perf_logger:
-                        perf_logger.mark_summary_generation(
-                            start=True,
-                            messages=messages_for_summary,
-                            stage="适中消息量"
-                        )
-
-                    is_user_model = form_data.get("is_user_model", False)
-                    summary_text = await summarize(
-                        messages=messages_for_summary,
-                        old_summary=None,
-                        model_id=model_id,
-                        user=user,
-                        request=request,
-                        is_user_model=is_user_model,
-                        model_config=model,  # 传递完整的模型配置对象
+                # 标记摘要生成开始
+                if perf_logger:
+                    perf_logger.mark_summary_update(
+                        start=True,
+                        messages_count=len(messages_for_summary),
+                        is_initial=True  # 标识为初始摘要生成
                     )
 
-                    # 标记摘要生成结束
-                    if perf_logger:
-                        perf_logger.mark_summary_generation(start=False)
-                else:
-                    # 3. 如果消息量很大，进行分块压缩
-                    # 这里的策略是：
-                    # a. 取前 50% 的消息（或者前 N 条），生成一个 "Initial Summary"
-                    # b. 将这个 Initial Summary 作为 existing_summary，配合后半部分消息生成最终摘要
-                    
-                    # 简单的二分法：旧消息块 (除最后100条外) + 新消息块 (最后100条)
-                    # 这样能保证最近的对话被精细处理，而久远的对话被压缩
-                    split_idx = max(len(all_messages) - 100, 0)
-                    older_messages = all_messages[:split_idx]
-                    recent_messages = all_messages[split_idx:]
+                is_user_model = form_data.get("is_user_model", False)
+                summary_text = await summarize(
+                    messages=messages_for_summary,
+                    old_summary=None,
+                    model_id=model_id,
+                    user=user,
+                    request=request,
+                    is_user_model=is_user_model,
+                    model_config=model,  # 传递完整的模型配置对象
+                )
 
-                    model_id = form_data.get("model")
-                    is_user_model = form_data.get("is_user_model", False)
-                    
-                    # 第一步：压缩旧消息
-                    # 注意：如果旧消息依然过多（>500），summarize 内部会截取最后 max_messages（默认120），
-                    # 所以对于超大导入，我们可能需要循环压缩。但为了性能，这里暂只做一次“旧历史压缩”。
-                    # 为了让 summarize 能够处理更多旧消息，我们可以临时调大 max_messages 限制，
-                    # 或者分批调用。鉴于性能，我们只取旧消息的“精华片段”（比如每隔几条取一条，或者只取两端）。
-                    # 简化方案：直接把 older_messages 传给 summarize，让它内部去切片/截断
-                    # TODO: 真正完美的方案是循环 reduce，但耗时太久。
-
-                    # 标记基础摘要生成开始
-                    if perf_logger:
-                        perf_logger.mark_summary_generation(
-                            start=True,
-                            messages=older_messages,
-                            stage="分块压缩-基础摘要"
-                        )
-
-                    if CHAT_DEBUG_FLAG:
-                        print(f"[summary:init] 生成旧历史摘要 (msgs={len(older_messages)})...")
-
-                    base_summary = await summarize(
-                        messages=older_messages,
-                        old_summary=None,
-                        model_id=model_id,
-                        user=user,
-                        request=request,
-                        is_user_model=is_user_model,
-                        model_config=model,  # 传递完整的模型配置对象
-                    )
-
-                    if perf_logger:
-                        perf_logger.mark_summary_generation(start=False)
-
-                    # 第二步：基于旧摘要 + 最近消息生成最终摘要
-                    # 标记最终摘要生成开始
-                    if perf_logger:
-                        perf_logger.mark_summary_generation(
-                            start=True,
-                            messages=recent_messages,
-                            stage="分块压缩-最终摘要"
-                        )
-
-                    if CHAT_DEBUG_FLAG:
-                        print(f"[summary:init] 生成最终摘要 (base_summary_len={len(base_summary)}, recent_msgs={len(recent_messages)})...")
-
-                    summary_text = await summarize(
-                        messages=recent_messages,
-                        old_summary=base_summary,
-                        model_id=model_id,
-                        user=user,
-                        request=request,
-                        is_user_model=is_user_model,
-                        model_config=model,  # 传递完整的模型配置对象
-                    )
-
-                    if perf_logger:
-                        perf_logger.mark_summary_generation(start=False)
-
-                    messages_for_summary = recent_messages # 用于后续计算 last_id 等
-
+                # 标记摘要生成结束
+                if perf_logger:
+                    perf_logger.mark_summary_update(start=False)
                 last_id = messages_for_summary[-1].get("id") if messages_for_summary else None
-                
-                # 生成冷启动消息（完整内容，无截断）
+
+                # 使用最近的20条消息，作为冷启动消息
                 cold_start_messages = [
                     {
                         "id": m.get("id"),

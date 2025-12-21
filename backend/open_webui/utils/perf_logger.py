@@ -48,24 +48,15 @@ class ChatPerfLogger:
 
         # 时间戳
         self.t0 = None  # 接口调用开始
-        self.t1_ensure_summary = None  # ensure_initial_summary 开始
-        self.t2_summary_start = None  # 摘要生成开始
-        self.t2_summary_end = None  # 摘要生成结束
-        self.t3_context_load_start = None  # 上下文装入开始
-        self.t3_context_load_end = None  # 上下文装入结束
         self.t4_before_llm = None  # 调用 LLM 之前
         self.t5_first_token = None  # LLM 返回第一个 token
         self.t6_llm_complete = None  # LLM 完成
-
-        # 新增：细粒度时间戳
         self.t_payload_start = None  # process_chat_payload 开始
         self.t_payload_end = None  # process_chat_payload 结束
-        self.t_summary_update_start = None  # 后台 summary 更新开始
-        self.t_summary_update_end = None  # 后台 summary 更新结束
+        self.t_summary_update_start = None  # 摘要更新开始（统一语义：初始生成 + 后台更新）
+        self.t_summary_update_end = None  # 摘要更新结束
 
         # 详细信息
-        self.summary_info: Dict[str, Any] = {}
-        self.context_info: Dict[str, Any] = {}
         self.llm_info: Dict[str, Any] = {}
         self.payload_info: Dict[str, Any] = {}  # payload 处理详情
         self.summary_update_info: Dict[str, Any] = {}  # summary 更新详情
@@ -78,109 +69,6 @@ class ChatPerfLogger:
         """1. 标记接口调用开始"""
         self.t0 = time.time()
         print(f"[PERF] 1. /api/chat/completions 接口调用开始: {self.t0:.6f}")
-
-    def mark_ensure_summary_start(
-        self,
-        has_existing_summary: bool,
-        init_summary_messages: Optional[List[Dict]] = None,
-        cold_start_messages: Optional[List[Dict]] = None,
-    ) -> None:
-        """
-        2. 标记 ensure_initial_summary 开始
-
-        Args:
-            has_existing_summary: 是否已有摘要
-            init_summary_messages: 用于生成初始摘要的消息列表
-            cold_start_messages: 冷启动消息列表
-        """
-        self.t1_ensure_summary = time.time()
-        self.summary_info = {
-            "has_existing_summary": has_existing_summary,
-            "init_summary_messages_count": (
-                len(init_summary_messages) if init_summary_messages else 0
-            ),
-            "cold_start_messages_count": (
-                len(cold_start_messages) if cold_start_messages else 0
-            ),
-        }
-
-        delta_ms = (self.t1_ensure_summary - self.t0) * 1000 if self.t0 else 0
-        print(
-            f"[PERF] 2. ensure_initial_summary 开始: {self.t1_ensure_summary:.6f} "
-            f"(距接口调用 +{delta_ms:.2f}ms, 已有摘要={has_existing_summary})"
-        )
-
-    def mark_summary_generation(
-        self, start: bool = True, messages: Optional[List[Dict]] = None, stage: str = ""
-    ) -> None:
-        """
-        3. 标记摘要生成（开始/结束）
-
-        Args:
-            start: True=开始，False=结束
-            messages: 参与摘要的消息列表
-            stage: 阶段标识（如 "适中消息量" 或 "基础摘要"）
-        """
-        if start:
-            self.t2_summary_start = time.time()
-            if messages:
-                self.summary_info["summary_messages_count"] = len(messages)
-                self.summary_info["stage"] = stage
-            delta_ms = (self.t2_summary_start - self.t0) * 1000 if self.t0 else 0
-            print(
-                f"[PERF] 3. 开始生成摘要（{stage}, 消息数={len(messages) if messages else 0}）: "
-                f"{self.t2_summary_start:.6f} (距接口调用 +{delta_ms:.2f}ms)"
-            )
-        else:
-            self.t2_summary_end = time.time()
-            if self.t2_summary_start:
-                duration_ms = (self.t2_summary_end - self.t2_summary_start) * 1000
-                print(
-                    f"[PERF] 3. 摘要生成完成: {self.t2_summary_end:.6f} (耗时 {duration_ms:.2f}ms)"
-                )
-
-    def mark_context_load(
-        self,
-        start: bool = True,
-        system_prompt: Optional[str] = None,
-        cold_start_messages: Optional[List[Dict]] = None,
-        ordered_messages: Optional[List[Dict]] = None,
-    ) -> None:
-        """
-        4. 标记上下文装入（开始/结束）
-
-        Args:
-            start: True=开始，False=结束
-            system_prompt: 系统提示词
-            cold_start_messages: 冷启动消息列表
-            ordered_messages: 排序后的消息列表
-        """
-        if start:
-            self.t3_context_load_start = time.time()
-            print(
-                f"[PERF] 4a. 开始装入上下文: {self.t3_context_load_start:.6f}"
-            )
-        else:
-            self.t3_context_load_end = time.time()
-            self.context_info = {
-                "has_system_prompt": bool(system_prompt),
-                "system_prompt_length": len(system_prompt) if system_prompt else 0,
-                "cold_start_count": (
-                    len(cold_start_messages) if cold_start_messages else 0
-                ),
-                "ordered_messages_count": (
-                    len(ordered_messages) if ordered_messages else 0
-                ),
-            }
-
-            if self.t3_context_load_start:
-                duration_ms = (
-                    self.t3_context_load_end - self.t3_context_load_start
-                ) * 1000
-                print(
-                    f"[PERF] 4b. 装入上下文完成: {self.t3_context_load_end:.6f} "
-                    f"(耗时 {duration_ms:.2f}ms, 总消息数={self.context_info['ordered_messages_count']})"
-                )
 
     def mark_payload_processing(self, start: bool = True) -> None:
         """
@@ -281,15 +169,17 @@ class ChatPerfLogger:
         tokens: Optional[int] = None,
         threshold: Optional[int] = None,
         messages_count: Optional[int] = None,
+        is_initial: bool = False,
     ) -> None:
         """
-        8. 标记后台 Summary 更新（基于阈值触发）
+        标记摘要更新（统一追踪初始摘要生成和后台摘要更新）
 
         Args:
             start: True=开始，False=结束
             tokens: 当前 token 数量
             threshold: token 阈值
             messages_count: 参与摘要的消息数量
+            is_initial: 是否为初始摘要生成（True=首次生成，False=后台更新）
         """
         if start:
             self.t_summary_update_start = time.time()
@@ -297,9 +187,11 @@ class ChatPerfLogger:
                 "tokens": tokens,
                 "threshold": threshold,
                 "messages_count": messages_count,
+                "is_initial": is_initial,
             }
+            stage_text = "初始摘要生成" if is_initial else "后台摘要更新"
             print(
-                f"[PERF] 8. 开始后台 Summary 更新: {self.t_summary_update_start:.6f} "
+                f"[PERF] 摘要更新开始 ({stage_text}): {self.t_summary_update_start:.6f} "
                 f"(tokens={tokens}, threshold={threshold}, 消息数={messages_count})"
             )
         else:
@@ -308,13 +200,14 @@ class ChatPerfLogger:
                 duration_ms = (
                     self.t_summary_update_end - self.t_summary_update_start
                 ) * 1000
+                stage_text = "初始摘要生成" if self.summary_update_info.get("is_initial") else "后台摘要更新"
                 print(
-                    f"[PERF] 8. 后台 Summary 更新完成: {self.t_summary_update_end:.6f} "
+                    f"[PERF] 摘要更新完成 ({stage_text}): {self.t_summary_update_end:.6f} "
                     f"(耗时 {duration_ms:.2f}ms)"
                 )
             else:
                 print(
-                    f"[PERF] 8. 后台 Summary 更新完成: {self.t_summary_update_end:.6f}"
+                    f"[PERF] 摘要更新完成: {self.t_summary_update_end:.6f}"
                 )
 
     def record_llm_payload(self, payload: Dict[str, Any]) -> None:
@@ -430,12 +323,7 @@ class ChatPerfLogger:
             },
             "timestamps": {
                 "api_start": self.t0,
-                "ensure_summary_start": self.t1_ensure_summary,
-                "summary_generation_start": self.t2_summary_start,
-                "summary_generation_end": self.t2_summary_end,
                 "payload_processing_start": self.t_payload_start,
-                "context_load_start": self.t3_context_load_start,
-                "context_load_end": self.t3_context_load_end,
                 "payload_processing_end": self.t_payload_end,
                 "before_llm": self.t4_before_llm,
                 "first_token": self.t5_first_token,
@@ -444,8 +332,6 @@ class ChatPerfLogger:
                 "summary_update_end": self.t_summary_update_end,
             },
             "durations_ms": {},
-            "summary_info": self.summary_info,
-            "context_info": self.context_info,
             "llm_info": self.llm_info,
             "payload_info": self.payload_info,  # 包含所有 checkpoint 信息
             "summary_update_info": self.summary_update_info,  # summary 更新详情
@@ -457,21 +343,6 @@ class ChatPerfLogger:
         if self.t0:
             durations = result["durations_ms"]
 
-            if self.t1_ensure_summary:
-                durations["to_ensure_summary"] = (
-                    self.t1_ensure_summary - self.t0
-                ) * 1000
-
-            if self.t2_summary_start and self.t2_summary_end:
-                durations["summary_generation"] = (
-                    self.t2_summary_end - self.t2_summary_start
-                ) * 1000
-
-            if self.t3_context_load_start and self.t3_context_load_end:
-                durations["context_load"] = (
-                    self.t3_context_load_end - self.t3_context_load_start
-                ) * 1000
-
             if self.t_payload_start and self.t_payload_end:
                 durations["payload_processing"] = (
                     self.t_payload_end - self.t_payload_start
@@ -479,20 +350,6 @@ class ChatPerfLogger:
 
             if self.t4_before_llm:
                 durations["total_preprocessing"] = (self.t4_before_llm - self.t0) * 1000
-
-                # 细分预处理阶段
-                if self.t1_ensure_summary:
-                    durations["preprocessing_before_ensure_summary"] = (
-                        self.t1_ensure_summary - self.t0
-                    ) * 1000
-                if self.t_payload_start:
-                    durations["preprocessing_before_payload"] = (
-                        self.t_payload_start - self.t0
-                    ) * 1000
-                if self.t_payload_end:
-                    durations["preprocessing_after_payload"] = (
-                        self.t4_before_llm - self.t_payload_end
-                    ) * 1000
 
             if self.t5_first_token:
                 durations["ttft"] = (
