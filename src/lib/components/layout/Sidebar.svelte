@@ -65,7 +65,7 @@
     import PinnedModelList from './Sidebar/PinnedModelList.svelte';
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
-    import { convertDeepseekChats, getImportOrigin } from '$lib/utils';
+    import { convertDeepseekChats, convertGrokChats, getImportOrigin } from '$lib/utils';
 
     const BREAKPOINT = 768;
 
@@ -581,6 +581,15 @@
             } catch (error) {
                 console.error('DeepSeek conversion failed', error);
                 toast.error('DeepSeek 聊天转换失败');
+                return;
+            }
+        } else if (origin === 'grok') {
+            // 使用 Grok 专用转换函数
+            try {
+                chatsToImport = convertGrokChats(chatsToImport);
+            } catch (error) {
+                console.error('Grok conversion failed', error);
+                toast.error('Grok 聊天转换失败');
                 return;
             }
         } else if (origin === 'openai') {

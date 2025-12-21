@@ -663,6 +663,11 @@ export const getImportOrigin = (_chats) => {
 	const first = Array.isArray(_chats) ? _chats[0] : null;
 	if (!first || typeof first !== 'object') return 'webui';
 
+	// Check for Grok format (has conversations array with conversation and responses)
+	if ('conversation' in first && 'responses' in first) {
+		return 'grok';
+	}
+
 	if ('mapping' in first) {
 		// DeepSeek exports use mapping + fragments instead of content.parts/text
 		const mappingValues = Object.values(first.mapping || {});
@@ -841,6 +846,73 @@ const parseDeepseekTimestamp = (value: any): number | null => {
 	const parsed = Date.parse(value);
 	if (Number.isNaN(parsed)) return null;
 	return Math.floor(parsed / 1000);
+};
+
+const parseGrokTimestamp = (value: any): number | null => {
+	// Grok exports use MongoDB format: {"$date": {"$numberLong": "1766275443804"}}
+	// or ISO string format
+	if (value === undefined || value === null) return null;
+
+	// Handle MongoDB $date format
+	if (typeof value === 'object' && value.$date) {
+		if (value.$date.$numberLong) {
+			const ms = parseInt(value.$date.$numberLong, 10);
+			return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
+		}
+	}
+
+	// Handle ISO string or number
+	if (typeof value === 'string') {
+		const parsed = Date.parse(value);
+		return Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
+	}
+
+	if (typeof value === 'number') {
+		// Assume it's already in seconds or milliseconds
+		return value > 10000000000 ? Math.floor(value / 1000) : value;
+	}
+
+	return null;
+};
+
+const convertGrokMessages = (convo) => {
+	const responses = convo.responses || [];
+	const messages = [];
+	const messagesMap: Record<string, any> = {};
+
+	// First pass: create all messages
+	for (const respWrapper of responses) {
+		const resp = respWrapper.response;
+		if (!resp || !resp._id || !resp.message) continue;
+
+		// Map sender to role
+		const role = resp.sender === 'human' ? 'user' :
+		             resp.sender === 'assistant' ? 'assistant' :
+		             resp.sender;
+
+		const message = {
+			id: resp._id,
+			parentId: resp.parent_response_id || null,
+			childrenIds: [],
+			role,
+			content: resp.message,
+			model: resp.model || 'grok',
+			done: true,
+			context: null
+		};
+
+		messagesMap[resp._id] = message;
+		messages.push(message);
+	}
+
+	// Second pass: build parent-child relationships
+	for (const msg of messages) {
+		if (msg.parentId && messagesMap[msg.parentId]) {
+			messagesMap[msg.parentId].childrenIds.push(msg.id);
+		}
+	}
+
+	return messages;
 };
 
 const convertDeepseekMessages = (convo) => {
@@ -1038,6 +1110,43 @@ export const convertDeepseekChats = (_chats) => {
 		}
 	}
 	console.log(failed, 'DeepSeek conversations could not be imported');
+	return chats;
+};
+
+export const convertGrokChats = (_chats) => {
+	const chats = [];
+	let failed = 0;
+
+	// Grok exports have a conversations array wrapper
+	const conversations = _chats;
+
+	for (const item of conversations) {
+		const convo = item.conversation;
+		if (!convo) {
+			failed++;
+			continue;
+		}
+
+		const chat = convertGrokMessages(item);
+		const createdAt = parseGrokTimestamp(convo.create_time);
+		const updatedAt = parseGrokTimestamp(convo.modify_time || convo.create_time);
+
+		if (validateChat(chat)) {
+			chats.push({
+				id: convo.id,
+				user_id: '',
+				title: convo.title || 'Untitled Conversation',
+				chat: chat,
+				timestamp: updatedAt ?? createdAt ?? null,
+				created_at: createdAt ?? null,
+				updated_at: updatedAt ?? null
+			});
+		} else {
+			failed++;
+		}
+	}
+
+	console.log(failed, 'Grok conversations could not be imported');
 	return chats;
 };
 

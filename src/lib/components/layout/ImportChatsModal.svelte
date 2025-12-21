@@ -55,7 +55,12 @@
                 throw new Error('无法解析 JSON，请检查文件格式');
             }
 
-            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组');
+            // Handle Grok format (object with conversations array)
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
+                parsed = parsed.conversations;
+            }
+
+            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组或包含 conversations 数组的对象');
             if (parsed.length === 0) throw new Error('JSON 数组为空');
 
             rawChats = parsed;
@@ -200,10 +205,15 @@
                                 <span class="text-gray-600 dark:text-gray-400 truncate">Google Takeout → 勾选 Gemini Apps</span>
                             </div>
 
-                            <div class="flex items-center gap-2 py-1.5">
-                                <span class="shrink-0 w-4">𝕏</span>
-                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">Grok</span>
-                                <span class="text-gray-600 dark:text-gray-400 truncate">X 设置 → 您的账户 → 下载数据归档</span>
+                            <div class="flex flex-col gap-1 py-1.5">
+                                <div class="flex items-center gap-2">
+                                    <span class="shrink-0 w-4">𝕏</span>
+                                    <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">Grok</span>
+                                    <span class="text-gray-600 dark:text-gray-400 truncate">X 设置 → 您的账户 → 下载数据归档</span>
+                                </div>
+                                <div class="pl-6 text-[11px] text-gray-500 dark:text-gray-500">
+                                    📦 解压后上传 <code class="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-blue-600 dark:text-blue-400">prod-grok-backend.json</code> 文件
+                                </div>
                             </div>
                         </div>
                     {/if}
