@@ -609,10 +609,11 @@
             console.log(chat);
 
             if (chat.chat) {
+                const meta = { ...(chat.meta ?? {}), loaded_by_user: true };
                 await importChat(
                     localStorage.token,
                     chat.chat,
-                    chat.meta ?? {},
+                    meta,
                     false,
                     null,
                     chat?.created_at ?? null,
@@ -620,7 +621,7 @@
                 );
             } else {
                 // Legacy format
-                await importChat(localStorage.token, chat, {}, false, null);
+                await importChat(localStorage.token, chat, { loaded_by_user: true }, false, null);
             }
         }
 
