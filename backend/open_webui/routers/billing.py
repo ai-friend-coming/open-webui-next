@@ -16,7 +16,7 @@ from open_webui.models.users import Users, User
 from open_webui.models.billing import ModelPricings, BillingLogs, RechargeLogs, BillingLog
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.billing import recharge_user
-from open_webui.internal.db import get_db
+from open_webui.internal.db import get_db, SQLALCHEMY_DATABASE_URL
 
 log = logging.getLogger(__name__)
 
@@ -190,6 +190,34 @@ async def get_logs(
         raise HTTPException(status_code=500, detail=f"查询日志失败: {str(e)}")
 
 
+def _get_date_trunc_expr(trunc_unit: str, timestamp_col):
+    """
+    根据数据库类型返回日期截断表达式
+
+    PostgreSQL: date_trunc('day', to_timestamp(ts))
+    SQLite: strftime('%Y-%m-%d', datetime(ts, 'unixepoch'))
+    """
+    from sqlalchemy import func
+
+    is_sqlite = "sqlite" in SQLALCHEMY_DATABASE_URL
+
+    # 将纳秒时间戳转换为秒
+    ts_seconds = timestamp_col / 1000000000
+
+    if is_sqlite:
+        # SQLite: 使用 strftime，返回字符串
+        format_map = {
+            "hour": "%Y-%m-%d %H:00:00",
+            "day": "%Y-%m-%d",
+            "month": "%Y-%m-01",
+        }
+        fmt = format_map.get(trunc_unit, "%Y-%m-%d")
+        return func.strftime(fmt, func.datetime(ts_seconds, "unixepoch"))
+    else:
+        # PostgreSQL: 使用 date_trunc，返回 datetime
+        return func.date_trunc(trunc_unit, func.to_timestamp(ts_seconds))
+
+
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats(
     user=Depends(get_verified_user),
@@ -244,10 +272,7 @@ async def get_stats(
             # 按时间+模型分组统计（用于堆叠图）
             daily_by_model_query = (
                 db.query(
-                    func.date_trunc(
-                        trunc_unit,
-                        func.to_timestamp(BillingLog.created_at / 1000000000)
-                    ).label("date"),
+                    _get_date_trunc_expr(trunc_unit, BillingLog.created_at).label("date"),
                     BillingLog.model_id,
                     func.sum(BillingLog.total_cost).label("total"),
                 )
@@ -266,7 +291,19 @@ async def get_stats(
             all_models: set[str] = set()
             for d in daily_by_model_query:
                 if d[0] and d[1]:
-                    date_key = d[0].strftime(date_format)
+                    # 兼容 SQLite (返回字符串) 和 PostgreSQL (返回 datetime)
+                    if isinstance(d[0], str):
+                        # SQLite 返回字符串，需要解析后重新格式化
+                        if ":" in d[0]:
+                            parsed = datetime.strptime(d[0], "%Y-%m-%d %H:00:00")
+                        elif d[0].endswith("-01") and len(d[0]) == 10:
+                            parsed = datetime.strptime(d[0], "%Y-%m-%d")
+                        else:
+                            parsed = datetime.strptime(d[0], "%Y-%m-%d")
+                        date_key = parsed.strftime(date_format)
+                    else:
+                        # PostgreSQL 返回 datetime
+                        date_key = d[0].strftime(date_format)
                     model_id = d[1]
                     cost = d[2] / 10000 if d[2] else 0
                     all_models.add(model_id)
