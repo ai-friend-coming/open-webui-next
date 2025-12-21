@@ -32,7 +32,6 @@ from open_webui.billing.core import (
     estimate_prompt_tokens,
     estimate_completion_tokens,
     estimate_image_tokens,
-    estimate_audio_tokens,
     estimate_video_tokens,
     estimate_file_tokens,
     # 余额操作
@@ -43,7 +42,6 @@ from open_webui.billing.core import (
     settle_precharge_with_usage,
     recharge_user,
     get_user_balance,
-    charge_direct,
     check_user_balance_threshold,
     # 信任额度
     check_trust_quota,
@@ -70,7 +68,6 @@ __all__ = [
     "estimate_prompt_tokens",
     "estimate_completion_tokens",
     "estimate_image_tokens",
-    "estimate_audio_tokens",
     "estimate_video_tokens",
     "estimate_file_tokens",
     # 余额操作
@@ -81,7 +78,6 @@ __all__ = [
     "settle_precharge_with_usage",
     "recharge_user",
     "get_user_balance",
-    "charge_direct",
     "check_user_balance_threshold",
     # 信任额度
     "check_trust_quota",

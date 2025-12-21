@@ -73,25 +73,6 @@ def estimate_image_tokens(image_item: dict, model_id: str) -> int:
     return 1000
 
 
-def estimate_audio_tokens(duration_seconds: float, model_id: str) -> int:
-    """
-    估算音频的 token 数量（未验证过）
-
-    基于 new-api: 每分钟约 1000 tokens
-
-    Args:
-        duration_seconds: 音频时长（秒）
-        model_id: 模型 ID
-
-    Returns:
-        int: 估算的 token 数量
-    """
-    if duration_seconds <= 0:
-        return 0
-    # 每分钟 1000 tokens
-    return int(duration_seconds / 60 * 1000)
-
-
 def estimate_video_tokens(model_id: str) -> int:
     """
     估算视频的 token 数量（未验证过）
@@ -373,9 +354,7 @@ def calculate_cost(
     model_id: str, prompt_tokens: int, completion_tokens: int
 ) -> int:
     """
-    计算费用（基础版本）
-
-    公式: (prompt_tokens / 1,000,000 × input_price) + (completion_tokens / 1,000,000 × output_price)
+    计算费用（基础版本，内部调用 calculate_cost_with_usage）
 
     Args:
         model_id: 模型标识
@@ -385,14 +364,10 @@ def calculate_cost(
     Returns:
         int: 费用（毫），1元 = 10000毫，精度为 0.0001元
     """
-    input_price, output_price = get_model_pricing(model_id)
+    from open_webui.billing.usage import UsageInfo
 
-    # 计算原始费用（未除以 1000000）
-    input_cost_raw = prompt_tokens * input_price
-    output_cost_raw = completion_tokens * output_price
-    total_cost_raw = input_cost_raw + output_cost_raw
-
-    return _finalize_cost(total_cost_raw)
+    usage = UsageInfo(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+    return calculate_cost_with_usage(model_id, usage)
 
 
 def calculate_cost_with_usage(model_id: str, usage: "UsageInfo") -> int:
@@ -1052,102 +1027,6 @@ def settle_precharge(
         )
 
         return actual_cost, refund_amount, user.balance
-
-
-def charge_direct(
-    user_id: str,
-    amount: int,
-    log_type: str,
-    model_id: str = "custom",
-) -> Tuple[int, int]:
-    """
-    直接扣除指定金额（无需token计算）
-
-    适用场景：
-    - 固定价格的服务（如生成摘要、生成标题等）
-    - 自定义计费项目
-    - 其他非token计费场景
-
-    Args:
-        user_id: 用户ID
-        amount: 扣除金额（毫），1元 = 10000毫，必须 > 0
-        log_type: 日志类型（如 "charge_summary", "charge_title", "charge_custom" 等）
-        model_id: 关联的模型ID（可选，默认 "custom"）
-
-    Returns:
-        Tuple[int, int]: (扣除金额（毫）, 扣除后余额（毫）)
-
-    Raises:
-        HTTPException:
-            - 400: 金额无效
-            - 402: 余额不足
-            - 403: 账户冻结
-            - 404: 用户不存在
-
-    Examples:
-        # 扣除固定费用 0.01元
-        cost, balance = charge_direct(
-            user_id="user123",
-            amount=100,  # 100毫 = 0.01元
-            log_type="charge_summary",
-            model_id="gpt-4o-mini"
-        )
-    """
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="扣除金额必须大于0")
-
-    with get_db() as db:
-        # 1. 行锁获取用户（防止并发）
-        user = db.query(User).filter_by(id=user_id).with_for_update().first()
-        if not user:
-            raise HTTPException(status_code=404, detail="用户不存在")
-
-        # 2. 检查账户状态
-        if user.billing_status == "frozen":
-            raise HTTPException(status_code=403, detail="账户已冻结，请联系管理员充值")
-
-        # 3. 检查余额
-        balance_before = user.balance or 0
-        if balance_before < amount:
-            raise HTTPException(
-                status_code=402,
-                detail=f"余额不足：当前 {balance_before / 10000:.4f} 元，需要 {amount / 10000:.4f} 元",
-            )
-
-        # 4. 扣费
-        user.balance = balance_before - amount
-        user.total_consumed = (user.total_consumed or 0) + amount
-
-        # 5. 余额不足时冻结账户（< 0.01元 = 100毫）
-        if user.balance < 100:
-            user.billing_status = "frozen"
-            log.warning(f"用户 {user_id} 余额不足，账户已冻结")
-
-        # 6. 记录日志
-        billing_log = BillingLog(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            model_id=model_id,
-            prompt_tokens=0,
-            completion_tokens=0,
-            total_cost=amount,
-            balance_after=user.balance,
-            log_type=log_type,
-            created_at=int(time.time() * 1000000000),  # 纳秒级时间戳
-        )
-        db.add(billing_log)
-
-        # 7. 提交事务
-        db.commit()
-
-        # 8. 日志输出
-        log.info(
-            f"用户 {user_id} 直接扣费 {amount / 10000:.4f} 元，"
-            f"类型={log_type}，模型={model_id}，"
-            f"余额 {balance_before / 10000:.4f} -> {user.balance / 10000:.4f}"
-        )
-
-        return amount, user.balance
 
 
 def check_user_balance_threshold(
