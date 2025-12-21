@@ -102,10 +102,10 @@
 
 	const getLogTypeLabel = (displayType: string) => {
 		const labels = {
-			streaming: '流式请求',
-			deduct: '直接扣费',
+			streaming: '预估扣费',
+			deduct: '按量扣费',
 			refund: '退款',
-			'precharge-only': '预扣费（未完成）'
+			'precharge-only': '预扣费（未结算）'
 		};
 		return labels[displayType] || displayType;
 	};
