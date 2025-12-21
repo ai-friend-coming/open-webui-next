@@ -55,25 +55,27 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
-<div
-	bind:this={modalElement}
-	class="modal fixed right-0 {$isApp
-		? ' ml-[4.5rem] max-w-[calc(100%-4.5rem)]'
-		: ''} left-0 bottom-0 bg-black/60 w-full h-screen max-h-[100dvh] flex justify-center z-999 overflow-hidden overscroll-contain"
-	in:fly={{ y: 100, duration: 100 }}
-	on:mousedown={() => {
-		show = false;
-	}}
->
+{#if show}
 	<div
-		class=" mt-auto w-full bg-gray-50 dark:bg-gray-900 dark:text-gray-100 {className} max-h-[100dvh] overflow-y-auto scrollbar-hidden"
-		on:mousedown={(e) => {
-			e.stopPropagation();
+		bind:this={modalElement}
+		class="modal fixed right-0 {$isApp
+			? ' ml-[4.5rem] max-w-[calc(100%-4.5rem)]'
+			: ''} left-0 bottom-0 bg-black/60 w-full h-screen max-h-[100dvh] flex justify-center z-999 overflow-hidden overscroll-contain"
+		in:fly={{ y: 100, duration: 100 }}
+		on:mousedown={() => {
+			show = false;
 		}}
 	>
-		<slot />
+		<div
+			class=" mt-auto w-full bg-gray-50 dark:bg-gray-900 dark:text-gray-100 {className} max-h-[100dvh] overflow-y-auto scrollbar-hidden"
+			on:mousedown={(e) => {
+				e.stopPropagation();
+			}}
+		>
+			<slot />
+		</div>
 	</div>
-</div>
+{/if}
 
 <style>
 	.modal-content {

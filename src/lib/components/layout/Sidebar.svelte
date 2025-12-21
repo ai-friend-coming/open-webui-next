@@ -13,6 +13,7 @@
         folders as _folders,
         showSidebar,
         showSearch,
+        showImportChatsModal,
         mobile,
         showArchivedChats,
         pinnedChats,
@@ -78,8 +79,6 @@
     let showPinnedChat = true;
 
     let showCreateChannel = false;
-
-    let showImportChatsModal = false;
 
     // Pagination variables
     let chatListLoading = false;
@@ -1291,7 +1290,7 @@
                 <button
                     class="flex w-full items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100/50 dark:hover:bg-gray-900 transition outline-none"
                     on:click={() => {
-                        showImportChatsModal = true;
+                        showImportChatsModal.set(true);
                     }}
                     draggable="false"
                     aria-label="导入聊天记录"
@@ -1350,7 +1349,7 @@
 {/if}
 
 <ImportChatsModal
-    bind:show={showImportChatsModal}
+    bind:show={$showImportChatsModal}
     onImport={async (chats) => {
         await importChatsHandler(chats);
     }}

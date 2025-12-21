@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { dev } from '$app/environment';
 	import { onMount, getContext } from 'svelte';
-	import { balance, mobile, showSidebar } from '$lib/stores';
+	import { balance, mobile, showSidebar, showMobileUserPanel, showMobileChatDrawer, user } from '$lib/stores';
 	import { getBalance } from '$lib/apis/billing';
 	import BalanceDisplay from '$lib/components/billing/BalanceDisplay.svelte';
 	import BillingLogsTable from '$lib/components/billing/BillingLogsTable.svelte';
@@ -9,7 +9,7 @@
 	import LowBalanceAlert from '$lib/components/billing/LowBalanceAlert.svelte';
 	import RechargeCard from '$lib/components/billing/RechargeCard.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import Sidebar from '$lib/components/icons/Sidebar.svelte';
+	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
 	import { toast } from 'svelte-sonner';
 
 	const i18n = getContext('i18n');
@@ -37,28 +37,52 @@
 	<nav class="px-2 pt-1.5 backdrop-blur-xl w-full drag-region">
 		<div class="flex items-center">
 			{#if $mobile}
-				<div class="{$showSidebar ? 'md:hidden' : ''} flex flex-none items-center">
-					<Tooltip
-						content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
-					>
+				<div class="flex flex-none items-center">
+					<Tooltip content={$i18n.t('Menu')}>
 						<button
-							id="sidebar-toggle-button"
 							class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
 							on:click={() => {
-								showSidebar.set(!$showSidebar);
+								showMobileUserPanel.set(true);
 							}}
 						>
 							<div class="self-center p-1.5">
-								<Sidebar />
+								{#if $user?.profile_image_url}
+									<img
+										src={$user.profile_image_url}
+										class="size-6 object-cover rounded-full"
+										alt=""
+										draggable="false"
+									/>
+								{:else}
+									<SidebarIcon />
+								{/if}
 							</div>
 						</button>
 					</Tooltip>
 				</div>
 			{/if}
-			<div class="ml-2 py-0.5 self-center flex items-center">
+
+			<div class="ml-2 py-0.5 self-center flex items-center justify-between w-full">
 				<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
 					{$i18n.t('计费中心')}
 				</h1>
+
+				{#if $mobile}
+					<div class="flex items-center gap-1">
+						<Tooltip content={$i18n.t('Chats')}>
+							<button
+								class="cursor-pointer flex px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+								on:click={() => {
+									showMobileChatDrawer.set(true);
+								}}
+							>
+								<svg class="size-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+								</svg>
+							</button>
+						</Tooltip>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</nav>

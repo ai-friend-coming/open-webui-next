@@ -173,6 +173,36 @@
 	let x = 0;
 	let y = 0;
 
+	// 移动端触摸处理
+	let touchStartY = 0;
+	let touchStartX = 0;
+	let touchStartTime = 0;
+
+	const handleTouchStart = (e: TouchEvent) => {
+		if (!$mobile) return;
+		touchStartY = e.touches[0].clientY;
+		touchStartX = e.touches[0].clientX;
+		touchStartTime = Date.now();
+	};
+
+	const handleTouchEnd = (e: TouchEvent) => {
+		if (!$mobile) return;
+
+		const touchEndY = e.changedTouches[0].clientY;
+		const touchEndX = e.changedTouches[0].clientX;
+		const touchDuration = Date.now() - touchStartTime;
+		const deltaY = Math.abs(touchEndY - touchStartY);
+		const deltaX = Math.abs(touchEndX - touchStartX);
+
+		// 如果移动距离小于 10px 且时间小于 500ms，认为是点击而不是滚动
+		if (deltaY < 10 && deltaX < 10 && touchDuration < 500) {
+			e.preventDefault();
+			dispatch('select');
+			showSidebar.set(false);
+			goto(`/c/${id}`);
+		}
+	};
+
 	const dragImage = new Image();
 	dragImage.src =
 		'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
@@ -420,6 +450,7 @@
 				}
 			}}
 			on:dblclick={async (e) => {
+				if ($mobile) return;
 				e.preventDefault();
 				e.stopPropagation();
 
@@ -427,12 +458,14 @@
 				renameHandler();
 			}}
 			on:mouseenter={(e) => {
-				mouseOver = true;
+				if (!$mobile) mouseOver = true;
 			}}
 			on:mouseleave={(e) => {
-				mouseOver = false;
+				if (!$mobile) mouseOver = false;
 			}}
 			on:focus={(e) => {}}
+			on:touchstart={handleTouchStart}
+			on:touchend={handleTouchEnd}
 			draggable="false"
 		>
 			<div class=" flex self-center flex-1 w-full">
@@ -458,10 +491,10 @@
 
               to-transparent"
 		on:mouseenter={(e) => {
-			mouseOver = true;
+			if (!$mobile) mouseOver = true;
 		}}
 		on:mouseleave={(e) => {
-			mouseOver = false;
+			if (!$mobile) mouseOver = false;
 		}}
 	>
 		{#if confirmEdit}

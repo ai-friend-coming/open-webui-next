@@ -12,6 +12,8 @@
 		showArchivedChats,
 		showControls,
 		showSidebar,
+		showMobileUserPanel,
+		showMobileChatDrawer,
 		temporaryChatEnabled,
 		user
 	} from '$lib/stores';
@@ -78,18 +80,46 @@
 
 		<div class=" flex max-w-full w-full mx-auto px-1.5 md:px-2 pt-0.5 bg-transparent">
 			<div class="flex items-center w-full max-w-full">
-				{#if $mobile && !$showSidebar}
+				{#if $mobile}
+					<!-- Mobile: User menu button -->
 					<div
 						class="-translate-x-0.5 mr-1 mt-1 self-start flex flex-none items-center text-gray-600 dark:text-gray-400"
 					>
-						<Tooltip content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}>
+						<Tooltip content={$i18n.t('Menu')}>
 							<button
-								class=" cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+								class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
 								on:click={() => {
-									showSidebar.set(!$showSidebar);
+									showMobileUserPanel.set(true);
 								}}
 							>
-								<div class=" self-center p-1.5">
+								<div class="self-center p-1.5">
+									{#if $user?.profile_image_url}
+										<img
+											src={$user.profile_image_url}
+											class="size-6 object-cover rounded-full"
+											alt=""
+											draggable="false"
+										/>
+									{:else}
+										<Sidebar />
+									{/if}
+								</div>
+							</button>
+						</Tooltip>
+					</div>
+				{:else if !$showSidebar}
+					<!-- Desktop: Sidebar toggle button -->
+					<div
+						class="-translate-x-0.5 mr-1 mt-1 self-start flex flex-none items-center text-gray-600 dark:text-gray-400"
+					>
+						<Tooltip content={$i18n.t('Open Sidebar')}>
+							<button
+								class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+								on:click={() => {
+									showSidebar.set(true);
+								}}
+							>
+								<div class="self-center p-1.5">
 									<Sidebar />
 								</div>
 							</button>
@@ -108,6 +138,23 @@
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">
+					<!-- Mobile: Chat drawer button -->
+					{#if $mobile}
+						<Tooltip content={$i18n.t('Chats')}>
+							<button
+								class="cursor-pointer flex px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+								on:click={() => {
+									showMobileChatDrawer.set(true);
+								}}
+							>
+								<div class="m-auto self-center">
+									<svg class="size-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+									</svg>
+								</div>
+							</button>
+						</Tooltip>
+					{/if}
 					<!-- <div class="md:hidden flex self-center w-[1px] h-5 mx-2 bg-gray-300 dark:bg-stone-700" /> -->
 
 					<!-- ai-friend 	屏蔽临时聊天 -->

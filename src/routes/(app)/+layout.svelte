@@ -42,7 +42,10 @@ import { onMount, tick, getContext } from 'svelte';
 		temporaryChatEnabled,
 		toolServers,
 		showSearch,
-		showSidebar
+		showSidebar,
+		mobile,
+		showMobileUserPanel,
+		showMobileChatDrawer
 	} from '$lib/stores';
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
@@ -52,6 +55,8 @@ import { onMount, tick, getContext } from 'svelte';
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
 	import UpdateInfoToast from '$lib/components/layout/UpdateInfoToast.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import MobileUserPanel from '$lib/components/mobile/MobileUserPanel.svelte';
+	import MobileChatDrawer from '$lib/components/mobile/MobileChatDrawer.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -422,7 +427,7 @@ import { onMount, tick, getContext } from 'svelte';
 {#if $user}
 	<div class="app relative">
 		<div
-			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
+			class="h-screen max-h-[100dvh] text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 overflow-auto flex flex-row justify-end"
 		>
 			{#if !['user', 'admin'].includes($user?.role)}
 				<AccountPending />
@@ -483,6 +488,12 @@ import { onMount, tick, getContext } from 'svelte';
 				{/if}
 
 				<Sidebar />
+
+				<!-- Mobile panels -->
+				{#if $mobile}
+					<MobileUserPanel />
+					<MobileChatDrawer />
+				{/if}
 
 				{#if loaded}
 					<slot />

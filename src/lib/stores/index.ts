@@ -20,7 +20,21 @@ export const appData = writable(null);
 // Frontend
 export const MODEL_DOWNLOAD_POOL = writable({});
 
-export const mobile = writable(false);
+// 移动端检测正则表达式
+const MOBILE_UA_REGEX = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+
+/**
+ * 检测当前设备是否为移动端
+ * 通过 UA 和窗口宽度综合判断
+ */
+export const isMobileDevice = (): boolean => {
+	if (typeof window === 'undefined') return false;
+	const isMobileUA = MOBILE_UA_REGEX.test(navigator.userAgent);
+	const isMobileWidth = window.innerWidth < 768;
+	return isMobileUA || isMobileWidth;
+};
+
+export const mobile = writable(isMobileDevice());
 
 export const socket: Writable<null | Socket> = writable(null);
 export const activeUserIds: Writable<null | string[]> = writable(null);
@@ -72,6 +86,9 @@ export const banners: Writable<Banner[]> = writable([]);
 export const settings: Writable<Settings> = writable({});
 
 export const showSidebar = writable(false);
+export const showMobileUserPanel = writable(false);
+export const showMobileChatDrawer = writable(false);
+export const showImportChatsModal = writable(false);
 export const showSearch = writable(false);
 export const showSettings = writable(false);
 export const showShortcuts = writable(false);

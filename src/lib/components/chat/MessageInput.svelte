@@ -14,6 +14,7 @@
 	import {
 		type Model,
 		mobile,
+		isMobileDevice,
 		settings,
 		models,
 		config,
@@ -294,7 +295,7 @@
 		}
 	};
 
-	export const setText = async (text?: string, cb?: (text: string) => void) => {
+	export const setText = async (text?: string, cb?: (text: string) => void, options?: { focusInput?: boolean }) => {
 		const chatInput = document.getElementById('chat-input');
 
 		if (chatInput) {
@@ -302,8 +303,9 @@
 				text = await textVariableHandler(text || '');
 			}
 
-			chatInputElement?.setText(text);
-			chatInputElement?.focus();
+			// 将 focusInput 参数传递给 RichTextInput
+			const shouldFocus = options?.focusInput !== false;
+			chatInputElement?.setText(text, { focus: shouldFocus });
 
 			if (text !== '') {
 				text = await inputVariableHandler(text);
@@ -930,10 +932,13 @@
 		];
 		loaded = true;
 
-		window.setTimeout(() => {
-			const chatInput = document.getElementById('chat-input');
-			chatInput?.focus();
-		}, 0);
+		// 移动端不自动聚焦，避免键盘弹出
+		if (!isMobileDevice()) {
+			window.setTimeout(() => {
+				const chatInput = document.getElementById('chat-input');
+				chatInput?.focus();
+			}, 0);
+		}
 
 		window.addEventListener('keydown', onKeyDown);
 		window.addEventListener('keyup', onKeyUp);

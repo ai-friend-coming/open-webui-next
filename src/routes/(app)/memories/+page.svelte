@@ -2,7 +2,7 @@
 	import { toast } from 'svelte-sonner';
 	import dayjs from 'dayjs';
 	import { getContext, onMount } from 'svelte';
-	import { memories, mobile, showArchivedChats, showSidebar, user } from '$lib/stores';
+	import { memories, mobile, showArchivedChats, showSidebar, showMobileUserPanel, showMobileChatDrawer, user } from '$lib/stores';
 	import {
 		deleteMemoriesByUserId,
 		deleteMemoryById,
@@ -78,20 +78,25 @@
 	<nav class="px-2 pt-1.5 backdrop-blur-xl w-full drag-region">
 		<div class="flex items-center">
 			{#if $mobile}
-				<div class="{$showSidebar ? 'md:hidden' : ''} flex flex-none items-center">
-					<Tooltip
-						content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
-						interactive={true}
-					>
+				<div class="flex flex-none items-center">
+					<Tooltip content={$i18n.t('Menu')}>
 						<button
-							id="sidebar-toggle-button"
 							class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
 							on:click={() => {
-								showSidebar.set(!$showSidebar);
+								showMobileUserPanel.set(true);
 							}}
 						>
 							<div class="self-center p-1.5">
-								<SidebarIcon />
+								{#if $user?.profile_image_url}
+									<img
+										src={$user.profile_image_url}
+										class="size-6 object-cover rounded-full"
+										alt=""
+										draggable="false"
+									/>
+								{:else}
+									<SidebarIcon />
+								{/if}
 							</div>
 						</button>
 					</Tooltip>
@@ -100,9 +105,11 @@
 
 			<div class="ml-2 py-0.5 self-center flex items-center justify-between w-full">
 				<div class="flex items-center gap-3">
-					<div class="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-xl">
-						<Sparkles className="size-5" strokeWidth="2" />
-					</div>
+					{#if !$mobile}
+						<div class="p-1.5 bg-gray-100 dark:bg-gray-800 rounded-xl">
+							<Sparkles className="size-5" strokeWidth="2" />
+						</div>
+					{/if}
 					<div>
 						<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
 							{$i18n.t('Memory')}
@@ -111,32 +118,20 @@
 				</div>
 
 				<div class="self-center flex items-center gap-1">
-					<!-- {#if $user !== undefined && $user !== null}
-						<UserMenu
-							className="max-w-[240px]"
-							role={$user?.role}
-							help={true}
-							on:show={(e) => {
-								if (e.detail === 'archived-chat') {
-									showArchivedChats.set(true);
-								}
-							}}
-						>
+					{#if $mobile}
+						<Tooltip content={$i18n.t('Chats')}>
 							<button
-								class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
-								aria-label="User Menu"
+								class="cursor-pointer flex px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+								on:click={() => {
+									showMobileChatDrawer.set(true);
+								}}
 							>
-								<div class="self-center">
-									<img
-										src={$user?.profile_image_url}
-										class="size-6 object-cover rounded-full"
-										alt="User profile"
-										draggable="false"
-									/>
-								</div>
+								<svg class="size-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+								</svg>
 							</button>
-						</UserMenu>
-					{/if} -->
+						</Tooltip>
+					{/if}
 				</div>
 			</div>
 		</div>

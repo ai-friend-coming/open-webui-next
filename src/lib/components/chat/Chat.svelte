@@ -32,6 +32,7 @@
 		currentChatPage,
 		temporaryChatEnabled,
 		mobile,
+		isMobileDevice,
 		showOverview,
 		chatTitle,
 		showArtifacts,
@@ -161,8 +162,10 @@
 	const navigateHandler = async () => {
 		loading = true;
 
+		const isMobile = isMobileDevice();
+
 		prompt = '';
-		messageInput?.setText('', undefined, { focusInput: !get(mobile) });
+		messageInput?.setText('', undefined, { focusInput: !isMobile });
 
 		files = [];
 		selectedToolIds = [];
@@ -188,7 +191,7 @@
 					const input = JSON.parse(storageChatInput);
 
 					if (!$temporaryChatEnabled) {
-						messageInput?.setText(input.prompt);
+						messageInput?.setText(input.prompt, undefined, { focusInput: !isMobile });
 						files = input.files;
 						selectedToolIds = input.selectedToolIds;
 						selectedFilterIds = input.selectedFilterIds;
@@ -202,8 +205,10 @@
 				} catch (e) {}
 			}
 
-			const chatInput = document.getElementById('chat-input');
-			chatInput?.focus();
+			if (!isMobile) {
+				const chatInput = document.getElementById('chat-input');
+				chatInput?.focus();
+			}
 		} else {
 			await goto('/');
 		}
@@ -591,9 +596,11 @@
 			await tick();
 		}
 
+		const isMobile = isMobileDevice();
+
 		if (storageChatInput) {
 			prompt = '';
-			messageInput?.setText('');
+			messageInput?.setText('', undefined, { focusInput: !isMobile });
 
 			files = [];
 			selectedToolIds = [];
@@ -607,7 +614,7 @@
 				const input = JSON.parse(storageChatInput);
 
 				if (!$temporaryChatEnabled) {
-					messageInput?.setText(input.prompt);
+					messageInput?.setText(input.prompt, undefined, { focusInput: !isMobile });
 					files = input.files;
 					selectedToolIds = input.selectedToolIds;
 					selectedFilterIds = input.selectedFilterIds;
@@ -651,8 +658,11 @@
 			}
 		});
 
-		const chatInput = document.getElementById('chat-input');
-		chatInput?.focus();
+		// 移动端不自动聚焦，避免键盘弹出
+		if (!isMobile) {
+			const chatInput = document.getElementById('chat-input');
+			chatInput?.focus();
+		}
 	});
 
 	onDestroy(() => {
@@ -1032,8 +1042,11 @@
 			settings.set(JSON.parse(localStorage.getItem('settings') ?? '{}'));
 		}
 
-		const chatInput = document.getElementById('chat-input');
-		setTimeout(() => chatInput?.focus(), 0);
+		// 移动端不自动聚焦，避免键盘弹出
+		if (!isMobileDevice()) {
+			const chatInput = document.getElementById('chat-input');
+			setTimeout(() => chatInput?.focus(), 0);
+		}
 	};
 
 	const loadChat = async () => {
@@ -1737,7 +1750,8 @@
 
 		// 5.3 清空当前输入的文件列表（已保存到 _files 和 chatFiles）
 		files = [];
-		messageInput?.setText('');
+		// 移动端不自动聚焦
+		messageInput?.setText('', undefined, { focusInput: !isMobileDevice() });
 
 		// === 6. 创建用户消息对象 ===
 		let userMessageId = uuidv4(); // 生成唯一消息 ID
@@ -2687,13 +2701,13 @@
 />
 
 <div
-	class="h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
+	class="h-full transition-width duration-200 ease-in-out {$showSidebar
 		? '  md:max-w-[calc(100%-260px)]'
 		: ' '} w-full max-w-full flex flex-col"
 	id="chat-container"
 >
-	{#if !loading}
-		<div in:fade={{ duration: 50 }} class="w-full h-full flex flex-col">
+	{#if !loading || $mobile}
+		<div in:fade={{ duration: $mobile ? 0 : 50 }} class="w-full h-full flex flex-col">
 			{#if $selectedFolder && $selectedFolder?.meta?.background_image_url}
 				<div
 					class="absolute {$showSidebar
@@ -2943,7 +2957,7 @@
 				/>
 			</PaneGroup>
 		</div>
-	{:else if loading}
+	{:else if loading && !$mobile}
 		<div class=" flex items-center justify-center h-full w-full">
 			<div class="m-auto">
 				<Spinner className="size-5" />

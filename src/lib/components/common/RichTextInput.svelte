@@ -105,6 +105,7 @@
 
 	import { onMount, onDestroy, tick, getContext } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
+	import { isMobileDevice } from '$lib/stores';
 
 	const i18n = getContext('i18n');
 	const eventDispatch = createEventDispatcher();
@@ -411,7 +412,7 @@
 		// selectNextTemplate(state, dispatch);
 	};
 
-	export const setText = (text: string) => {
+	export const setText = (text: string, options?: { focus?: boolean }) => {
 		if (!editor) return;
 		text = text.replaceAll('\n\n', '\n');
 
@@ -444,7 +445,10 @@
 		}
 
 		selectNextTemplate(editor.view.state, editor.view.dispatch);
-		focus();
+		// 根据 options.focus 参数决定是否聚焦，默认为 true
+		if (options?.focus !== false) {
+			focus();
+		}
 	};
 
 	export function blur() {
@@ -689,6 +693,7 @@
 			const { SocketIOCollaborationProvider } = await import('./RichTextInput/Collaboration');
 			provider = new SocketIOCollaborationProvider(documentId, socket, user, content);
 		}
+
 		editor = new Editor({
 			element: element,
 			extensions: [
@@ -780,7 +785,7 @@
 				...(collaboration && provider ? [provider.getEditorExtension()] : [])
 			],
 			content: collaboration ? undefined : content,
-			autofocus: messageInput ? true : false,
+			autofocus: messageInput && !isMobileDevice(),
 			onTransaction: () => {
 				// force re-render so `editor.isActive` works as expected
 				editor = editor;
@@ -886,6 +891,10 @@
 					},
 					focus: (view, event) => {
 						eventDispatch('focus', { event });
+						return false;
+					},
+					blur: (view, event) => {
+						eventDispatch('blur', { event });
 						return false;
 					},
 					keyup: (view, event) => {
