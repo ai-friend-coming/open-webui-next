@@ -1,31 +1,39 @@
 """
 计费上下文管理器
 
-管理预扣费 → 结算/退款的完整生命周期
+管理计费的完整生命周期，支持两种模式：
+1. 预估扣费模式：先按预估金额扣费，请求结束后精确结算并退还多扣部分
+2. 按量扣费模式：请求结束后按实际用量扣费（余额充足的用户）
 
 使用方式：
     billing = BillingContext(user_id, model_id, messages, max_tokens)
-    await billing.precharge()  # 预扣费
+    await billing.precharge()  # 预估扣费（或进入按量扣费模式）
 
     # ... 执行 LLM 请求 ...
 
-    billing.update_usage(prompt_tokens, completion_tokens)
-    await billing.settle()  # 结算
+    billing.update_usage_info(usage_info)  # 更新实际用量
+    await billing.settle()  # 精确结算
 
     # 或者发生错误时：
     await billing.refund()  # 全额退款
 """
 
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 from open_webui.billing.core import (
     estimate_prompt_tokens,
     precharge_balance,
     settle_precharge,
+    settle_precharge_with_usage,
     deduct_balance,
+    check_trust_quota,
+    deduct_balance_with_usage,
 )
+
+if TYPE_CHECKING:
+    from open_webui.billing.usage import UsageInfo
 
 log = logging.getLogger(__name__)
 
@@ -48,13 +56,20 @@ class BillingContext:
     has_usage_data: bool = field(default=False, init=False)
     settled: bool = field(default=False, init=False)
     enabled: bool = field(default=True, init=False)
+    accumulated_content: str = field(default="", init=False)  # 流式内容累计，用于后备估算
+    _usage_info: Optional["UsageInfo"] = field(default=None, init=False)  # 完整的 UsageInfo
+    trust_quota_mode: bool = field(default=False, init=False)  # 按量扣费模式（余额充足时启用）
 
     async def precharge(self) -> bool:
         """
-        执行预扣费
+        执行预估扣费（或进入按量扣费模式）
+
+        计费模式选择：
+        - 余额 < 阈值：预估扣费模式，先扣后退
+        - 余额 >= 阈值：按量扣费模式，请求结束后扣费
 
         Returns:
-            bool: 预扣费是否成功
+            bool: 扣费准备是否成功
         """
         if not self.enabled:
             return True
@@ -63,7 +78,16 @@ class BillingContext:
             # 1. 预估 prompt tokens
             self.estimated_prompt = estimate_prompt_tokens(self.messages, self.model_id)
 
-            # 2. 预扣费
+            # 2. 检查信任额度
+            if check_trust_quota(self.user_id):
+                self.trust_quota_mode = True
+                log.info(
+                    f"[Billing] 按量扣费模式: user={self.user_id} model={self.model_id} "
+                    f"（请求结束后按实际用量扣费）"
+                )
+                return True
+
+            # 3. 普通模式：预扣费
             self.precharge_id, self.precharged_cost, balance = precharge_balance(
                 user_id=self.user_id,
                 model_id=self.model_id,
@@ -72,15 +96,15 @@ class BillingContext:
             )
 
             log.info(
-                f"[Billing] 预扣费成功: user={self.user_id} model={self.model_id} "
-                f"estimated={self.estimated_prompt}+{self.max_completion_tokens} "
-                f"cost={self.precharged_cost / 10000:.4f}元"
+                f"[Billing] 预估扣费: user={self.user_id} model={self.model_id} "
+                f"预估tokens={self.estimated_prompt}+{self.max_completion_tokens} "
+                f"预扣={self.precharged_cost / 10000:.4f}元（请求结束后按实际用量结算）"
             )
             return True
 
         except Exception as e:
             # 余额不足等异常向上抛出
-            log.warning(f"[Billing] 预扣费失败: {e}")
+            log.warning(f"[Billing] 扣费失败（余额不足）: {e}")
             raise
 
     async def settle(self) -> None:
@@ -93,26 +117,81 @@ class BillingContext:
         self.settled = True
 
         try:
+            # 确保有 usage 数据（无论哪种模式）
+            if not self.has_usage_data:
+                # 未收到 usage，使用预估值
+                self.actual_usage["prompt"] = self.estimated_prompt
+
+                # 估算 completion_tokens
+                if self.accumulated_content:
+                    from open_webui.billing.core import estimate_completion_tokens
+                    self.actual_usage["completion"] = estimate_completion_tokens(
+                        self.accumulated_content, self.model_id
+                    )
+                else:
+                    # 保守估算：预扣费的 25%
+                    self.actual_usage["completion"] = max(self.max_completion_tokens // 4, 100)
+
+                log.warning(
+                    f"[Billing] 未收到 API usage，使用估算: "
+                    f"prompt={self.actual_usage['prompt']}, completion={self.actual_usage['completion']}"
+                )
+
             if self.precharge_id:
                 # 预扣费模式：结算
-                if not self.has_usage_data:
-                    # 未收到 usage，使用预估值
-                    self.actual_usage["prompt"] = self.estimated_prompt
+                if self._usage_info and self._usage_info.has_data():
+                    actual_cost, refund, balance = settle_precharge_with_usage(
+                        precharge_id=self.precharge_id,
+                        usage_info=self._usage_info,
+                    )
+                    log.info(
+                        f"[Billing] 精确结算: user={self.user_id} "
+                        f"tokens={self._usage_info.prompt_tokens}+{self._usage_info.completion_tokens} "
+                        f"(缓存={self._usage_info.cached_tokens} 推理={self._usage_info.reasoning_tokens}) "
+                        f"实扣={actual_cost / 10000:.4f}元 退还={refund / 10000:.4f}元"
+                    )
+                else:
+                    # 降级：使用简单的 prompt/completion 结算
+                    actual_cost, refund, balance = settle_precharge(
+                        precharge_id=self.precharge_id,
+                        actual_prompt_tokens=self.actual_usage["prompt"],
+                        actual_completion_tokens=self.actual_usage["completion"],
+                    )
+                    log.info(
+                        f"[Billing] 精确结算: user={self.user_id} "
+                        f"tokens={self.actual_usage['prompt']}+{self.actual_usage['completion']} "
+                        f"实扣={actual_cost / 10000:.4f}元 退还={refund / 10000:.4f}元"
+                    )
 
-                actual_cost, refund, balance = settle_precharge(
-                    precharge_id=self.precharge_id,
-                    actual_prompt_tokens=self.actual_usage["prompt"],
-                    actual_completion_tokens=self.actual_usage["completion"],
-                )
-
-                log.info(
-                    f"[Billing] 结算完成: precharge_id={self.precharge_id} "
-                    f"actual={self.actual_usage['prompt']}+{self.actual_usage['completion']} "
-                    f"cost={actual_cost / 10000:.4f}元 refund={refund / 10000:.4f}元"
-                )
+            elif self.trust_quota_mode:
+                # 按量扣费模式
+                if self._usage_info and self._usage_info.has_data():
+                    cost, balance = deduct_balance_with_usage(
+                        user_id=self.user_id,
+                        model_id=self.model_id,
+                        usage_info=self._usage_info,
+                    )
+                    log.info(
+                        f"[Billing] 按量扣费: user={self.user_id} "
+                        f"tokens={self._usage_info.prompt_tokens}+{self._usage_info.completion_tokens} "
+                        f"(缓存={self._usage_info.cached_tokens} 推理={self._usage_info.reasoning_tokens}) "
+                        f"实扣={cost / 10000:.4f}元"
+                    )
+                else:
+                    cost, balance = deduct_balance(
+                        user_id=self.user_id,
+                        model_id=self.model_id,
+                        prompt_tokens=self.actual_usage["prompt"],
+                        completion_tokens=self.actual_usage["completion"],
+                    )
+                    log.info(
+                        f"[Billing] 按量扣费: user={self.user_id} "
+                        f"tokens={self.actual_usage['prompt']}+{self.actual_usage['completion']} "
+                        f"实扣={cost / 10000:.4f}元"
+                    )
 
             elif self.actual_usage["prompt"] > 0 or self.actual_usage["completion"] > 0:
-                # 无预扣费但有 usage，直接扣费（降级模式）
+                # 无预扣费但有 usage，按量扣费（降级模式）
                 cost, balance = deduct_balance(
                     user_id=self.user_id,
                     model_id=self.model_id,
@@ -121,9 +200,9 @@ class BillingContext:
                 )
 
                 log.info(
-                    f"[Billing] 后付费扣费: user={self.user_id} "
+                    f"[Billing] 按量扣费: user={self.user_id} "
                     f"tokens={self.actual_usage['prompt']}+{self.actual_usage['completion']} "
-                    f"cost={cost / 10000:.4f}元"
+                    f"实扣={cost / 10000:.4f}元"
                 )
 
         except Exception as e:
@@ -153,6 +232,30 @@ class BillingContext:
         self.has_usage_data = True
         self.actual_usage["prompt"] = max(self.actual_usage["prompt"], prompt_tokens)
         self.actual_usage["completion"] = max(self.actual_usage["completion"], completion_tokens)
+
+    def update_usage_info(self, usage_info: "UsageInfo") -> None:
+        """
+        更新完整的 UsageInfo（支持缓存/推理 token）
+
+        Args:
+            usage_info: 完整的 UsageInfo 对象
+        """
+        from open_webui.billing.usage import UsageInfo
+
+        self.has_usage_data = True
+        if self._usage_info is None:
+            self._usage_info = UsageInfo()
+        self._usage_info.merge_max(usage_info)
+
+        # 同时更新基础 usage（保持兼容性）
+        self.actual_usage["prompt"] = max(
+            self.actual_usage["prompt"],
+            usage_info.prompt_tokens + usage_info.cached_tokens
+        )
+        self.actual_usage["completion"] = max(
+            self.actual_usage["completion"],
+            usage_info.completion_tokens + usage_info.reasoning_tokens
+        )
 
     def disable(self) -> None:
         """禁用计费（用于不需要计费的请求）"""

@@ -19,6 +19,7 @@ from starlette.responses import StreamingResponse
 
 from open_webui.billing.context import BillingContext
 from open_webui.billing.stream import BillingStreamWrapper
+from open_webui.billing.usage import parse_usage
 
 log = logging.getLogger(__name__)
 
@@ -100,16 +101,16 @@ async def chat_with_billing(
         else:
             # 非流式响应：从返回值中提取 usage 并结算
             if isinstance(response, dict):
-                usage = response.get("usage", {})
-                billing.update_usage(
-                    usage.get("prompt_tokens", 0),
-                    usage.get("completion_tokens", 0),
-                )
+                usage_dict = response.get("usage", {})
+                if usage_dict:
+                    # 使用统一解析获取完整 usage（含 cached/reasoning tokens）
+                    usage_info = parse_usage(usage_dict)
+                    billing.update_usage_info(usage_info)
             await billing.settle()
             return response
 
     except Exception as e:
         # 错误时全额退款
-        log.error(f"[Billing] 请求失败，执行退款: {e}")
+        log.error(f"[Billing] 请求失败，执行退款: {e}") 
         await billing.refund()
         raise

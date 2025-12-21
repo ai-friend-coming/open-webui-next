@@ -6,16 +6,21 @@
 
 关键设计：
 - 使用 finally 块确保即使用户中断也能结算
-- 从 SSE 事件中提取 usage 信息
-- 支持 OpenAI/Claude 格式的流式响应
+- 使用统一的 usage 解析模块 (usage.py)
+- 支持 OpenAI/Claude/Gemini 格式的流式响应
+- 支持缓存 token 和推理 token
 """
 
-import json
 import asyncio
 import logging
 from typing import AsyncIterator, Union
 
 from open_webui.billing.context import BillingContext
+from open_webui.billing.usage import (
+    UsageInfo,
+    parse_usage_from_sse_chunk,
+    extract_delta_content,
+)
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +31,12 @@ class BillingStreamWrapper:
 
     包装原始的 AsyncIterator，在迭代过程中解析 usage，
     并在流结束时（包括用户中断）自动执行结算。
+
+    特性：
+    - 支持 OpenAI/Claude/Gemini 的 usage 格式
+    - 支持 prompt_tokens_details（缓存 token）
+    - 支持 completion_tokens_details（推理 token）
+    - 累计流内容用于后备 token 估算
     """
 
     def __init__(
@@ -36,12 +47,16 @@ class BillingStreamWrapper:
         self.stream = stream
         self.billing = billing_context
         self._settled = False
+        self._accumulated_content = []  # 累计流内容用于后备估算
+        self._usage = UsageInfo()  # 累计的 usage 信息
 
     async def __aiter__(self):
         try:
             async for chunk in self.stream:
-                # 解析 usage
+                # 解析 usage（使用统一的解析模块）
                 self._parse_usage(chunk)
+                # 累计内容用于后备估算
+                self._accumulate_content(chunk)
                 yield chunk
 
         except asyncio.CancelledError:
@@ -64,81 +79,61 @@ class BillingStreamWrapper:
         self._settled = True
 
         try:
+            # 传递累计的 usage 信息到 BillingContext
+            if self._usage.has_data():
+                self.billing.update_usage_info(self._usage)
+
+            # 传递累计内容用于后备估算
+            if self._accumulated_content and not self.billing.has_usage_data:
+                self.billing.accumulated_content = "".join(self._accumulated_content)
+
             await self.billing.settle()
         except Exception as e:
             log.error(f"[Billing] 结算失败: {e}")
 
     def _parse_usage(self, chunk: Union[bytes, str]) -> None:
         """
-                    
+        从 SSE chunk 中解析 usage
 
-        支持的格式：
-        1. OpenAI 完整 usage: {"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
-        2. OpenAI 增量 delta: {"choices": [{"delta": {...}}], "usage": null}
-        3. Claude message_delta: {"type": "message_delta", "usage": {"output_tokens": 20}}
-        4. 流式最后一个 chunk: {"usage": {...}} (包含完整 usage)
+        使用统一的 usage 解析模块，支持：
+        - OpenAI 完整格式（含 prompt_tokens_details, completion_tokens_details）
+        - Claude 格式（含 cache_read_input_tokens）
+        - Gemini 格式（含 thoughts_token_count）
 
-        关键逻辑：
-        - 优先使用完整的 usage 对象（包含 prompt_tokens 和 completion_tokens）
-        - 如果只有部分 tokens，累加到现有值
-        - 使用 max() 确保 tokens 只增不减
+        注意：只累积 UsageInfo，不直接调用 billing.update_usage()
+        在 _ensure_settle() 中统一通过 update_usage_info() 更新
         """
         try:
-            # 转换为字符串
-            if isinstance(chunk, bytes):
-                chunk_str = chunk.decode("utf-8")
-            else:
-                chunk_str = chunk
+            usage_info = parse_usage_from_sse_chunk(chunk)
+            if usage_info and usage_info.has_data():
+                # 合并到累计的 usage（取最大值）
+                self._usage.merge_max(usage_info)
 
-            # 跳过非数据行
-            if "data: " not in chunk_str:
-                return
-
-            # 提取 data 部分
-            for line in chunk_str.split("\n"):
-                if not line.startswith("data: "):
-                    continue
-
-                data_str = line[6:].strip()  # 去掉 "data: " 前缀
-                if not data_str or data_str == "[DONE]":
-                    continue
-
-                try:
-                    data = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
-
-                # 提取 usage
-                usage = data.get("usage")
-                if not usage:
-                    continue
-
-                # 处理不同格式的 usage
-                prompt_tokens = 0
-                completion_tokens = 0
-
-                # OpenAI 格式: {"prompt_tokens": 10, "completion_tokens": 20}
-                if "prompt_tokens" in usage:
-                    prompt_tokens = usage.get("prompt_tokens", 0)
-                if "completion_tokens" in usage:
-                    completion_tokens = usage.get("completion_tokens", 0)
-
-                # Claude 格式: {"input_tokens": 10, "output_tokens": 20}
-                if "input_tokens" in usage:
-                    prompt_tokens = usage.get("input_tokens", 0)
-                if "output_tokens" in usage:
-                    completion_tokens = usage.get("output_tokens", 0)
-
-                # 只要有任何 tokens 数据就更新
-                if prompt_tokens > 0 or completion_tokens > 0:
-                    self.billing.update_usage(prompt_tokens, completion_tokens)
-                    log.debug(
-                        f"[Billing] 解析到 usage: prompt={prompt_tokens}, completion={completion_tokens}"
-                    )
+                log.debug(
+                    f"[Billing] 解析到 usage: "
+                    f"prompt={usage_info.prompt_tokens}, "
+                    f"completion={usage_info.completion_tokens}, "
+                    f"cached={usage_info.cached_tokens}, "
+                    f"reasoning={usage_info.reasoning_tokens}"
+                )
 
         except Exception as e:
             # 解析失败忽略，不影响流式传输
             log.debug(f"[Billing] 解析 usage 失败（忽略）: {e}")
+
+    def _accumulate_content(self, chunk: Union[bytes, str]) -> None:
+        """
+        累计流式内容用于后备 token 估算
+
+        当 API 不返回 usage 时，使用累计的内容进行 tiktoken 估算
+        同时提取 reasoning_content 用于估算推理 token
+        """
+        try:
+            content = extract_delta_content(chunk)
+            if content:
+                self._accumulated_content.append(content)
+        except Exception:
+            # 累计失败忽略，不影响流式传输
             pass
 
 
