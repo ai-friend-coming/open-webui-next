@@ -64,6 +64,7 @@ from open_webui.utils.files import (
     get_file_url_from_base64,
     get_image_url_from_base64,
 )
+from open_webui.utils.perf_logger import ChatPerfLogger
 
 
 from open_webui.models.users import UserModel
@@ -106,6 +107,7 @@ from open_webui.utils.mcp.client import MCPClient
 from open_webui.utils.summary import (
     summarize,
     compute_token_count,
+    build_ordered_messages,
     slice_messages_with_summary,
 )
 
@@ -1093,7 +1095,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             - events: 需要发送给前端的事件列表（如引用来源）
     """
     # 获取性能日志记录器
-    perf_logger = metadata.get("perf_logger")
+    perf_logger: Optional[ChatPerfLogger] = metadata.get("perf_logger")
 
     # === 0. 计费预检查 ===
     # 注意：只做预检查，不扣费。实际计费由openai.py负责
@@ -1126,6 +1128,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     summary_record = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
 
     def messages_loaded():
+        current_message_id = metadata.get("message_id")
+
         # 1 注入 system prompt
         summary_system_message = {
             "role": "system",
@@ -1136,26 +1140,28 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         # 获取冷启动消息（用于注入关键历史消息）
         cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
 
-        # 基于摘要边界裁剪消息：保留边界前 20 条 + 边界后全部
+        # 获取 last_summary_id 往后的所有消息
         messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
         current_message_id = metadata.get("message_id")
-        ordered_messages = slice_messages_with_summary(
-            messages_map,
-            summary_record.get("last_message_id") if summary_record else None,
-            current_message_id,
-            pre_boundary=30,
+        last_summary_id = summary_record.get("last_summary_id") if summary_record else None
+        ordered_messages_in_chat = build_ordered_messages(messages_map, current_message_id)
+        boundary_idx = next(
+            idx
+            for idx, msg in enumerate(ordered_messages_in_chat)
+            if msg.get("id") == last_summary_id
         )
+        recent_conversation_in_this_chat = ordered_messages_in_chat[boundary_idx + 1 :]
 
         if perf_logger:
             perf_logger.mark_payload_checkpoint("db_get_messages_map")
 
         # 移除旧的 system 消息
-        non_system_messages = [
-            m for m in ordered_messages if m.get("role") != "system"
+        recent_conversation_in_this_chat = [
+            m for m in recent_conversation_in_this_chat if m.get("role") != "system"
         ]
 
         # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
-        ordered_messages = [summary_system_message, *cold_start_messages, *non_system_messages]
+        ordered_messages = [summary_system_message, *cold_start_messages, *recent_conversation_in_this_chat]
         # 合并连续的同角色消息，避免 LLM API 报错
         ordered_messages = merge_consecutive_messages(ordered_messages)
         return ordered_messages
@@ -2046,7 +2052,7 @@ async def process_chat_response(
                 # 任务 4: 摘要更新（基于新增 token 阈值）
                 # ========================================
                 async def update_summary():
-                    perf_logger = metadata.get("perf_logger")
+                    perf_logger: Optional[ChatPerfLogger] = metadata.get("perf_logger")
                     chat_id = metadata.get("chat_id")
                     messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
                     threshold = getattr(request.app.state.config, "SUMMARY_TOKEN_THRESHOLD", SUMMARY_TOKEN_THRESHOLD_DEFAULT)
@@ -2056,7 +2062,7 @@ async def process_chat_response(
                     current_message_id = metadata.get("message_id")
                     new_messages = slice_messages_with_summary(
                         messages_map = messages_map,
-                        boundary_message_id = existing_summary.get("last_message_id"),
+                        boundary_message_id = existing_summary.get("last_summary_id"),
                         anchor_id = current_message_id,
                         pre_boundary = 0,
                     )
@@ -2076,7 +2082,7 @@ async def process_chat_response(
                         old_summary = existing_summary.get("content")
                         to_be_summarized_summary_messages = slice_messages_with_summary(
                             messages_map,
-                            existing_summary.get("last_message_id") if existing_summary else None,
+                            existing_summary.get("last_summary_id") if existing_summary else None,
                             metadata.get("message_id"),
                             pre_boundary=0,
                         )
@@ -2109,12 +2115,12 @@ async def process_chat_response(
                             is_user_model=is_user_model,
                             model_config=model,  # 传递完整的模型配置对象
                         )
-                        last_message_id = to_be_summarized_summary_messages[-1].get("id")
+                        last_summary_id = to_be_summarized_summary_messages[-1].get("id")
                         Chats.set_summary_by_user_id_and_chat_id(
                             user.id,
                             chat_id,
                             summary_text,
-                            last_message_id,
+                            last_summary_id,
                             int(time.time()),
                             cold_start_messages=[],
                         )
@@ -2124,10 +2130,10 @@ async def process_chat_response(
                         if perf_logger:
                             perf_logger.record_summary_materials(
                                 messages=to_be_summarized_summary_messages,      # summarize 的第1个参数
-                                old_summary=old_summary,        # summarize 的第2个参数
-                                model=model_id,                 # summarize 的第3个参数
-                                user_id=user.id,                # summarize 的第4个参数（user对象的id）
-                                new_summary=summary_text,       # summarize 的返回值
+                                old_summary=old_summary,
+                                model=model_id,
+                                user_id=user.id,
+                                new_summary=summary_text,
                             )
                             perf_logger.mark_summary_update(start=False)
                     else: # tokens 未超过阈值，不执行摘要更新

@@ -255,7 +255,7 @@ class ChatTable:
         self, user_id: str, chat_id: str
     ) -> Optional[dict]:
         """
-        读取 chat.meta.summary，包含摘要内容及摘要边界（last_message_id/timestamp）。
+        读取 chat.meta.summary，包含摘要内容及摘要边界（last_summary_id/timestamp）。
         """
         chat = self.get_chat_by_id_and_user_id(chat_id, user_id)
         if chat is None:
@@ -268,7 +268,7 @@ class ChatTable:
         user_id: str,
         chat_id: str,
         summary: str,
-        last_message_id: Optional[str],
+        last_summary_id: Optional[str],
         last_timestamp: Optional[int],
         cold_start_messages: Optional[List[Dict]] = None,
     ) -> Optional[ChatModel]:
@@ -287,7 +287,7 @@ class ChatTable:
                     **meta,
                     "summary": {
                         "content": summary,
-                        "last_message_id": last_message_id,
+                        "last_summary_id": last_summary_id,
                         "last_timestamp": last_timestamp,
                     },
                     **(
