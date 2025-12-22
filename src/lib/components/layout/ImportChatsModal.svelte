@@ -55,12 +55,16 @@
                 throw new Error('无法解析 JSON，请检查文件格式');
             }
 
+            // Handle QWEN format (object with success + data array)
+            if (parsed && typeof parsed === 'object' && 'success' in parsed && Array.isArray(parsed.data)) {
+                parsed = parsed.data;
+            }
             // Handle Grok format (object with conversations array)
-            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
+            else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
                 parsed = parsed.conversations;
             }
 
-            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组或包含 conversations 数组的对象');
+            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组或包含 conversations/data 数组的对象');
             if (parsed.length === 0) throw new Error('JSON 数组为空');
 
             rawChats = parsed;
@@ -132,7 +136,7 @@
                     <span class="text-blue-500"><ArrowUpTray className="size-5 stroke-2"/></span>
                     导入聊天记录
                 </h2>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI、DeepSeek、ChatGPT、Gemini、Grok JSON 格式</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI、DeepSeek、ChatGPT、Gemini、Grok、QWEN JSON 格式</p>
             </div>
             <button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" on:click={() => show = false}>
                 <span class="text-xl leading-none">&times;</span>
@@ -214,6 +218,12 @@
                                 <div class="pl-6 text-[11px] text-gray-500 dark:text-gray-500">
                                     📦 解压后上传 <code class="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-blue-600 dark:text-blue-400">prod-grok-backend.json</code> 文件
                                 </div>
+                            </div>
+
+                            <div class="flex items-center gap-2 py-1.5">
+                                <span class="shrink-0 w-4">🌐</span>
+                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">QWEN</span>
+                                <span class="text-gray-600 dark:text-gray-400 truncate">通义千问网页版 → 导出聊天记录</span>
                             </div>
                         </div>
                     {/if}
