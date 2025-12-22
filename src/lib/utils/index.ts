@@ -661,7 +661,21 @@ export const calculateSHA256 = async (file) => {
 export const getImportOrigin = (_chats) => {
 	// Check what external service chat imports are from
 	const first = Array.isArray(_chats) ? _chats[0] : null;
+
+	// Check for QWEN format (has success, request_id, and data array at root level)
+	// This check should come before the array check to handle the wrapped format
+	if (!Array.isArray(_chats) && typeof _chats === 'object' && _chats !== null) {
+		if ('success' in _chats && 'data' in _chats && Array.isArray(_chats.data)) {
+			return 'qwen';
+		}
+	}
+
 	if (!first || typeof first !== 'object') return 'webui';
+
+	// Check for Google AI Studio format (has runSettings and chunkedPrompt)
+	if ('runSettings' in first && 'chunkedPrompt' in first && first.chunkedPrompt?.chunks) {
+		return 'aistudio';
+	}
 
 	// Check for Grok format (has conversations array with conversation and responses)
 	if ('conversation' in first && 'responses' in first) {
@@ -1147,6 +1161,188 @@ export const convertGrokChats = (_chats) => {
 	}
 
 	console.log(failed, 'Grok conversations could not be imported');
+	return chats;
+};
+
+const convertAIStudioMessages = (convo) => {
+	const chunks = convo.chunkedPrompt?.chunks || [];
+	const messages = [];
+	const messagesMap: Record<string, any> = {};
+	let lastValidId: string | null = null;
+
+	for (const chunk of chunks) {
+		// Skip thinking chunks (isThought: true)
+		if (chunk.isThought) continue;
+
+		// Skip chunks without content (e.g., image-only chunks for now)
+		if (!chunk.text && !chunk.parts) continue;
+
+		// Extract text content
+		let content = '';
+		if (chunk.text) {
+			content = chunk.text;
+		} else if (Array.isArray(chunk.parts)) {
+			// parts is an array of text fragments
+			content = chunk.parts
+				.map((part: any) => {
+					if (typeof part === 'string') return part;
+					if (part?.text) return part.text;
+					return '';
+				})
+				.filter(Boolean)
+				.join('\n');
+		}
+
+		if (!content) continue;
+
+		// Map role: "model" -> "assistant", "user" -> "user"
+		const role = chunk.role === 'model' ? 'assistant' : 'user';
+
+		const messageId = uuidv4();
+		const message = {
+			id: messageId,
+			parentId: lastValidId,
+			childrenIds: [],
+			role,
+			content,
+			model: 'gemini',
+			done: true,
+			context: null
+		};
+
+		messagesMap[messageId] = message;
+		messages.push(message);
+
+		// Update parent-child relationship
+		if (lastValidId && messagesMap[lastValidId]) {
+			messagesMap[lastValidId].childrenIds.push(messageId);
+		}
+
+		lastValidId = messageId;
+	}
+
+	return messages;
+};
+
+export const convertAIStudioChats = (_chats) => {
+	const chats = [];
+	let failed = 0;
+
+	// AIStudio exports can be single conversation or array
+	const conversations = Array.isArray(_chats) ? _chats : [_chats];
+
+	for (const convo of conversations) {
+		if (!convo.chunkedPrompt?.chunks) {
+			failed++;
+			continue;
+		}
+
+		const messages = convertAIStudioMessages(convo);
+
+		// Build history object
+		const history = {};
+		messages.forEach((msg) => (history[msg.id] = msg));
+
+		const chat = {
+			history: {
+				currentId: messages.length > 0 ? messages[messages.length - 1].id : null,
+				messages: history
+			},
+			models: ['gemini'],
+			messages: messages,
+			options: {},
+			timestamp: Math.floor(Date.now() / 1000),
+			title: convo.title || 'Google AI Studio Chat'
+		};
+
+		if (validateChat(chat)) {
+			chats.push({
+				id: uuidv4(),
+				user_id: '',
+				title: convo.title || 'Google AI Studio Chat',
+				chat: chat,
+				timestamp: Math.floor(Date.now() / 1000),
+				created_at: null,
+				updated_at: null
+			});
+		} else {
+			failed++;
+		}
+	}
+
+	console.log(failed, 'Google AI Studio conversations could not be imported');
+	return chats;
+};
+
+export const convertQwenChats = (_chats) => {
+	const chats = [];
+	let failed = 0;
+
+	// Extract data array from QWEN export format
+	const qwenData = _chats?.data || [];
+
+	for (const item of qwenData) {
+		if (!item?.chat?.history?.messages) {
+			failed++;
+			continue;
+		}
+
+		const messages = item.chat.history.messages;
+		const messagesArray = Object.values(messages);
+
+		// Find currentId: the message with no children (last message in the conversation)
+		let currentId = item.chat.history.currentId || null;
+		if (!currentId) {
+			// Find the last message with empty childrenIds
+			const lastMessage = messagesArray.find(
+				(msg: any) => !msg.childrenIds || msg.childrenIds.length === 0
+			);
+			currentId = lastMessage?.id || null;
+		}
+
+		// Extract unique models from all messages
+		const models = messagesArray
+			.map((msg: any) => {
+				// QWEN messages may have 'model' or 'models' array
+				if (msg.model) return msg.model;
+				if (Array.isArray(msg.models) && msg.models.length > 0) return msg.models[0];
+				return null;
+			})
+			.filter(Boolean)
+			.filter((v, i, a) => a.indexOf(v) === i); // unique
+
+		// Use the first message's timestamp as chat timestamp, or current time
+		const firstMessage = messagesArray[0] as any;
+		const timestamp = firstMessage?.timestamp || Math.floor(Date.now() / 1000);
+
+		const chat = {
+			history: {
+				currentId: currentId,
+				messages: messages
+			},
+			models: models.length > 0 ? models : ['qwen'],
+			messages: messagesArray,
+			options: {},
+			timestamp: timestamp,
+			title: item.title || 'QWEN Chat'
+		};
+
+		if (validateChat(chat)) {
+			chats.push({
+				id: item.id || uuidv4(),
+				user_id: item.user_id || '',
+				title: item.title || 'QWEN Chat',
+				chat: chat,
+				timestamp: timestamp,
+				created_at: null,
+				updated_at: null
+			});
+		} else {
+			failed++;
+		}
+	}
+
+	console.log(failed, 'QWEN conversations could not be imported');
 	return chats;
 };
 

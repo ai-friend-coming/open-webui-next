@@ -67,7 +67,7 @@
     import PinnedModelList from './Sidebar/PinnedModelList.svelte';
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
-    import { convertDeepseekChats, convertGrokChats, getImportOrigin } from '$lib/utils';
+    import { convertDeepseekChats, convertGrokChats, convertAIStudioChats, convertQwenChats, getImportOrigin } from '$lib/utils';
     import { selectTopInformativeMessages, formatMessagesForMem0 } from '$lib/utils/message-quality';
 
     const BREAKPOINT = 768;
@@ -591,6 +591,24 @@
             } catch (error) {
                 console.error('Grok conversion failed', error);
                 toast.error('Grok 聊天转换失败');
+                return;
+            }
+        } else if (origin === 'aistudio') {
+            // 使用 Google AI Studio 专用转换函数
+            try {
+                chatsToImport = convertAIStudioChats(chatsToImport);
+            } catch (error) {
+                console.error('Google AI Studio conversion failed', error);
+                toast.error('Google AI Studio 聊天转换失败');
+                return;
+            }
+        } else if (origin === 'qwen') {
+            // 使用 QWEN 专用转换函数
+            try {
+                chatsToImport = convertQwenChats(chatsToImport);
+            } catch (error) {
+                console.error('QWEN conversion failed', error);
+                toast.error('QWEN 聊天转换失败');
                 return;
             }
         } else if (origin === 'openai') {
