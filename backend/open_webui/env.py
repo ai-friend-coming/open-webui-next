@@ -886,3 +886,12 @@ ALIPAY_PRIVATE_KEY = os.environ.get("ALIPAY_PRIVATE_KEY", "")  # 应用私钥
 ALIPAY_PUBLIC_KEY = os.environ.get("ALIPAY_PUBLIC_KEY", "")  # 支付宝公钥
 ALIPAY_NOTIFY_URL = os.environ.get("ALIPAY_NOTIFY_URL", "")  # 异步通知地址
 ALIPAY_SANDBOX = os.environ.get("ALIPAY_SANDBOX", "false").lower() == "true"  # 沙箱模式
+
+
+####################################
+# IMPORT CHAT MEMORY EXTRACTION
+####################################
+
+ENABLE_IMPORT_MEMORY_EXTRACTION = (
+    os.environ.get("ENABLE_IMPORT_MEMORY_EXTRACTION", "true").lower() == "true"
+)

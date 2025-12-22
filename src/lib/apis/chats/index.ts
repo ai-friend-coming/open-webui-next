@@ -109,6 +109,42 @@ export const importChat = async (
 	return res;
 };
 
+export const importChatMemories = async (
+	token: string,
+	chatId: string,
+	messages: Array<{ role: string; content: string }>
+) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/chats/import/memories`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			chat_id: chatId,
+			messages: messages
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const getChatList = async (
 	token: string = '',
 	page: number | null = null,

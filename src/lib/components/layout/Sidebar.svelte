@@ -40,7 +40,8 @@
         toggleChatPinnedStatusById,
         getChatById,
         updateChatFolderIdById,
-        importChat
+        importChat,
+        importChatMemories
     } from '$lib/apis/chats';
     import { createNewFolder, getFolders, updateFolderParentIdById } from '$lib/apis/folders';
     import { WEBUI_BASE_URL } from '$lib/constants';
@@ -67,6 +68,7 @@
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
     import { convertDeepseekChats, convertGrokChats, getImportOrigin } from '$lib/utils';
+    import { selectTopInformativeMessages, formatMessagesForMem0 } from '$lib/utils/message-quality';
 
     const BREAKPOINT = 768;
 
@@ -607,20 +609,49 @@
         for (const chat of chatsToImport) {
             console.log(chat);
 
+            let importedChat;
             if (chat.chat) {
                 const meta = { ...(chat.meta ?? {}), loaded_by_user: true };
-                await importChat(
+                // 导入的聊天使用当前时间（导入时间）而不是原始时间戳
+                // 这样导入的聊天会显示在侧边栏最上方
+                importedChat = await importChat(
                     localStorage.token,
                     chat.chat,
                     meta,
                     false,
                     null,
-                    chat?.created_at ?? null,
-                    chat?.updated_at ?? null
+                    null,  // created_at: 使用当前导入时间
+                    null   // updated_at: 使用当前导入时间
                 );
             } else {
                 // Legacy format
-                await importChat(localStorage.token, chat, { loaded_by_user: true }, false, null);
+                importedChat = await importChat(localStorage.token, chat, { loaded_by_user: true }, false, null);
+            }
+
+            // 评分并存储Top20消息到Mem0
+            if (importedChat?.id) {
+                try {
+                    const chatData = chat.chat || chat;
+                    const topMessages = selectTopInformativeMessages(chatData, 20);
+
+                    if (topMessages.length > 0) {
+                        const mem0Messages = formatMessagesForMem0(topMessages);
+
+                        console.log(`Storing ${mem0Messages.length} top messages for chat ${importedChat.id}`);
+                        const result = await importChatMemories(
+                            localStorage.token,
+                            importedChat.id,
+                            mem0Messages
+                        );
+
+                        if (result?.success) {
+                            console.log(`Successfully stored ${result.stored_count} memories (${result.billed_tokens} tokens)`);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to process memories:', e);
+                    // 不影响导入流程，仅记录错误
+                }
             }
         }
 

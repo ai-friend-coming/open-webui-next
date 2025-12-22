@@ -16,7 +16,7 @@ from open_webui.models.folders import Folders
 
 from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import SRC_LOG_LEVELS
+from open_webui.env import SRC_LOG_LEVELS, ENABLE_IMPORT_MEMORY_EXTRACTION
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from open_webui.memory.mem0 import mem0_delete
@@ -167,6 +167,96 @@ async def import_chat(form_data: ChatImportForm, user=Depends(get_verified_user)
         log.exception(e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT()
+        )
+
+
+############################
+# ImportChatMemories
+############################
+
+
+class ImportMemoriesForm(BaseModel):
+    chat_id: str
+    messages: list[dict]  # [{"role": "user", "content": "..."}]
+
+
+@router.post("/import/memories", response_model=dict)
+async def import_chat_memories(
+    form_data: ImportMemoriesForm, user=Depends(get_verified_user)
+):
+    """
+    接收前端筛选的Top N消息并存储到Mem0
+
+    Args:
+        form_data.chat_id: 聊天ID（用于元数据标记）
+        form_data.messages: 消息列表 [{"role": "user", "content": "..."}]
+
+    Returns:
+        {"success": true, "stored_count": N, "billed_tokens": N*7}
+    """
+    try:
+        if not ENABLE_IMPORT_MEMORY_EXTRACTION:
+            return {
+                "success": False,
+                "error": "Memory extraction is disabled",
+                "stored_count": 0,
+                "billed_tokens": 0
+            }
+
+        from open_webui.memory.mem0 import memory_client, _charge_mem0, MEM0_ADD_MODEL_ID
+
+        messages = form_data.messages
+        if not messages:
+            return {
+                "success": True,
+                "stored_count": 0,
+                "billed_tokens": 0
+            }
+
+        # 过滤空消息
+        valid_messages = [m for m in messages if m.get("content")]
+
+        if not valid_messages:
+            return {
+                "success": True,
+                "stored_count": 0,
+                "billed_tokens": 0
+            }
+
+        # 批量存储到Mem0
+        memory_client.add(
+            valid_messages,
+            user_id=user.id,
+            enable_graph=True,
+            async_mode=True,
+            metadata={
+                "session_id": form_data.chat_id,
+                "source": "import_top20"
+            }
+        )
+
+        # 计费（7 tokens per add）
+        for _ in valid_messages:
+            _charge_mem0(user.id, MEM0_ADD_MODEL_ID, type="add")
+
+        billed_tokens = len(valid_messages) * 7
+
+        log.info(
+            f"Stored {len(valid_messages)} memories for chat {form_data.chat_id} "
+            f"(billed: {billed_tokens} tokens)"
+        )
+
+        return {
+            "success": True,
+            "stored_count": len(valid_messages),
+            "billed_tokens": billed_tokens
+        }
+
+    except Exception as e:
+        log.exception(e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to store memories: {str(e)}"
         )
 
 
