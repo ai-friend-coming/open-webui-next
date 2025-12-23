@@ -1287,8 +1287,49 @@ export const convertQwenChats = (_chats) => {
 			continue;
 		}
 
-		const messages = item.chat.history.messages;
-		const messagesArray = Object.values(messages);
+		const originalMessages = item.chat.history.messages;
+
+		// Process messages to extract content from content_list
+		const processedMessages: Record<string, any> = {};
+
+		for (const [msgId, msg] of Object.entries(originalMessages)) {
+			const message = { ...(msg as any) };
+
+			// QWEN assistant messages have content in content_list array
+			if (message.role === 'assistant' && (!message.content || message.content === '')) {
+				if (Array.isArray(message.content_list) && message.content_list.length > 0) {
+					// Extract and merge content from all content_list items
+					message.content = message.content_list
+						.map((item: any) => item?.content || '')
+						.filter(Boolean)
+						.join('\n\n');
+				}
+			}
+
+			// Clean up QWEN-specific fields that we don't need
+			delete message.content_list;
+			delete message.reasoning_content;
+			delete message.chat_type;
+			delete message.sub_chat_type;
+			delete message.modelName;
+			delete message.modelIdx;
+			delete message.feature_config;
+			delete message.files;
+			delete message.edited;
+			delete message.error;
+			delete message.extra;
+			delete message.feedbackId;
+			delete message.turn_id;
+			delete message.annotation;
+			delete message.done;
+			delete message.info;
+			delete message.is_stop;
+			delete message.meta;
+
+			processedMessages[msgId] = message;
+		}
+
+		const messagesArray = Object.values(processedMessages);
 
 		// Find currentId: the message with no children (last message in the conversation)
 		let currentId = item.chat.history.currentId || null;
@@ -1318,7 +1359,7 @@ export const convertQwenChats = (_chats) => {
 		const chat = {
 			history: {
 				currentId: currentId,
-				messages: messages
+				messages: processedMessages
 			},
 			models: models.length > 0 ? models : ['qwen'],
 			messages: messagesArray,
