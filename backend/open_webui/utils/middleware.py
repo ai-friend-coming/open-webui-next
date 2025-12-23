@@ -2105,12 +2105,12 @@ async def process_chat_response(
                         # 传递 model_config 以直接复用主对话的已验证模型配置，避免重复查找
                         summary_text = await summarize(
                             messages=to_be_summarized_summary_messages,
-                            old_summary=old_summary,
                             model_id=model_id,
                             user=user,
                             request=request,
                             is_user_model=is_user_model,
-                            model_config=model,  # 传递完整的模型配置对象
+                            model_config=model,
+                            old_summary=old_summary,
                         )
                         last_summary_id = to_be_summarized_summary_messages[-1].get("id")
                         Chats.set_summary_by_user_id_and_chat_id(

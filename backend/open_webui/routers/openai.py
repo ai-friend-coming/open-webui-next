@@ -862,12 +862,7 @@ async def generate_chat_completion(
 
     # === 1. 准备 Payload 和清理内部参数 ===
     payload = {**form_data}
-    metadata = payload.pop("metadata", None)
-
-    # 清理掉上游 API 不认识的、仅供后端内部逻辑使用的参数，避免请求被拒绝
-    payload.pop("is_user_model", None)
-    payload.pop("model_item", None)
-
+    metadata = form_data.get("metadata") or {}
     model_id = form_data.get("model")
 
     # === 2. 动态凭据和配置选择 ===
@@ -1014,7 +1009,8 @@ async def generate_chat_completion(
         "message_id",
         "session_id",
         "filter_ids",
-        "tool_servers"
+        "tool_servers",
+        "metadata"
     ]:
         payload.pop(key, None)
     

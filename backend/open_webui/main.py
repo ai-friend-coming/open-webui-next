@@ -1672,6 +1672,7 @@ async def chat_completion(
                 return
 
             loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
+            
             # 如果是用户上传 chat, 先从该 chat 内取 recent conversation，不足则从全局信息中补
             if loaded_by_user:
                 recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
@@ -1689,11 +1690,13 @@ async def chat_completion(
                     messages_for_summary = messages_for_summary[-100:]
                 else:
                     messages_for_summary = recent_conversation_in_this_chat[-100:]
+            
+            # 不是用户上传的 chat，是新窗口
             else:
                 messages_for_summary = get_recent_messages_by_user_id(
                     user.id,
                     100,
-                    exclude_loaded_by_user=True,
+                    exclude_loaded_by_user=False,
                 )  # 最近 100 条消息
 
             # 标记摘要生成开始
@@ -1707,12 +1710,12 @@ async def chat_completion(
             is_user_model = form_data.get("is_user_model", False)
             summary_text = await summarize(
                 messages=messages_for_summary,
-                old_summary=None,
                 model_id=model_id,
                 user=user,
                 request=request,
                 is_user_model=is_user_model,
-                model_config=model,  # 传递完整的模型配置对象
+                model_config=model,
+                old_summary=None
             )
 
             # 记录摘要生成的入参和输出
