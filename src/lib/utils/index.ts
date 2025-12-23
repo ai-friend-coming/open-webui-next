@@ -1293,38 +1293,40 @@ export const convertQwenChats = (_chats) => {
 		const processedMessages: Record<string, any> = {};
 
 		for (const [msgId, msg] of Object.entries(originalMessages)) {
-			const message = { ...(msg as any) };
+			const originalMsg = msg as any;
+
+			// Determine the final content
+			let finalContent = originalMsg.content || '';
 
 			// QWEN assistant messages have content in content_list array
-			if (message.role === 'assistant' && (!message.content || message.content === '')) {
-				if (Array.isArray(message.content_list) && message.content_list.length > 0) {
+			// If content is empty/missing and content_list exists, extract from content_list
+			if (originalMsg.role === 'assistant') {
+				if (Array.isArray(originalMsg.content_list) && originalMsg.content_list.length > 0) {
 					// Extract and merge content from all content_list items
-					message.content = message.content_list
+					const extractedContent = originalMsg.content_list
 						.map((item: any) => item?.content || '')
 						.filter(Boolean)
 						.join('\n\n');
+
+					// Use extracted content if available, otherwise keep original
+					if (extractedContent) {
+						finalContent = extractedContent;
+					}
 				}
 			}
 
-			// Clean up QWEN-specific fields that we don't need
-			delete message.content_list;
-			delete message.reasoning_content;
-			delete message.chat_type;
-			delete message.sub_chat_type;
-			delete message.modelName;
-			delete message.modelIdx;
-			delete message.feature_config;
-			delete message.files;
-			delete message.edited;
-			delete message.error;
-			delete message.extra;
-			delete message.feedbackId;
-			delete message.turn_id;
-			delete message.annotation;
-			delete message.done;
-			delete message.info;
-			delete message.is_stop;
-			delete message.meta;
+			// Create clean message object with only needed fields
+			const message = {
+				id: originalMsg.id,
+				role: originalMsg.role,
+				content: finalContent,
+				parentId: originalMsg.parentId,
+				childrenIds: originalMsg.childrenIds || [],
+				model: originalMsg.model || (originalMsg.models && originalMsg.models[0]) || 'qwen',
+				done: true,
+				context: null,
+				timestamp: originalMsg.timestamp || Math.floor(Date.now() / 1000)
+			};
 
 			processedMessages[msgId] = message;
 		}
