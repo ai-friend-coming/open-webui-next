@@ -369,7 +369,8 @@ async def summarize(
     is_user_model: bool,
     model_config: Optional[Dict],
     old_summary: Optional[str] = None,
-) -> str:
+    return_details: bool = False,
+) -> Union[str, Tuple[str, Dict[str, Any]]]:
     """
     生成对话摘要（新版：复用主对话 API）
 
@@ -473,6 +474,14 @@ async def summarize(
         # 6. 解析 JSON 并提取摘要
         summary, table = _parse_response(payload)
         # raise RuntimeError("test_error")
+        if return_details:
+            llm_details = {
+                "prompt": prompt,
+                "response": payload,
+                "usage": usage,
+                "model": form_data.get("model"),
+            }
+            return summary, llm_details
         return summary
 
     # 错误响应：JSONResponse（不扣费）

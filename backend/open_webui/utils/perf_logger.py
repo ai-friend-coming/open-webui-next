@@ -63,6 +63,7 @@ class ChatPerfLogger:
 
         # 新增：LLM 调用和 Summary 材料存储
         self.llm_payload: Optional[Dict[str, Any]] = None  # LLM 调用的完整 payload
+        self.llm_response: Optional[Any] = None  # LLM 回复内容（最终响应）
         self.summary_materials: Optional[Dict[str, Any]] = None  # Summary 更新使用的材料
 
     def mark_api_start(self) -> None:
@@ -163,6 +164,18 @@ class ChatPerfLogger:
             f"(生成耗时 {generation_ms:.2f}ms, 总耗时 {total_ms:.2f}ms)"
         )
 
+    def record_llm_response(self, response: Any) -> None:
+        """
+        记录 LLM 最终回复内容
+
+        Args:
+            response: LLM 回复内容（文本或序列化内容块）
+        """
+        self.llm_response = response
+        if isinstance(response, (str, list, dict)):
+            self.llm_info["response_length"] = len(response)
+        print("[PERF] 记录 LLM 回复内容")
+
     def mark_summary_update(
         self,
         start: bool = True,
@@ -240,6 +253,9 @@ class ChatPerfLogger:
         model: Optional[str] = None,
         user_id: Optional[str] = None,
         new_summary: Optional[str] = None,
+        prompt: Optional[str] = None,
+        response: Optional[str] = None,
+        usage: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         记录 Summary 更新时 summarize() 函数的完整参数
@@ -250,6 +266,9 @@ class ChatPerfLogger:
             model: 模型 ID（对应 summarize 的 model 参数）
             user_id: 用户 ID（对应 summarize 的 user 参数）
             new_summary: 新生成的摘要内容（summarize 的返回值）
+            prompt: summarize 调用时的 prompt
+            response: summarize 返回的原始 response 内容
+            usage: summarize 调用的 usage 统计
         """
         self.summary_materials = {
             # summarize() 函数的输入参数
@@ -263,11 +282,19 @@ class ChatPerfLogger:
             "function_output": {
                 "new_summary": new_summary,
             },
+            # summarize() LLM 调用细节
+            "llm_call": {
+                "prompt": prompt,
+                "response": response,
+                "usage": usage,
+            },
             # 统计元数据
             "metadata": {
                 "messages_count": len(messages),
                 "old_summary_length": len(old_summary) if old_summary else 0,
                 "new_summary_length": len(new_summary) if new_summary else 0,
+                "prompt_length": len(prompt) if prompt else 0,
+                "response_length": len(response) if response else 0,
                 "total_messages_content_length": sum(
                     len(str(msg.get("content", "")))
                     for msg in messages
@@ -336,6 +363,7 @@ class ChatPerfLogger:
             "payload_info": self.payload_info,  # 包含所有 checkpoint 信息
             "summary_update_info": self.summary_update_info,  # summary 更新详情
             "llm_payload": self.llm_payload,  # LLM 调用的完整 payload
+            "llm_response": self.llm_response,  # LLM 回复内容
             "summary_materials": self.summary_materials,  # Summary 更新使用的材料
         }
 

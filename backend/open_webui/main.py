@@ -1660,95 +1660,172 @@ async def chat_completion(
 
         async def ensure_initial_summary():
             """
-            如果是新聊天，其中没有summary，获得最近的若干次互动，生成一次摘要并保存。
-            触发条件：非 local 会话，无已有摘要。
-            """
-            chat_id = metadata.get("chat_id")
-            model_id = form_data.get("model")
-            chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
-            old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+            初始摘要生成器 - 为新聊天会话生成首次上下文摘要和冷启动消息
 
+            触发条件：该会话尚无已存储的摘要
+
+            设计思路：
+            ┌─────────────────────────────────────────────────────────────┐
+            │  用户打开新聊天窗口                                            │
+            │         ↓                                                    │
+            │  检查是否已有摘要 → 有则直接返回                                 │
+            │         ↓ (无)                                               │
+            │  判断聊天来源：用户上传 or 新建窗口                              │
+            │         ↓                                                    │
+            │  收集历史消息（目标 50000 token，最多 100 条）                   │
+            │         ↓                                                    │
+            │  调用 LLM 生成摘要文本                                         │
+            │         ↓                                                    │
+            │  保存摘要 + 冷启动消息到数据库                                   │
+            └─────────────────────────────────────────────────────────────┘
+            """
+
+            # === 1. 基础信息提取 ===
+            chat_id = metadata.get("chat_id")      # 当前会话 ID
+            model_id = form_data.get("model")      # 使用的模型 ID
+            chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)  # 获取会话实体
+            old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)  # 查询已有摘要
+
+            # === 2. 已有摘要则跳过 ===
             if old_summary:
                 return
 
-            loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
-            
-            # 如果是用户上传 chat, 先从该 chat 内取 recent conversation，不足则从全局信息中补
+            # === 3. Token 选择器：按 token 数量从最近消息中选取 ===
+            def select_recent_messages_by_tokens(
+                messages,          # 消息列表（按时间正序）
+                token_target,      # 目标 token 数
+                max_messages=None, # 最大消息条数限制
+                starting_tokens=0, # 初始 token 计数（用于累加场景）
+            ):
+                """
+                从消息列表末尾（最近）开始，逐条累加 token，
+                直到达到目标 token 数或最大消息条数。
+                返回选中的消息（恢复时间正序）和总 token 数。
+                """
+                selected = []
+                total_tokens = starting_tokens
+                for msg in reversed(messages):  # 从最新消息开始遍历
+                    if max_messages is not None and len(selected) >= max_messages:
+                        break
+                    selected.append(msg)
+                    total_tokens += compute_token_count([msg])
+                    if total_tokens >= token_target:
+                        break
+                return list(reversed(selected)), total_tokens  # 恢复时间正序
+
+            # === 4. 判断聊天来源并收集消息 ===
+            loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)  # 是否为用户导入的历史聊天
+            token_target = 50000  # 目标上下文 token 数
+
+            # 场景 A：用户上传的历史聊天记录
             if loaded_by_user:
+                # A.1 优先从当前 chat 内提取消息
                 recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
                     user.id,
                     chat_id,
-                    100,
+                    0,  # num=0 表示获取全部
                 )
-                if len(recent_conversation_in_this_chat) < 100:
+                chat_messages, total_tokens = select_recent_messages_by_tokens(
+                    recent_conversation_in_this_chat,
+                    token_target,
+                )
+
+                # A.2 如果当前 chat 的 token 不足，从其他会话补充
+                if total_tokens < token_target:
+                    # 从全局（排除当前 chat）获取更多消息，最多补充 100 条
                     recent_conversation = get_recent_messages_by_user_id(
                         user.id,
-                        100,
-                        exclude_loaded_by_user=True,
-                    )  # 最近 100 条消息
-                    messages_for_summary = recent_conversation + recent_conversation_in_this_chat
-                    messages_for_summary = messages_for_summary[-100:]
+                        0,
+                        exclude_loaded_by_user = False,         # 不排除用户上传的聊天
+                        exclude_by_chat_id = chat_id     # 排除当前会话避免重复
+                    )
+                    global_messages, total_tokens = select_recent_messages_by_tokens(
+                        recent_conversation,
+                        token_target,
+                        max_messages=100,                # 全局补充最多 100 条
+                        starting_tokens=total_tokens,   # 累加已有 token
+                    )
+                    # 合并：全局消息（较早）+ 当前 chat 消息（较近）
+                    messages_for_summary = global_messages + chat_messages
                 else:
-                    messages_for_summary = recent_conversation_in_this_chat[-100:]
-            
-            # 不是用户上传的 chat，是新窗口
-            else:
-                messages_for_summary = get_recent_messages_by_user_id(
-                    user.id,
-                    100,
-                    exclude_loaded_by_user=False,
-                )  # 最近 100 条消息
+                    messages_for_summary = chat_messages
 
-            # 标记摘要生成开始
+            # 场景 B：用户新建的空白聊天窗口
+            else:
+                # 直接从用户全局历史中收集消息
+                recent_conversation = get_recent_messages_by_user_id(
+                    user_id = user.id,
+                    num = 0,                        # 获取全部消息
+                    exclude_loaded_by_user = False  # 包含用户上传的聊天
+                )
+                messages_for_summary, _ = select_recent_messages_by_tokens(
+                    recent_conversation,
+                    token_target,
+                    max_messages=100,  # 最多 100 条消息
+                )
+
+            # === 5. 性能监控：标记摘要生成开始 ===
             if perf_logger:
                 perf_logger.mark_summary_update(
                     start=True,
                     messages_count=len(messages_for_summary),
-                    is_initial=True  # 标识为初始摘要生成
+                    is_initial=True  # 标识为初始摘要生成（区别于增量更新）
                 )
 
+            # === 6. 调用 LLM 生成摘要 ===
             is_user_model = form_data.get("is_user_model", False)
-            summary_text = await summarize(
-                messages=messages_for_summary,
-                model_id=model_id,
-                user=user,
-                request=request,
-                is_user_model=is_user_model,
-                model_config=model,
-                old_summary=None
+            summary_text, summary_llm_details = await summarize(
+                messages=messages_for_summary,   # 用于生成摘要的消息列表
+                model_id=model_id,               # 使用的 LLM 模型
+                user=user,                       # 用户对象
+                request=request,                 # HTTP 请求上下文
+                is_user_model=is_user_model,     # 是否为用户自定义模型
+                model_config=model,              # 模型配置
+                old_summary=None,                # 初始生成，无旧摘要
+                return_details=True,
             )
 
-            # 记录摘要生成的入参和输出
+            # === 7. 性能监控：记录摘要生成的入参和输出 ===
             if perf_logger:
                 perf_logger.record_summary_materials(
                     messages=messages_for_summary,
-                    old_summary=None,  # 初始生成没有旧摘要
+                    old_summary=None,       # 初始生成没有旧摘要
                     model=model_id,
                     user_id=user.id,
                     new_summary=summary_text,
+                    prompt=summary_llm_details.get("prompt"),
+                    response=summary_llm_details.get("response"),
+                    usage=summary_llm_details.get("usage"),
                 )
-                perf_logger.mark_summary_update(start=False)
+                perf_logger.mark_summary_update(start=False)  # 标记结束
+
+            # === 8. 确定摘要截止点 ===
+            # last_summary_id：记录生成摘要时使用的最后一条消息 ID
+            # 用于后续增量摘要更新时判断哪些消息是"新"消息
             last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
 
-            # 使用最近的20条消息，作为冷启动消息
+            # === 9. 构建冷启动消息 ===
+            # 冷启动消息：最近 20 条完整消息，用于快速恢复对话上下文
+            # 作用：当摘要过于抽象时，这些原始消息能提供具体细节
             cold_start_messages = [
                 {
                     "id": m.get("id"),
-                    "role": m.get("role"),
-                    "content": m.get("content"),
-                    "timestamp": m.get("timestamp")
+                    "role": m.get("role"),          # user / assistant
+                    "content": m.get("content"),    # 消息内容
+                    "timestamp": m.get("timestamp") # 时间戳
                 }
-                for m in messages_for_summary[-20:] # 最近20条
-                if m.get("id") and m.get("content")
+                for m in messages_for_summary[-20:]  # 取最近 20 条
+                if m.get("id") and m.get("content")  # 过滤无效消息
             ]
 
+            # === 10. 持久化摘要到数据库 ===
             res = Chats.set_summary_by_user_id_and_chat_id(
                 user.id,
                 chat_id,
-                summary_text,
-                last_summary_id,
-                int(time.time()),
-                cold_start_messages=cold_start_messages,
+                summary_text,                   # 摘要文本
+                last_summary_id,                # 摘要截止消息 ID
+                int(time.time()),               # 生成时间戳
+                cold_start_messages=cold_start_messages,  # 冷启动消息
             )
         try:
             await ensure_initial_summary()

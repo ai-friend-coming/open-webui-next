@@ -2103,7 +2103,7 @@ async def process_chat_response(
 
                         # 调用摘要生成（复用主对话 API，自动判断是否扣费）
                         # 传递 model_config 以直接复用主对话的已验证模型配置，避免重复查找
-                        summary_text = await summarize(
+                        summary_text, summary_llm_details = await summarize(
                             messages=to_be_summarized_summary_messages,
                             model_id=model_id,
                             user=user,
@@ -2111,6 +2111,7 @@ async def process_chat_response(
                             is_user_model=is_user_model,
                             model_config=model,
                             old_summary=old_summary,
+                            return_details=True,
                         )
                         last_summary_id = to_be_summarized_summary_messages[-1].get("id")
                         Chats.set_summary_by_user_id_and_chat_id(
@@ -2131,6 +2132,9 @@ async def process_chat_response(
                                 model=model_id,
                                 user_id=user.id,
                                 new_summary=summary_text,
+                                prompt=summary_llm_details.get("prompt"),
+                                response=summary_llm_details.get("response"),
+                                usage=summary_llm_details.get("usage"),
                             )
                             perf_logger.mark_summary_update(start=False)
                     else: # tokens 未超过阈值，不执行摘要更新
@@ -2317,6 +2321,7 @@ async def process_chat_response(
                             # 标记 LLM 完成并保存性能日志（非流式）
                             perf_logger = metadata.get("perf_logger")
                             if perf_logger:
+                                perf_logger.record_llm_response(content)
                                 # 标记 LLM 完成
                                 perf_logger.mark_llm_complete(
                                     usage=response_data.get("usage")
@@ -3824,6 +3829,9 @@ async def process_chat_response(
                 # 标记 LLM 完成并保存性能日志
                 perf_logger = metadata.get("perf_logger")
                 if perf_logger:
+                    perf_logger.record_llm_response(
+                        serialize_content_blocks(content_blocks)
+                    )
                     # 标记 LLM 完成
                     perf_logger.mark_llm_complete(usage=usage_holder.get("usage"))
 
