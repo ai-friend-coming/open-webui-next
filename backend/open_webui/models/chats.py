@@ -307,6 +307,39 @@ class ChatTable:
             log.exception(f"set_summary_by_user_id_and_chat_id failed: {e}")
             return None
 
+    def add_error_message_by_user_id_and_chat_id(
+        self,
+        user_id: str,
+        chat_id: str,
+        error_message: Dict,
+    ) -> Optional[ChatModel]:
+        """
+        追加 chat.meta.error_messages 的一条错误消息（默认空数组）。
+        """
+        try:
+            with get_db() as db:
+                chat = db.query(Chat).filter_by(id=chat_id, user_id=user_id).first()
+                if chat is None:
+                    return None
+
+                meta = chat.meta if isinstance(chat.meta, dict) else {}
+                error_messages = meta.get("error_messages", [])
+                if not isinstance(error_messages, list):
+                    error_messages = []
+                error_messages.append(error_message)
+
+                chat.meta = {
+                    **meta,
+                    "error_messages": error_messages,
+                }
+                chat.updated_at = int(time.time())
+                db.commit()
+                db.refresh(chat)
+                return ChatModel.model_validate(chat)
+        except Exception as e:
+            log.exception(f"add_error_message_by_user_id_and_chat_id failed: {e}")
+            return None
+
     def upsert_message_to_chat_by_id_and_message_id(
         self, id: str, message_id: str, message: dict
     ) -> Optional[ChatModel]:

@@ -1171,13 +1171,10 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # === 2. 处理 System Prompt 变量替换 ===
     system_message = get_system_message(form_data.get("messages", []))
     if system_message:  # Chat Controls/User Settings
-        try:
-            # 替换 system prompt 中的变量（如 {{USER_NAME}}, {{CURRENT_DATE}}）
-            form_data = apply_system_prompt_to_body(
-                system_message.get("content"), form_data, metadata, user, replace=True
-            )
-        except:
-            pass
+        # 替换 system prompt 中的变量（如 {{USER_NAME}}, {{CURRENT_DATE}}）
+        form_data = apply_system_prompt_to_body(
+            system_message.get("content"), form_data, metadata, user, replace=True
+        )
 
     # === 2.5 注入北京时间到系统消息 ===
     try:
@@ -2214,15 +2211,12 @@ async def process_chat_response(
                         else:
                             error = str(error)
 
-                        # ⚠️ 不再持久化错误到数据库，仅通过 WebSocket 临时推送
-                        # 这样错误只在当前会话可见，刷新后消失，不会阻塞后续对话
-                        # Chats.upsert_message_to_chat_by_id_and_message_id(
-                        #     metadata["chat_id"],
-                        #     metadata["message_id"],
-                        #     {
-                        #         "error": {"content": error},
-                        #     },
-                        # )
+                        # 使用 chat.meta["error_messages"] 存储错误记录
+                        Chats.add_error_message_by_user_id_and_chat_id(
+                            user.id,
+                            metadata["chat_id"],
+                            {"error": {"content": error}},
+                        )
 
                         # 数据流转：通过 WebSocket 实时推送错误事件给前端（临时通知）
                         if isinstance(error, str) or isinstance(error, dict):

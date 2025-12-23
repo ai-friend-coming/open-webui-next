@@ -1783,17 +1783,14 @@ async def chat_completion(
 
             # 8.3 更新数据库：保存模型 ID 到消息记录
             if metadata.get("chat_id") and metadata.get("message_id"):
-                try:
-                    if not metadata["chat_id"].startswith("local:"):
-                        Chats.upsert_message_to_chat_by_id_and_message_id(
-                            metadata["chat_id"],
-                            metadata["message_id"],
-                            {
-                                "model": model_id,
-                            },
-                        )
-                except:
-                    pass
+                if not metadata["chat_id"].startswith("local:"):
+                    Chats.upsert_message_to_chat_by_id_and_message_id(
+                        metadata["chat_id"],
+                        metadata["message_id"],
+                        {
+                            "model": model_id,
+                        },
+                    )
 
             # 8.4 响应后处理：执行后置 Pipeline、事件发射、任务回调等
             return await process_chat_response(
@@ -1803,44 +1800,35 @@ async def chat_completion(
         # 8.5 异常处理：取消任务
         except asyncio.CancelledError:
             log.info("Chat processing was cancelled")
-            try:
-                event_emitter = get_event_emitter(metadata)
-                await event_emitter(
-                    {"type": "chat:tasks:cancel"},  # 通知前端任务已取消
-                )
-            except Exception as e:
-                pass
+            event_emitter = get_event_emitter(metadata)
+            await event_emitter(
+                {"type": "chat:tasks:cancel"},  # 通知前端任务已取消
+            )
 
         # 8.6 异常处理：通过 WebSocket 通知前端（不持久化）
         except Exception as e:
             log.exception(f"Error processing chat payload: {e}")
             if metadata.get("chat_id") and metadata.get("message_id"):
-                try:
-                    # ⚠️ 不再持久化错误到数据库，仅通过 WebSocket 临时推送
-                    # 这样错误只在当前会话可见，刷新后消失，不会阻塞后续对话
-                    # if not metadata["chat_id"].startswith("local:"):
-                    #     Chats.upsert_message_to_chat_by_id_and_message_id(
-                    #         metadata["chat_id"],
-                    #         metadata["message_id"],
-                    #         {
-                    #             "error": {"content": str(e)},
-                    #         },
-                    #     )
 
-                    # 通过 WebSocket 发送错误事件到前端（临时通知）
-                    event_emitter = get_event_emitter(metadata)
-                    await event_emitter(
-                        {
-                            "type": "chat:message:error",
-                            "data": {"error": {"content": str(e)}},
-                        }
-                    )
-                    await event_emitter(
-                        {"type": "chat:tasks:cancel"},
-                    )
+                # 使用 chat.meta["error_messages"] 存储错误记录
+                Chats.add_error_message_by_user_id_and_chat_id(
+                    user.id,
+                    metadata["chat_id"],
+                    {"error": {"content": str(e)}},
+                )
 
-                except:
-                    pass
+                # 通过 WebSocket 发送错误事件到前端（临时通知）
+                event_emitter = get_event_emitter(metadata)
+                await event_emitter(
+                    {
+                        "type": "chat:message:error",
+                        "data": {"error": {"content": str(e)}},
+                    }
+                )
+                await event_emitter(
+                    {"type": "chat:tasks:cancel"},
+                )
+
 
         # 8.7 清理资源：断开 MCP 客户端连接
         finally:
