@@ -668,6 +668,10 @@ export const getImportOrigin = (_chats) => {
 		if ('success' in _chats && 'data' in _chats && Array.isArray(_chats.data)) {
 			return 'qwen';
 		}
+		// Check for AI Studio single conversation (has chunkedPrompt)
+		if ('chunkedPrompt' in _chats && _chats.chunkedPrompt?.chunks) {
+			return 'aistudio';
+		}
 	}
 
 	if (!first || typeof first !== 'object') return 'webui';

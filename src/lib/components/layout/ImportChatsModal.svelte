@@ -63,8 +63,12 @@
             else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
                 parsed = parsed.conversations;
             }
+            // Handle AI Studio single conversation (object with chunkedPrompt)
+            else if (parsed && typeof parsed === 'object' && 'chunkedPrompt' in parsed) {
+                parsed = [parsed];
+            }
 
-            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组或包含 conversations/data 数组的对象');
+            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组或包含 conversations/data/chunkedPrompt 的对象');
             if (parsed.length === 0) throw new Error('JSON 数组为空');
 
             rawChats = parsed;
