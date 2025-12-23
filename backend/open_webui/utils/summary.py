@@ -432,28 +432,28 @@ def build_ordered_messages(
     return [with_id(mid, msg) for _, mid, msg in sortable]
 
 
-def get_recent_messages_by_user_id(user_id: str, chat_id: str, num: int) -> List[Dict]:
+def get_recent_messages_by_user_id(
+    user_id: str, num: int, exclude_loaded_by_user: bool = False
+) -> List[Dict]:
     """
-    获取指定用户的最近 N 条消息（优先当前会话，然后按时间顺序）
+    获取指定用户的最近 N 条消息（按时间顺序）
 
     参数：
         user_id: 用户 ID
-        chat_id: 当前会话 ID（用于优先提取）
         num: 需要获取的消息数量（<= 0 时返回全部）
+        exclude_loaded_by_user: 是否过滤用户导入的聊天（chat.meta.loaded_by_user）
 
     返回：
-        有序的消息列表（优先当前会话，不足时由全局最近补齐）
+        有序的消息列表（按时间顺序）
     """
-    current_chat_messages: List[Dict] = []
-    other_messages: List[Dict] = []
+    messages: List[Dict] = []
 
     # 遍历用户的所有聊天
     chats = Chats.get_chat_list_by_user_id(user_id, include_archived=True)
     for chat in chats:
+        if exclude_loaded_by_user and (chat.meta or {}).get("loaded_by_user", None):
+            continue
         messages_map = chat.chat.get("history", {}).get("messages", {}) or {}
-        # 简单判断是否为当前会话
-        is_current_chat = (str(chat.id) == str(chat_id))
-
         for mid, msg in messages_map.items():
             # 跳过空内容
             if msg.get("content", "") == "":
@@ -467,34 +467,60 @@ def get_recent_messages_by_user_id(user_id: str, chat_id: str, num: int) -> List
             entry = {**msg, "id": mid}
             entry.setdefault("chat_id", chat.id)
             entry.setdefault("timestamp", int(ts))
-            
-            if is_current_chat:
-                current_chat_messages.append(entry)
-            else:
-                other_messages.append(entry)
+            messages.append(entry)
 
-    # 分别排序
-    current_chat_messages.sort(key=lambda m: m.get("timestamp", 0))
-    other_messages.sort(key=lambda m: m.get("timestamp", 0))
+    messages.sort(key=lambda m: m.get("timestamp", 0))
 
     if num <= 0:
-        combined = current_chat_messages + other_messages
-        combined.sort(key=lambda m: m.get("timestamp", 0))
-        return combined
+        return messages
 
-    # 策略：优先保留当前会话消息
-    if len(current_chat_messages) >= num:
-        return current_chat_messages[-num:]
-    
-    # 补充不足的部分
-    needed = num - len(current_chat_messages)
-    supplement = other_messages[-needed:] if other_messages else []
-    
-    # 合并并最终按时间排序
-    final_list = supplement + current_chat_messages
-    final_list.sort(key=lambda m: m.get("timestamp", 0))
-    
-    return final_list
+    return messages[-num:]
+
+
+def get_recent_messages_by_user_id_and_chat_id(
+    user_id: str, chat_id: str, num: int
+) -> List[Dict]:
+    """
+    获取指定用户在指定聊天中的最近 N 条消息（按时间顺序）
+
+    参数：
+        user_id: 用户 ID
+        chat_id: 聊天 ID
+        num: 需要获取的消息数量（<= 0 时返回全部）
+
+    返回：
+        有序的消息列表（按时间顺序）
+    """
+    if not chat_id:
+        return []
+
+    chat = Chats.get_chat_by_id_and_user_id(chat_id, user_id)
+    if not chat:
+        return []
+
+    messages: List[Dict] = []
+    messages_map = chat.chat.get("history", {}).get("messages", {}) or {}
+    for mid, msg in messages_map.items():
+        # 跳过空内容
+        if msg.get("content", "") == "":
+            continue
+        ts = (
+            msg.get("createdAt")
+            or msg.get("created_at")
+            or msg.get("timestamp")
+            or 0
+        )
+        entry = {**msg, "id": mid}
+        entry.setdefault("chat_id", chat.id)
+        entry.setdefault("timestamp", int(ts))
+        messages.append(entry)
+
+    messages.sort(key=lambda m: m.get("timestamp", 0))
+
+    if num <= 0:
+        return messages
+
+    return messages[-num:]
 
 
 def slice_messages_with_summary(

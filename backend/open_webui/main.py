@@ -492,6 +492,7 @@ from open_webui.utils.summary import (
     compute_token_count,
     build_ordered_messages,
     get_recent_messages_by_user_id,
+    get_recent_messages_by_user_id_and_chat_id,
 )
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
@@ -1662,76 +1663,90 @@ async def chat_completion(
             如果是新聊天，其中没有summary，获得最近的若干次互动，生成一次摘要并保存。
             触发条件：非 local 会话，无已有摘要。
             """
-            # 获取 chat_id（跳过本地会话）
             chat_id = metadata.get("chat_id")
-            if not chat_id or str(chat_id).startswith("local:"):
+            model_id = form_data.get("model")
+            chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+            old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+
+            if old_summary:
                 return
 
-            try:
-                # 检查是否已有摘要
-                old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
-
-                if old_summary:
-                    return
-
-                # 1. 获取全量消息（按时间排序）
-                all_messages = get_recent_messages_by_user_id(user.id, chat_id, -1) # -1 表示获取全部
-
-                if not all_messages:
-                    return
-
-                # 2. 获取全量消息的最新100条
-                split_idx = max(len(all_messages) - 100, 0)
-                messages_for_summary = all_messages[split_idx:]
-                model_id = form_data.get("model")
-
-                # 标记摘要生成开始
-                if perf_logger:
-                    perf_logger.mark_summary_update(
-                        start=True,
-                        messages_count=len(messages_for_summary),
-                        is_initial=True  # 标识为初始摘要生成
-                    )
-
-                is_user_model = form_data.get("is_user_model", False)
-                summary_text = await summarize(
-                    messages=messages_for_summary,
-                    old_summary=None,
-                    model_id=model_id,
-                    user=user,
-                    request=request,
-                    is_user_model=is_user_model,
-                    model_config=model,  # 传递完整的模型配置对象
-                )
-
-                # 标记摘要生成结束
-                if perf_logger:
-                    perf_logger.mark_summary_update(start=False)
-                last_id = messages_for_summary[-1].get("id") if messages_for_summary else None
-
-                # 使用最近的20条消息，作为冷启动消息
-                cold_start_messages = [
-                    {
-                        "id": m.get("id"),
-                        "role": m.get("role"),
-                        "content": m.get("content"),
-                        "timestamp": m.get("timestamp")
-                    }
-                    for m in messages_for_summary[-20:] # 最近20条
-                    if m.get("id") and m.get("content")
-                ]
-
-                res = Chats.set_summary_by_user_id_and_chat_id(
+            loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
+            # 如果是用户上传 chat, 先从该 chat 内取 recent conversation，不足则从全局信息中补
+            if loaded_by_user:
+                recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
                     user.id,
                     chat_id,
-                    summary_text,
-                    last_id,
-                    int(time.time()),
-                    cold_start_messages=cold_start_messages,
+                    100,
                 )
-            except Exception as e:
-                log.exception(f"initial summary failed: {e}")
+                if len(recent_conversation_in_this_chat) < 100:
+                    recent_conversation = get_recent_messages_by_user_id(
+                        user.id,
+                        100,
+                        exclude_loaded_by_user=True,
+                    )  # 最近 100 条消息
+                    messages_for_summary = recent_conversation + recent_conversation_in_this_chat
+                    messages_for_summary = messages_for_summary[-100:]
+                else:
+                    messages_for_summary = recent_conversation_in_this_chat[-100:]
+            else:
+                messages_for_summary = get_recent_messages_by_user_id(
+                    user.id,
+                    100,
+                    exclude_loaded_by_user=True,
+                )  # 最近 100 条消息
 
+            # 标记摘要生成开始
+            if perf_logger:
+                perf_logger.mark_summary_update(
+                    start=True,
+                    messages_count=len(messages_for_summary),
+                    is_initial=True  # 标识为初始摘要生成
+                )
+
+            is_user_model = form_data.get("is_user_model", False)
+            summary_text = await summarize(
+                messages=messages_for_summary,
+                old_summary=None,
+                model_id=model_id,
+                user=user,
+                request=request,
+                is_user_model=is_user_model,
+                model_config=model,  # 传递完整的模型配置对象
+            )
+
+            # 记录摘要生成的入参和输出
+            if perf_logger:
+                perf_logger.record_summary_materials(
+                    messages=messages_for_summary,
+                    old_summary=None,  # 初始生成没有旧摘要
+                    model=model_id,
+                    user_id=user.id,
+                    new_summary=summary_text,
+                )
+                perf_logger.mark_summary_update(start=False)
+            last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
+
+            # 使用最近的20条消息，作为冷启动消息
+            cold_start_messages = [
+                {
+                    "id": m.get("id"),
+                    "role": m.get("role"),
+                    "content": m.get("content"),
+                    "timestamp": m.get("timestamp")
+                }
+                for m in messages_for_summary[-20:] # 最近20条
+                if m.get("id") and m.get("content")
+            ]
+
+            res = Chats.set_summary_by_user_id_and_chat_id(
+                user.id,
+                chat_id,
+                summary_text,
+                last_summary_id,
+                int(time.time()),
+                cold_start_messages=cold_start_messages,
+            )
         try:
             await ensure_initial_summary()
 
