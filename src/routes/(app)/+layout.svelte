@@ -405,7 +405,7 @@ import { onMount, tick, getContext } from 'svelte';
 <SettingsModal bind:show={$showSettings} />
 <ChangelogModal bind:show={$showChangelog} />
 <AnnouncementModal
-	open={$showAnnouncements}
+	bind:open={$showAnnouncements}
 	announcements={latestAnnouncements}
 	lastSeenAt={lastSeenAnnouncementAt}
 	onClose={closeAnnouncementModal}
