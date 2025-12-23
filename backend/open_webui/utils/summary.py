@@ -184,7 +184,7 @@ def get_recent_messages_by_user_id(
     user_id: str,
     num: int,
     exclude_loaded_by_user: bool,
-    exclude_loaded_by_chat_id: Optional[str],
+    exclude_by_chat_id: Optional[str] = None,
 ) -> List[Dict]:
     """
     获取指定用户的最近 N 条消息（按时间顺序）
@@ -193,7 +193,7 @@ def get_recent_messages_by_user_id(
         user_id: 用户 ID
         num: 需要获取的消息数量（<= 0 时返回全部）
         exclude_loaded_by_user: 是否过滤用户导入的聊天（chat.meta.loaded_by_user）
-        exclude_loaded_by_chat_id:
+        exclude_by_chat_id:
             - str: 过滤 chat.meta.loaded_by_chat_id 等于该值的聊天
 
     返回：
@@ -207,7 +207,7 @@ def get_recent_messages_by_user_id(
         if exclude_loaded_by_user and (chat.meta or {}).get("loaded_by_user", None):
             continue
         loaded_by_chat_id = (chat.meta or {}).get("loaded_by_chat_id", None)
-        if exclude_loaded_by_chat_id and loaded_by_chat_id == exclude_loaded_by_chat_id:
+        if exclude_by_chat_id and loaded_by_chat_id == exclude_by_chat_id:
             continue
         messages_map = chat.chat.get("history", {}).get("messages", {}) or {}
         for mid, msg in messages_map.items():
