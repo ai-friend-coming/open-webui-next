@@ -67,6 +67,8 @@
 	let showPrivacyModal = false;
 	let privacyContent = defaultPrivacyContent;
 	let showLetterModal = false;
+	const LETTER_MODAL_AUTO_DISMISS_KEY = 'letterModalAutoDismissed';
+	let skipLetterModalAuto = false;
 
 	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
 		if (sessionUser) {
@@ -301,12 +303,15 @@
 
 		loaded = true;
 		setLogoImage();
+		skipLetterModalAuto = localStorage.getItem(LETTER_MODAL_AUTO_DISMISS_KEY) === 'true';
 
 		// 自动显示信件 Modal（排除自动登录场景）
 		if (!($config?.features.auth_trusted_header ?? false) && $config?.features.auth !== false) {
-			setTimeout(() => {
-				showLetterModal = true;
-			}, 300);
+			if (!skipLetterModalAuto) {
+				setTimeout(() => {
+					showLetterModal = true;
+				}, 300);
+			}
 		}
 
 		if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
@@ -888,7 +893,7 @@
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
 				</svg>
-				<span>致大家的一封信</span>
+				<span>给大家的一封信</span>
 			</button>
 		</div>
 
@@ -971,7 +976,18 @@
 		</div>
 
 		<!-- 关闭按钮 -->
-		<div class="flex justify-end gap-2">
+		<div class="flex items-center justify-between gap-2">
+			<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+				<input
+					type="checkbox"
+					class="h-4 w-4"
+					bind:checked={skipLetterModalAuto}
+					on:change={() => {
+						localStorage.setItem(LETTER_MODAL_AUTO_DISMISS_KEY, String(skipLetterModalAuto));
+					}}
+				/>
+				下次不再自动弹出
+			</label>
 			<button
 				type="button"
 				class="px-4 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
