@@ -209,7 +209,7 @@ async def import_chat_memories(
                 "billed_tokens": 0
             }
 
-        from open_webui.memory.mem0 import memory_client, _charge_mem0, MEM0_ADD_MODEL_ID
+        from open_webui.memory.mem0 import memory_client, _charge_mem0, MEM0_ADD_MODEL_ID, truncate_text_if_needed
 
         messages = form_data.messages
         if not messages:
@@ -219,8 +219,16 @@ async def import_chat_memories(
                 "billed_tokens": 0
             }
 
-        # 过滤空消息
-        valid_messages = [m for m in messages if m.get("content")]
+        # 过滤空消息并截断过长文本
+        valid_messages = []
+        for m in messages:
+            if m.get("content"):
+                # 截断文本至5w字符以内
+                truncated_content = truncate_text_if_needed(m["content"])
+                valid_messages.append({
+                    "role": m.get("role", "user"),
+                    "content": truncated_content
+                })
 
         if not valid_messages:
             return {

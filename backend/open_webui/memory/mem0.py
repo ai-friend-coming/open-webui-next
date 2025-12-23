@@ -18,6 +18,9 @@ BILLING_UNIT_TOKENS = 1
 MEM0_SEARCH_MODEL_ID = "rag"
 MEM0_ADD_MODEL_ID = "rag"
 
+# mem0 API限制：10w token，预留余量设置为5w字符
+MAX_MEM0_TEXT_LENGTH = 50000
+
 # [配置] Jieba 词性过滤配置
 # 定义高价值词性: 名词(n), 动词(v), 英文(eng), 专名(nr/ns/nt) 等
 HIGH_VALUE_TAGS = {'n', 'v', 'vn', 'eng', 'nr', 'ns', 'nt', 'nz', 'vg', 'vd'}
@@ -51,6 +54,18 @@ STOP_PHRASES = {
     "测试", "test", "testing", "123", "1", "2", "在吗", "在?", "hello?",
     "继续", "continue", "go on"
 }
+
+def truncate_text_if_needed(text: str, max_length: int = MAX_MEM0_TEXT_LENGTH) -> str:
+    """
+    截断文本至指定长度，避免超过mem0 API限制
+    如果需要截断，在末尾添加省略标记
+    """
+    if len(text) <= max_length:
+        return text
+
+    truncated = text[:max_length - 10]  # 预留10个字符用于标记
+    log.warning(f"Text truncated from {len(text)} to {max_length} chars")
+    return truncated + "...[截断]"
 
 def is_noise_message(text: str) -> bool:
     """基于规则的噪音过滤：停用词表 + 纯符号检测"""
@@ -203,9 +218,11 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
         else:
             log.info(f"[mem: search]mem0_search_and_add found {len(serach_rst['results'])} results")
             memories = serach_rst["results"]
-            
-        added_messages = [{"role": "user", "content": last_message}]
-        
+
+        # 截断过长文本，避免超过mem0 API限制
+        truncated_message = truncate_text_if_needed(last_message)
+        added_messages = [{"role": "user", "content": truncated_message}]
+
         # 执行添加
         memory_client.add(
             added_messages,
