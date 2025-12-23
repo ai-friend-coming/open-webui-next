@@ -30,6 +30,12 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
 
+
+def _strip_chat_meta(chat_dict) -> dict:
+    chat_dict.pop("meta", None)
+    return chat_dict
+
+
 ############################
 # GetChatList
 ############################
@@ -357,7 +363,7 @@ async def get_user_pinned_chats(user=Depends(get_verified_user)):
 @router.get("/all", response_model=list[ChatResponse])
 async def get_user_chats(user=Depends(get_verified_user)):
     return [
-        ChatResponse(**chat.model_dump())
+        ChatResponse(**(_strip_chat_meta(chat.model_dump())))
         for chat in Chats.get_chats_by_user_id(user.id)
     ]
 
@@ -370,7 +376,7 @@ async def get_user_chats(user=Depends(get_verified_user)):
 @router.get("/all/archived", response_model=list[ChatResponse])
 async def get_user_archived_chats(user=Depends(get_verified_user)):
     return [
-        ChatResponse(**chat.model_dump())
+        ChatResponse(**(_strip_chat_meta(chat.model_dump())))
         for chat in Chats.get_archived_chats_by_user_id(user.id)
     ]
 
@@ -530,7 +536,7 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
 
     if chat:
-        return ChatResponse(**chat.model_dump())
+        return ChatResponse(**(_strip_chat_meta(chat.model_dump())))
 
     else:
         raise HTTPException(
