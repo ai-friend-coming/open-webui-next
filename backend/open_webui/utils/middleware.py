@@ -1144,6 +1144,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
         current_message_id = metadata.get("message_id")
         last_summary_id = summary_record.get("last_summary_id") if summary_record else None
+        if last_summary_id is None: # 兼容旧版本, last_summary_id 之前 被命名为 last_message_id
+            last_summary_id = summary_record.get("last_message_id")
         ordered_messages_in_chat = build_ordered_messages(messages_map, current_message_id)
         boundary_idx = next(
             idx
