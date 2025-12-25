@@ -551,7 +551,16 @@ async def chat_memory_handler(
     # 检查用户设置中的 memory 开关
     user_memory_enabled = False
     if user.settings:
-        user_memory_enabled = user.settings.get("memory", False)
+        settings = user.settings
+        if isinstance(settings, dict):
+            user_memory_enabled = settings.get(
+                "memory",
+                settings.get("ui", {}).get("memory", False),
+            )
+        else:
+            ui_settings = getattr(settings, "ui", {}) or {}
+            if isinstance(ui_settings, dict):
+                user_memory_enabled = ui_settings.get("memory", False)
 
     # 用户自有模型跳过 Mem0 调用
     is_user_model = form_data.get("is_user_model", False)
