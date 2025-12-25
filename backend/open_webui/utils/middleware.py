@@ -2077,19 +2077,23 @@ async def process_chat_response(
                     messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
                     threshold = getattr(request.app.state.config, "SUMMARY_TOKEN_THRESHOLD", SUMMARY_TOKEN_THRESHOLD_DEFAULT)
                     existing_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+                    summary_content = existing_summary.get("content")
+                    last_summary_id = existing_summary.get("last_summary_id", None) if existing_summary else None
+                    if last_summary_id is None: # 兼容旧版本, last_summary_id 之前 被命名为 last_message_id
+                        last_summary_id = existing_summary.get("last_message_id")
 
                     # 已有摘要：只计算新增部分的 token
                     current_message_id = metadata.get("message_id")
                     new_messages = slice_messages_with_summary(
                         messages_map = messages_map,
-                        boundary_message_id = existing_summary.get("last_summary_id"),
+                        boundary_message_id = last_summary_id,
                         anchor_id = current_message_id,
                         pre_boundary = 0,
                     )
                     # 只统计 user 和 assistant 消息
                     new_messages = [msg for msg in new_messages if msg.get("role") in ("user", "assistant")]
                     tokens = compute_token_count(new_messages)
-                    
+
                     if CHAT_DEBUG_FLAG:
                         print(
                             f"[summary:update] chat_id={chat_id} 已有摘要，"
@@ -2099,10 +2103,10 @@ async def process_chat_response(
                     # 若超过阈值，才生成/更新摘要
                     if tokens >= threshold:
                         # 读取已有的 summary
-                        old_summary = existing_summary.get("content")
+                        old_summary = summary_content
                         to_be_summarized_summary_messages = slice_messages_with_summary(
                             messages_map,
-                            existing_summary.get("last_summary_id") if existing_summary else None,
+                            last_summary_id,
                             metadata.get("message_id"),
                             pre_boundary=0,
                         )
@@ -2138,12 +2142,14 @@ async def process_chat_response(
                         )
                         last_summary_id = to_be_summarized_summary_messages[-1].get("id")
                         Chats.set_summary_by_user_id_and_chat_id(
-                            user.id,
-                            chat_id,
-                            summary_text,
-                            last_summary_id,
-                            int(time.time()),
-                            cold_start_messages=[],
+                            user_id = user.id,
+                            chat_id = chat_id,
+                            summary = summary_text,
+                            last_summary_id = last_summary_id,
+                            last_timestamp = int(time.time()),
+                            status = 'done',
+                            summarize_task_id = '',
+                            cold_start_messages = [],
                         )
 
                         # 记录 summary 更新使用的材料（summarize 函数的完整参数）

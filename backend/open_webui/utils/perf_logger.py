@@ -452,8 +452,7 @@ class ChatPerfLogger:
             )[:50]
 
             # 添加时间戳避免冲突
-            timestamp = int(time.time())
-            filename = f"{safe_user}_{safe_title}_{safe_msg}_{timestamp}.json"
+            filename = f"{safe_user}_{safe_title}_{safe_msg}.json"
             filepath = log_path / filename
 
             # 保存 JSON

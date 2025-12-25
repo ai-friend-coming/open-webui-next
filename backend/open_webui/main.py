@@ -1772,39 +1772,14 @@ async def chat_completion(
                     is_initial=True  # 标识为初始摘要生成（区别于增量更新）
                 )
 
-            # === 6. 调用 LLM 生成摘要 ===
-            is_user_model = form_data.get("is_user_model", False)
-            summary_text, summary_llm_details = await summarize(
-                messages=messages_for_summary,   # 用于生成摘要的消息列表
-                model_id=model_id,               # 使用的 LLM 模型
-                user=user,                       # 用户对象
-                request=request,                 # HTTP 请求上下文
-                is_user_model=is_user_model,     # 是否为用户自定义模型
-                model_config=model,              # 模型配置
-                old_summary=None,                # 初始生成，无旧摘要
-                return_details=True,
-            )
-
-            # === 7. 性能监控：记录摘要生成的入参和输出 ===
-            if perf_logger:
-                perf_logger.record_summary_materials(
-                    messages=messages_for_summary,
-                    old_summary=None,       # 初始生成没有旧摘要
-                    model=model_id,
-                    user_id=user.id,
-                    new_summary=summary_text,
-                    prompt=summary_llm_details.get("prompt"),
-                    response=summary_llm_details.get("response"),
-                    usage=summary_llm_details.get("usage"),
-                )
-                perf_logger.mark_summary_update(start=False)  # 标记结束
-
-            # === 8. 确定摘要截止点 ===
+            # === 6. 确定摘要截止点 ===
             # last_summary_id：记录生成摘要时使用的最后一条消息 ID
             # 用于后续增量摘要更新时判断哪些消息是"新"消息
-            last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
+            last_summary_id = (
+                messages_for_summary[-1].get("id") if messages_for_summary else None
+            )
 
-            # === 9. 构建冷启动消息 ===
+            # === 7. 构建冷启动消息 ===
             # 冷启动消息：最近 20 条完整消息，用于快速恢复对话上下文
             # 作用：当摘要过于抽象时，这些原始消息能提供具体细节
             cold_start_messages = [
@@ -1818,14 +1793,62 @@ async def chat_completion(
                 if m.get("id") and m.get("content")  # 过滤无效消息
             ]
 
-            # === 10. 持久化摘要到数据库 ===
+            # === 8. LLM 生成摘要 协程 ===
+            is_user_model = form_data.get("is_user_model", False)
+
+            async def summarize_and_save():
+                summary_text, summary_llm_details = await summarize(
+                    messages = messages_for_summary,   # 用于生成摘要的消息列表
+                    model_id = model_id,               # 使用的 LLM 模型
+                    user = user,                       # 用户对象
+                    request = request,                 # HTTP 请求上下文
+                    is_user_model = is_user_model,     # 是否为用户自定义模型
+                    model_config = model,              # 模型配置
+                    old_summary = None,                # 初始生成，无旧摘要
+                    return_details = True,
+                )
+                Chats.set_summary_by_user_id_and_chat_id(
+                    user_id = user.id,
+                    chat_id = chat_id,
+                    summary = summary_text,                   # 摘要文本
+                    last_summary_id = last_summary_id,                # 摘要截止消息 ID
+                    last_timestamp = int(time.time()),               # 生成时间戳
+                    status = 'done',
+                    summarize_task_id = '',
+                    cold_start_messages = cold_start_messages,  # 冷启动消息
+                )
+
+                # === 7. 性能监控：记录摘要生成的入参和输出 ===
+                if perf_logger:
+                    perf_logger.record_summary_materials(
+                        messages=messages_for_summary,
+                        old_summary=None,       # 初始生成没有旧摘要
+                        model=model_id,
+                        user_id=user.id,
+                        new_summary=summary_text,
+                        prompt=summary_llm_details.get("prompt"),
+                        response=summary_llm_details.get("response"),
+                        usage=summary_llm_details.get("usage"),
+                    )
+                    perf_logger.mark_summary_update(start=False)  # 标记结束
+                    await perf_logger.save_to_file()
+
+            summarize_task_id, _ = await create_task(
+                request.app.state.redis,
+                summarize_and_save(),
+                id=metadata["chat_id"],
+            )
+
+            # === 9. 持久化待完成的 summarize 到数据库 ===
             res = Chats.set_summary_by_user_id_and_chat_id(
-                user.id,
-                chat_id,
-                summary_text,                   # 摘要文本
-                last_summary_id,                # 摘要截止消息 ID
-                int(time.time()),               # 生成时间戳
-                cold_start_messages=cold_start_messages,  # 冷启动消息
+                user_id = user.id,
+                chat_id = chat_id,
+                summary = '', # 待定
+                last_summary_id = last_summary_id,                # 摘要截止消息 ID
+                last_timestamp = int(time.time()),               # 生成时间戳
+                status = 'generating',
+                summarize_task_id = summarize_task_id,
+                cold_start_messages = cold_start_messages,  # 冷启动消息
             )
         try:
             await ensure_initial_summary()

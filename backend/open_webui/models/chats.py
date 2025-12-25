@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Literal
 
 from open_webui.internal.db import Base, get_db
 from open_webui.models.tags import TagModel, Tags
@@ -270,7 +270,9 @@ class ChatTable:
         summary: str,
         last_summary_id: Optional[str],
         last_timestamp: Optional[int],
-        cold_start_messages: Optional[List[Dict]] = None,
+        status: Literal["done", "generating"],
+        summarize_task_id: str,
+        cold_start_messages: List[Dict]
     ) -> Optional[ChatModel]:
         """
         写入 chat.meta.summary，并更新更新时间。
@@ -289,6 +291,8 @@ class ChatTable:
                         "content": summary,
                         "last_summary_id": last_summary_id,
                         "last_timestamp": last_timestamp,
+                        "status": status,
+                        "summarize_task_id": summarize_task_id,
                     },
                     **(
                         {"cold_start_messages": cold_start_messages}
