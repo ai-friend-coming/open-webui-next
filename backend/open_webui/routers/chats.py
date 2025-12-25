@@ -16,7 +16,7 @@ from open_webui.models.folders import Folders
 
 from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import SRC_LOG_LEVELS, ENABLE_IMPORT_MEMORY_EXTRACTION
+from open_webui.env import SRC_LOG_LEVELS, ENABLE_IMPORT_MEMORY_EXTRACTION, MAX_IMPORT_CHATS_COUNT
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from open_webui.memory.mem0 import mem0_delete
@@ -153,9 +153,21 @@ async def create_new_chat(form_data: ChatForm, user=Depends(get_verified_user)):
 ############################
 
 
+@router.get("/import/config")
+async def get_import_config():
+    """返回导入配置，包括最大导入数量限制"""
+    return {
+        "max_import_count": MAX_IMPORT_CHATS_COUNT,
+        "memory_extraction_enabled": ENABLE_IMPORT_MEMORY_EXTRACTION
+    }
+
+
 @router.post("/import", response_model=Optional[ChatResponse])
 async def import_chat(form_data: ChatImportForm, user=Depends(get_verified_user)):
     try:
+        # 记录导入操作（用于监控和调试）
+        log.info(f"User {user.id} importing chat, max allowed: {MAX_IMPORT_CHATS_COUNT}")
+
         chat = Chats.import_chat(user.id, form_data)
         if chat:
             tags = chat.meta.get("tags", [])

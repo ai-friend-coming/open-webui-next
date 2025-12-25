@@ -895,3 +895,6 @@ ALIPAY_SANDBOX = os.environ.get("ALIPAY_SANDBOX", "false").lower() == "true"  # 
 ENABLE_IMPORT_MEMORY_EXTRACTION = (
     os.environ.get("ENABLE_IMPORT_MEMORY_EXTRACTION", "true").lower() == "true"
 )
+
+# 最大导入聊天记录数量（防止后台负载过高）
+MAX_IMPORT_CHATS_COUNT = int(os.environ.get("MAX_IMPORT_CHATS_COUNT", "50"))

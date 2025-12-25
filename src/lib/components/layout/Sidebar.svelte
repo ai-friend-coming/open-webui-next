@@ -572,6 +572,13 @@
     const importChatsHandler = async (_chats) => {
         let chatsToImport = _chats;
 
+        // 验证导入数量（最多50个对话）
+        const MAX_IMPORT_COUNT = 50;
+        if (chatsToImport.length > MAX_IMPORT_COUNT) {
+            toast.error(`最多只能导入 ${MAX_IMPORT_COUNT} 个对话，当前有 ${chatsToImport.length} 个`);
+            return;
+        }
+
         // 先检测原始数据的格式，再根据格式选择对应的转换函数
         const origin = getImportOrigin(chatsToImport);
 

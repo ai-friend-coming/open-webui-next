@@ -84,11 +84,22 @@
         }
     };
 
+    // 最大导入数量限制
+    const MAX_IMPORT_CHATS = 50;
+
     // 切换选择
     const toggleRow = (idx: number) => {
         const next = new Set(selectedIndices);
-        if (next.has(idx)) next.delete(idx);
-        else next.add(idx);
+        if (next.has(idx)) {
+            next.delete(idx);
+        } else {
+            // 检查是否超过最大数量
+            if (next.size >= MAX_IMPORT_CHATS) {
+                toast.error(`最多只能选择 ${MAX_IMPORT_CHATS} 个对话`);
+                return;
+            }
+            next.add(idx);
+        }
         selectedIndices = next;
     };
 
@@ -101,10 +112,20 @@
     // 全选/反选 (仅针对当前搜索结果)
     const toggleSelectAll = (checked: boolean) => {
         const next = new Set(selectedIndices);
-        filteredChats.forEach(item => {
-            if (checked) next.add(item.originalIdx);
-            else next.delete(item.originalIdx);
-        });
+
+        if (checked) {
+            // 全选时，检查是否会超过限制
+            const toAdd = filteredChats.filter(item => !next.has(item.originalIdx));
+            if (next.size + toAdd.length > MAX_IMPORT_CHATS) {
+                toast.error(`最多只能选择 ${MAX_IMPORT_CHATS} 个对话，当前已选 ${next.size} 个`);
+                return;
+            }
+            toAdd.forEach(item => next.add(item.originalIdx));
+        } else {
+            // 反选：删除当前搜索结果中的所有项
+            filteredChats.forEach(item => next.delete(item.originalIdx));
+        }
+
         selectedIndices = next;
     };
 
@@ -115,7 +136,12 @@
     // 导入逻辑
     const confirmImport = async () => {
         if (!selectedIndices.size) return toast.error('未选择任何记录');
-        
+
+        // 最终验证数量限制
+        if (selectedIndices.size > MAX_IMPORT_CHATS) {
+            return toast.error(`最多只能导入 ${MAX_IMPORT_CHATS} 个对话，当前选择了 ${selectedIndices.size} 个`);
+        }
+
         const chatsToImport = rawChats.filter((_, idx) => selectedIndices.has(idx));
 
         try {
