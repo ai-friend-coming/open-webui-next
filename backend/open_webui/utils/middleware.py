@@ -540,6 +540,7 @@ async def chat_memory_handler(
     2. 预留 Mem0 检索：使用最后一条用户消息查询 Mem0，返回的条目也一并注入
     3. 上下文注入方式保持不变：统一写入 System Message
     4. 用户自有模型不调用 Mem0 功能（避免扣费/隐私问题）
+    5. 检查用户设置中的 memory 开关，控制 mem0 调用（防御性检查）
     """
     user_message = get_last_user_message(form_data.get("messages", [])) or ""
 
@@ -547,9 +548,20 @@ async def chat_memory_handler(
     memories = Memories.get_memories_by_user_id(user.id) or []
 
     # === 2. 预留的 Mem0 检索结果 ===
+    # 检查用户设置中的 memory 开关
+    user_memory_enabled = False
+    if user.settings:
+        user_memory_enabled = user.settings.get("memory", False)
+
     # 用户自有模型跳过 Mem0 调用
     is_user_model = form_data.get("is_user_model", False)
-    if is_user_model:
+
+    # 同时检查用户设置和模型类型
+    if not user_memory_enabled:
+        log.info(f"[mem0] Skipped: User memory setting disabled for user {user.id}")
+        mem0_results = []
+    elif is_user_model:
+        log.info(f"[mem0] Skipped: User-owned model")
         mem0_results = []
     else:
         mem0_results = await mem0_search_and_add(user.id, metadata.get("chat_id"), user_message)
