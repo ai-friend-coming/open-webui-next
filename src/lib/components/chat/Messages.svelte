@@ -261,7 +261,7 @@
 		await updateChat();
 	};
 
-	const editMessage = async (messageId, { content, files }, submit = true) => {
+	const editMessage_old = async (messageId, { content, files }, submit = true) => {
 		if ((selectedModels ?? []).filter((id) => id).length === 0) {
 			toast.error($i18n.t('Model not selected'));
 			return;
@@ -338,6 +338,61 @@
 				history.messages[messageId].content = content;
 				await updateChat();
 			}
+		}
+	};
+
+	const editMessage = async (messageId, { content, files }, submit = true) => {
+		const message = history.messages[messageId];
+		if (!message) {
+			return;
+		}
+
+		const removeMessageSubtree = (rootId) => {
+			const node = history.messages[rootId];
+			if (!node) return;
+			const children = node.childrenIds ?? [];
+			for (const childId of children) {
+				removeMessageSubtree(childId);
+			}
+			delete history.messages[rootId];
+		};
+
+		if (message.role === 'user') {
+			if (submit) {
+				if ((selectedModels ?? []).filter((id) => id).length === 0) {
+					toast.error($i18n.t('Model not selected'));
+					return;
+				}
+
+				message.content = content;
+				if (files !== undefined) {
+					message.files = files;
+				}
+
+				const childIds = message.childrenIds ?? [];
+				for (const childId of childIds) {
+					removeMessageSubtree(childId);
+				}
+
+				message.childrenIds = [];
+				history.messages[messageId] = message;
+				history.currentId = messageId;
+
+				await tick();
+				await sendMessage(history, messageId);
+			} else {
+				message.content = content;
+				if (files !== undefined) {
+					message.files = files;
+				}
+				history.messages[messageId] = message;
+				await updateChat();
+			}
+		} else {
+			message.originalContent = message.content;
+			message.content = content;
+			history.messages[messageId] = message;
+			await updateChat();
 		}
 	};
 
