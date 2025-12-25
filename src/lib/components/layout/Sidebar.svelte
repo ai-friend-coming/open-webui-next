@@ -570,58 +570,54 @@
     };
 
     const importChatsHandler = async (_chats) => {
-        let chatsToImport = _chats;
-
         // 验证导入数量（最多50个对话）
         const MAX_IMPORT_COUNT = 50;
-        if (chatsToImport.length > MAX_IMPORT_COUNT) {
-            toast.error(`最多只能导入 ${MAX_IMPORT_COUNT} 个对话，当前有 ${chatsToImport.length} 个`);
+        if (_chats.length > MAX_IMPORT_COUNT) {
+            toast.error(`最多只能导入 ${MAX_IMPORT_COUNT} 个对话，当前有 ${_chats.length} 个`);
             return;
         }
 
-        // 先检测原始数据的格式，再根据格式选择对应的转换函数
-        const origin = getImportOrigin(chatsToImport);
+        // 提取原始聊天数据进行格式检测
+        const rawChats = _chats.map(item => item.chat);
+        const origin = getImportOrigin(rawChats);
 
+        // 格式转换逻辑（保持原有逻辑）
+        let convertedChats = rawChats;
         if (origin === 'deepseek') {
-            // 使用 DeepSeek 专用转换函数
             try {
-                chatsToImport = convertDeepseekChats(chatsToImport);
+                convertedChats = convertDeepseekChats(rawChats);
             } catch (error) {
                 console.error('DeepSeek conversion failed', error);
                 toast.error('DeepSeek 聊天转换失败');
                 return;
             }
         } else if (origin === 'grok') {
-            // 使用 Grok 专用转换函数
             try {
-                chatsToImport = convertGrokChats(chatsToImport);
+                convertedChats = convertGrokChats(rawChats);
             } catch (error) {
                 console.error('Grok conversion failed', error);
                 toast.error('Grok 聊天转换失败');
                 return;
             }
         } else if (origin === 'aistudio') {
-            // 使用 Google AI Studio 专用转换函数
             try {
-                chatsToImport = convertAIStudioChats(chatsToImport);
+                convertedChats = convertAIStudioChats(rawChats);
             } catch (error) {
                 console.error('Google AI Studio conversion failed', error);
                 toast.error('Google AI Studio 聊天转换失败');
                 return;
             }
         } else if (origin === 'qwen') {
-            // 使用 QWEN 专用转换函数
             try {
-                chatsToImport = convertQwenChats(chatsToImport);
+                convertedChats = convertQwenChats(rawChats);
             } catch (error) {
                 console.error('QWEN conversion failed', error);
                 toast.error('QWEN 聊天转换失败');
                 return;
             }
         } else if (origin === 'openai') {
-            // 使用 OpenAI 转换函数
-            if (Array.isArray(chatsToImport)) {
-                chatsToImport = chatsToImport.map(item => {
+            if (Array.isArray(rawChats)) {
+                convertedChats = rawChats.map(item => {
                     if (item.mapping) {
                         return { chat: convertLegacyChat(item), meta: {} };
                     }
@@ -631,7 +627,13 @@
         }
         // else origin === 'webui', 原生格式不需要转换
 
-        for (const chat of chatsToImport) {
+        // 重新构建包含 importMemory 标志的数组
+        const chatsWithFlags = convertedChats.map((chat, idx) => ({
+            chat,
+            importMemory: _chats[idx]?.importMemory ?? true
+        }));
+
+        for (const { chat, importMemory } of chatsWithFlags) {
             console.log(chat);
 
             let importedChat;
@@ -653,8 +655,8 @@
                 importedChat = await importChat(localStorage.token, chat, { loaded_by_user: true }, false, null);
             }
 
-            // 评分并存储Top20消息到Mem0
-            if (importedChat?.id) {
+            // **条件性导入记忆**（根据 importMemory 标志）
+            if (importedChat?.id && importMemory) {
                 try {
                     const chatData = chat.chat || chat;
                     const topMessages = selectTopInformativeMessages(chatData, 20);
@@ -662,7 +664,7 @@
                     if (topMessages.length > 0) {
                         const mem0Messages = formatMessagesForMem0(topMessages);
 
-                        console.log(`Storing ${mem0Messages.length} top messages for chat ${importedChat.id}`);
+                        console.log(`Storing ${mem0Messages.length} top messages for chat ${importedChat.id} (memory enabled)`);
                         const result = await importChatMemories(
                             localStorage.token,
                             importedChat.id,
@@ -677,6 +679,8 @@
                     console.error('Failed to process memories:', e);
                     // 不影响导入流程，仅记录错误
                 }
+            } else if (importedChat?.id && !importMemory) {
+                console.log(`Skipping memory import for chat ${importedChat.id} (memory disabled by user)`);
             }
         }
 

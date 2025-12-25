@@ -16,7 +16,42 @@
     let importing = false;
     let errorMsg = '';
     let rawChats: any[] = [];
-    let selectedIndices: Set<number> = new Set();
+
+    // 聊天配置接口
+    interface ChatConfig {
+        selected: boolean;
+        importMemory: boolean;
+    }
+
+    // 使用 Map 存储每个聊天的配置
+    let chatConfigs: Map<number, ChatConfig> = new Map();
+
+    // 计算属性：保持向后兼容
+    $: selectedIndices = new Set(
+        Array.from(chatConfigs.entries())
+            .filter(([_, config]) => config.selected)
+            .map(([idx, _]) => idx)
+    );
+
+    // 主控开关状态
+    $: {
+        const selectedConfigs = Array.from(chatConfigs.entries())
+            .filter(([_, config]) => config.selected)
+            .map(([_, config]) => config);
+
+        if (selectedConfigs.length === 0) {
+            allMemoryEnabled = false;
+            allMemoryIndeterminate = false;
+        } else {
+            const enabledCount = selectedConfigs.filter(c => c.importMemory).length;
+            allMemoryEnabled = enabledCount === selectedConfigs.length;
+            allMemoryIndeterminate = enabledCount > 0 && enabledCount < selectedConfigs.length;
+        }
+    }
+
+    let allMemoryEnabled = false;
+    let allMemoryIndeterminate = false;
+
     let fileInputEl: HTMLInputElement;
     let fileName = '';
     let searchQuery = '';
@@ -27,7 +62,7 @@
         errorMsg = '';
         fileName = '';
         rawChats = [];
-        selectedIndices = new Set();
+        chatConfigs = new Map();
         searchQuery = '';
         showExportGuide = false;
         if (fileInputEl) fileInputEl.value = '';
@@ -72,7 +107,7 @@
             if (parsed.length === 0) throw new Error('JSON 数组为空');
 
             rawChats = parsed;
-            selectedIndices = new Set(); 
+            chatConfigs = new Map();
             toast.success(`解析成功，共 ${rawChats.length} 条记录`);
         } catch (error) {
             console.error(error);
@@ -87,20 +122,52 @@
     // 最大导入数量限制
     const MAX_IMPORT_CHATS = 50;
 
+    // 切换单个聊天的记忆导入开关
+    const toggleMemory = (idx: number, event: Event) => {
+        event.stopPropagation();
+
+        const config = chatConfigs.get(idx);
+        if (config) {
+            config.importMemory = !config.importMemory;
+            chatConfigs = chatConfigs; // 触发响应式更新
+        }
+    };
+
+    // 切换所有已选中聊天的记忆开关
+    const toggleAllMemory = (enabled: boolean) => {
+        for (const [idx, config] of chatConfigs.entries()) {
+            if (config.selected) {
+                config.importMemory = enabled;
+            }
+        }
+        chatConfigs = chatConfigs;
+    };
+
     // 切换选择
     const toggleRow = (idx: number) => {
-        const next = new Set(selectedIndices);
-        if (next.has(idx)) {
-            next.delete(idx);
+        const config = chatConfigs.get(idx);
+
+        if (config?.selected) {
+            // 取消选中：移除配置
+            chatConfigs.delete(idx);
         } else {
-            // 检查是否超过最大数量
-            if (next.size >= MAX_IMPORT_CHATS) {
+            // 选中：检查数量限制
+            const selectedCount = Array.from(chatConfigs.values())
+                .filter(c => c.selected).length;
+
+            if (selectedCount >= MAX_IMPORT_CHATS) {
                 toast.error(`最多只能选择 ${MAX_IMPORT_CHATS} 个对话`);
                 return;
             }
-            next.add(idx);
+
+            // 添加配置（默认开启记忆导入）
+            chatConfigs.set(idx, {
+                selected: true,
+                importMemory: true
+            });
         }
-        selectedIndices = next;
+
+        chatConfigs = chatConfigs; // 触发响应式更新
     };
 
     // 过滤显示的行 (支持搜索)
@@ -111,22 +178,33 @@
 
     // 全选/反选 (仅针对当前搜索结果)
     const toggleSelectAll = (checked: boolean) => {
-        const next = new Set(selectedIndices);
-
         if (checked) {
-            // 全选时，检查是否会超过限制
-            const toAdd = filteredChats.filter(item => !next.has(item.originalIdx));
-            if (next.size + toAdd.length > MAX_IMPORT_CHATS) {
-                toast.error(`最多只能选择 ${MAX_IMPORT_CHATS} 个对话，当前已选 ${next.size} 个`);
+            // 全选：检查数量限制
+            const currentSelected = Array.from(chatConfigs.values())
+                .filter(c => c.selected).length;
+            const toAdd = filteredChats.filter(item =>
+                !chatConfigs.get(item.originalIdx)?.selected
+            );
+
+            if (currentSelected + toAdd.length > MAX_IMPORT_CHATS) {
+                toast.error(`最多只能选择 ${MAX_IMPORT_CHATS} 个对话，当前已选 ${currentSelected} 个`);
                 return;
             }
-            toAdd.forEach(item => next.add(item.originalIdx));
+
+            toAdd.forEach(item => {
+                chatConfigs.set(item.originalIdx, {
+                    selected: true,
+                    importMemory: true // 默认开启
+                });
+            });
         } else {
-            // 反选：删除当前搜索结果中的所有项
-            filteredChats.forEach(item => next.delete(item.originalIdx));
+            // 反选：仅移除当前搜索结果中的项
+            filteredChats.forEach(item => {
+                chatConfigs.delete(item.originalIdx);
+            });
         }
 
-        selectedIndices = next;
+        chatConfigs = chatConfigs;
     };
 
     // 检查是否全选 (针对当前搜索结果)
@@ -142,7 +220,18 @@
             return toast.error(`最多只能导入 ${MAX_IMPORT_CHATS} 个对话，当前选择了 ${selectedIndices.size} 个`);
         }
 
-        const chatsToImport = rawChats.filter((_, idx) => selectedIndices.has(idx));
+        // 构建导入数据（包含记忆开关信息）
+        const chatsToImport = rawChats
+            .map((chat, idx) => {
+                const config = chatConfigs.get(idx);
+                if (!config?.selected) return null;
+
+                return {
+                    chat,
+                    importMemory: config.importMemory
+                };
+            })
+            .filter(item => item !== null);
 
         try {
             importing = true;
@@ -280,9 +369,9 @@
                 <div class="flex-1 flex flex-col bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden" transition:fly={{y: 20}}>
                     
                     <div class="p-3 border-b border-gray-100 dark:border-gray-800 flex flex-wrap gap-3 items-center justify-between">
-                        <div class="flex items-center gap-3 pl-1">
-                            <input 
-                                type="checkbox" 
+                        <div class="flex items-center gap-3 pl-1 flex-1">
+                            <input
+                                type="checkbox"
                                 class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 transition cursor-pointer"
                                 checked={isAllSelected}
                                 indeterminate={isIndeterminate}
@@ -291,6 +380,21 @@
                             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
                                 {selectedIndices.size > 0 ? `已选 ${selectedIndices.size} 项` : '选择记录'}
                             </span>
+
+                            <!-- 主控记忆开关 -->
+                            {#if selectedIndices.size > 0}
+                                <div class="flex items-center gap-2 ml-4 pl-4 border-l border-gray-200 dark:border-gray-700">
+                                    <span class="text-xs text-gray-600 dark:text-gray-400">导入记忆</span>
+                                    <input
+                                        type="checkbox"
+                                        class="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                        checked={allMemoryEnabled}
+                                        indeterminate={allMemoryIndeterminate}
+                                        on:change={(e) => toggleAllMemory(e.currentTarget.checked)}
+                                        on:click={(e) => e.stopPropagation()}
+                                    />
+                                </div>
+                            {/if}
                         </div>
                         
                         <div class="relative w-full sm:w-64">
@@ -334,11 +438,32 @@
                                                 <div class="font-medium text-gray-900 dark:text-gray-100 truncate text-sm">
                                                     {item.title || '无标题对话'}
                                                 </div>
-                                                {#if item.messages}
-                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 shrink-0">
-                                                        {item.messages.length} msg
-                                                    </span>
-                                                {/if}
+
+                                                <div class="flex items-center gap-2 shrink-0">
+                                                    {#if item.messages}
+                                                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">
+                                                            {item.messages.length} msg
+                                                        </span>
+                                                    {/if}
+
+                                                    <!-- 记忆导入开关 -->
+                                                    {#if chatConfigs.get(item.originalIdx)?.selected}
+                                                        <div
+                                                            class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800"
+                                                            on:click={(e) => e.stopPropagation()}
+                                                        >
+                                                            <span class="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                                                                记忆
+                                                            </span>
+                                                            <input
+                                                                type="checkbox"
+                                                                class="w-3 h-3 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                                checked={chatConfigs.get(item.originalIdx)?.importMemory ?? true}
+                                                                on:change={(e) => toggleMemory(item.originalIdx, e)}
+                                                            />
+                                                        </div>
+                                                    {/if}
+                                                </div>
                                             </div>
                                             
                                             <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex gap-2">
@@ -354,7 +479,16 @@
                     <div class="px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-500 flex justify-between">
                         <span>显示 {filteredChats.length} 条</span>
                         {#if selectedIndices.size > 0}
-                            <span class="text-blue-600 dark:text-blue-400">准备导入 {selectedIndices.size} 条</span>
+                            {@const memoryCount = Array.from(chatConfigs.values())
+                                .filter(c => c.selected && c.importMemory).length}
+                            <span class="text-blue-600 dark:text-blue-400">
+                                准备导入 {selectedIndices.size} 条
+                                {#if memoryCount > 0}
+                                    <span class="text-emerald-600 dark:text-emerald-400">
+                                        (含记忆 {memoryCount})
+                                    </span>
+                                {/if}
+                            </span>
                         {/if}
                     </div>
                 </div>
