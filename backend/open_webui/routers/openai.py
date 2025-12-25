@@ -1042,8 +1042,10 @@ async def generate_chat_completion(
                 payload["stream_options"]["include_usage"] = True
                 log.debug(f"[Billing] 已注入 stream_options: model={payload.get('model')}")
 
-    # print('''print(payload)''')
-    # print(payload)
+    # 记录 LLM 调用的 payload
+    perf_logger = metadata.get("perf_logger") if metadata else None
+    if chatting_completion and perf_logger:
+        perf_logger.record_llm_payload(payload)
     payload = json.dumps(payload)  # 序列化为 JSON 字符串
 
     # === 11. 初始化请求状态变量 ===

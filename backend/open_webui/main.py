@@ -1871,10 +1871,6 @@ async def chat_completion(
             if perf_logger:
                 perf_logger.mark_before_llm()
 
-            # 记录 LLM 调用的 payload
-            if perf_logger:
-                perf_logger.record_llm_payload(form_data)
-
             # 8.2 调用 LLM 完成对话 (核心) - 使用计费代理包装
             response = await chat_with_billing(
                 chat_completion_handler,
