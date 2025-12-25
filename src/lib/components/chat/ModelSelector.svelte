@@ -5,14 +5,13 @@
 		showSettings,
 		settings,
 		user,
-		mobile,
-		config,
-		showSidebar
+		config
 	} from '$lib/stores';
 	import { onMount, tick, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import Selector from './ModelSelector/Selector.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
+	import Modal from '$lib/components/common/Modal.svelte';
 
 	import { updateUserSettings } from '$lib/apis/users';
 	import {
@@ -259,79 +258,74 @@ const i18n = getContext('i18n');
 		</div>
 	{/each}
 
-{#if showUserModelModal}
-		<div
-			class="fixed top-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/50"
-			style={`left: ${$showSidebar && !$mobile ? '260px' : '0'}`}
-		>
-			<div class="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-md p-4 space-y-3">
-				<div class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-					{editingCredential ? $i18n.t('Edit My API') : $i18n.t('Add My API')}
-				</div>
+	<Modal bind:show={showUserModelModal} size="sm" className="bg-white dark:bg-gray-900 rounded-2xl">
+		<div class="w-full p-4 space-y-3">
+			<div class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+				{editingCredential ? $i18n.t('Edit My API') : $i18n.t('Add My API')}
+			</div>
 
-				<div class="space-y-2 text-sm">
-					<div class="flex flex-col gap-1">
-						<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Display Name')}</label>
-						<input
-							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
-							bind:value={form.name}
-							placeholder={$i18n.t('Optional')}
-						/>
-					</div>
-					<div class="flex flex-col gap-1">
-						<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Model ID')}</label>
-						<input
-							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
-							bind:value={form.model_id}
-							placeholder="gpt-4o / claude-3..."
-						/>
-					</div>
-					<div class="flex flex-col gap-1">
-						<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Base URL')}</label>
-						<input
-							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
-							bind:value={form.base_url}
-							placeholder="https://api.openai.com/v1"
-						/>
-					</div>
-						<div class="flex flex-col gap-1">
-						<label class="text-gray-600 dark:text-gray-400">API Key</label>
-						<input
-							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
-							bind:value={form.api_key}
-							placeholder="sk-..."
-						/>
-					</div>
+			<div class="space-y-2 text-sm">
+				<div class="flex flex-col gap-1">
+					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Display Name')}</label>
+					<input
+						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+						bind:value={form.name}
+						placeholder={$i18n.t('Optional')}
+					/>
 				</div>
-
-				<div class="flex justify-end gap-2">
-					<button
-						class="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700"
-						on:click={() => {
-							resetForm();
-							showUserModelModal = false;
-						}}
-					>
-						{$i18n.t('Cancel')}
-					</button>
-					<button
-						class="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-70"
-						on:click={testUserModelConnection}
-						disabled={disabled || testingConnection}
-					>
-						{testingConnection ? $i18n.t('Testing...') : $i18n.t('Verify Connection')}
-					</button>
-					<button
-						class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black"
-						on:click={submitUserModel}
-						disabled={disabled || testingConnection}
-					>
-						{$i18n.t('Save')}
-					</button>
+				<div class="flex flex-col gap-1">
+					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Model ID')}</label>
+					<input
+						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+						bind:value={form.model_id}
+						placeholder="gpt-4o / claude-3..."
+					/>
+				</div>
+				<div class="flex flex-col gap-1">
+					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Base URL')}</label>
+					<input
+						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+						bind:value={form.base_url}
+						placeholder="https://api.openai.com/v1"
+					/>
+				</div>
+				<div class="flex flex-col gap-1">
+					<label class="text-gray-600 dark:text-gray-400">API Key</label>
+					<input
+						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+						bind:value={form.api_key}
+						placeholder="sk-..."
+					/>
 				</div>
 			</div>
+
+			<div class="flex justify-end gap-2">
+				<button
+					class="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700"
+					on:click={() => {
+						resetForm();
+						showUserModelModal = false;
+					}}
+				>
+					{$i18n.t('Cancel')}
+				</button>
+				<button
+					class="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-70"
+					on:click={testUserModelConnection}
+					disabled={disabled || testingConnection}
+				>
+					{testingConnection ? $i18n.t('Testing...') : $i18n.t('Verify Connection')}
+				</button>
+				<button
+					class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black"
+					on:click={submitUserModel}
+					disabled={disabled || testingConnection}
+				>
+					{$i18n.t('Save')}
+				</button>
+			</div>
 		</div>
-	{/if}
+	</Modal>
 </div>
 
 <!-- {#if showSetDefault}
