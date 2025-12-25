@@ -355,9 +355,22 @@
 		saveChatHandler(_chatId, history);
 	};
 
+	/**
+	 * 聊天页 WebSocket 事件处理器
+	 * ========================================
+	 * 处理当前聊天会话的所有 WS 事件，更新消息内容/状态/错误等
+	 *
+	 * 事件来源：后端通过 Socket.IO 'events' 通道推送
+	 * 绑定位置：onMount 中 $socket?.on('events', chatEventHandler)
+	 * 解绑位置：onDestroy 中 $socket?.off('events', chatEventHandler)
+	 *
+	 * @param event - WS 事件对象，包含 chat_id, message_id, data: { type, data }
+	 * @param cb - 可选回调，用于 confirmation/execute/input 等需要响应的事件
+	 */
 	const chatEventHandler = async (event, cb) => {
 		console.log(event);
 
+		// 只处理当前聊天的事件（通过 chat_id 过滤）
 		if (event.chat_id === $chatId) {
 			await tick();
 			let message = history.messages[event.message_id];
@@ -366,14 +379,20 @@
 				const type = event?.data?.type ?? null;
 				const data = event?.data?.data ?? null;
 
+				// ========== 状态事件 ==========
+				// 追加到消息的状态历史（如 knowledge_search 进度、工具执行状态等）
 				if (type === 'status') {
 					if (message?.statusHistory) {
 						message.statusHistory.push(data);
 					} else {
 						message.statusHistory = [data];
 					}
+					// ========== LLM 响应事件 ==========
+					// 委托给专门的处理器，处理流式/非流式响应、usage、sources 等
 				} else if (type === 'chat:completion') {
 					chatCompletionEventHandler(data, message, event.chat_id);
+					// ========== 任务取消事件 ==========
+					// 用户点击停止或后端异常时触发，清理生成状态
 				} else if (type === 'chat:tasks:cancel') {
 					taskIds = null;
 					const responseMessage = history.messages[history.currentId];
@@ -381,14 +400,22 @@
 					for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
 						history.messages[messageId].done = true;
 					}
+					// ========== 消息内容增量更新 ==========
+					// 流式响应时逐块追加内容
 				} else if (type === 'chat:message:delta' || type === 'message') {
 					message.content += data.content;
+					// ========== 消息内容替换 ==========
+					// 完全替换消息内容（非增量）
 				} else if (type === 'chat:message' || type === 'replace') {
 					message.content = data.content;
+					// ========== 文件附件更新 ==========
 				} else if (type === 'chat:message:files' || type === 'files') {
 					message.files = data.files;
+					// ========== 嵌入内容更新 ==========
 				} else if (type === 'chat:message:embeds' || type === 'embeds') {
 					message.embeds = data.embeds;
+					// ========== 错误处理 ==========
+					// 后端处理失败时触发，需要回滚消息并清理状态
 				} else if (type === 'chat:message:error') {
 					// 显示 Toast 通知用户错误
 					toast.error(data.error?.content || $i18n.t('An error occurred'));
@@ -398,7 +425,7 @@
 					if (parentId && history.messages[parentId]) {
 						// 从父消息的 childrenIds 中移除
 						history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
-							id => id !== message.id
+							(id) => id !== message.id
 						);
 					}
 
@@ -410,30 +437,39 @@
 						history.currentId = parentId;
 					}
 
-				// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
-				if (parentId && history.messages[parentId]) {
-					history.messages[parentId].done = true;
-				}
+					// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+					if (parentId && history.messages[parentId]) {
+						history.messages[parentId].done = true;
+					}
 
-				// v3: 清理生成状态（防御性，后端会发送 chat:tasks:cancel 但添加保险）
-				cleanupGenerationState();
+					// v3: 清理生成状态（防御性，后端会发送 chat:tasks:cancel 但添加保险）
+					cleanupGenerationState();
 
-				// 保存更新后的 history 到数据库
-				await saveChatHandler($chatId, history);
+					// 保存更新后的 history 到数据库
+					await saveChatHandler($chatId, history);
+					// ========== 后续问题建议 ==========
+					// 后端生成的建议性后续问题，显示在消息下方
 				} else if (type === 'chat:message:follow_ups') {
 					message.followUps = data.follow_ups;
 
 					if (autoScroll) {
 						scrollToBottom('smooth');
 					}
+					// ========== 聊天标题更新 ==========
+					// 后端自动生成标题后推送，更新侧边栏列表
 				} else if (type === 'chat:title') {
 					chatTitle.set(data);
 					currentChatPage.set(1);
 					await chats.set(await getChatList(localStorage.token, $currentChatPage));
+					// ========== 聊天标签更新 ==========
+					// 后端自动生成标签后推送
 				} else if (type === 'chat:tags') {
 					chat = await getChatById(localStorage.token, $chatId);
 					allTags.set(await getAllTags(localStorage.token));
+					// ========== 引用/来源信息 ==========
+					// RAG 检索结果、代码执行结果等引用源
 				} else if (type === 'source' || type === 'citation') {
+					// 代码执行类型：按 ID 更新或新增
 					if (data?.type === 'code_execution') {
 						// Code execution; update existing code execution by ID, or add new one.
 						if (!message?.code_executions) {
@@ -452,6 +488,7 @@
 
 						message.code_executions = message.code_executions;
 					} else {
+						// 普通引用源：追加到 sources 数组
 						// Regular source.
 						if (message?.sources) {
 							message.sources.push(data);
@@ -459,6 +496,8 @@
 							message.sources = [data];
 						}
 					}
+					// ========== 通知事件 ==========
+					// 后端推送的 toast 通知（成功/错误/警告/信息）
 				} else if (type === 'notification') {
 					const toastType = data?.type ?? 'info';
 					const toastContent = data?.content ?? '';
@@ -472,6 +511,8 @@
 					} else {
 						toast.info(toastContent);
 					}
+					// ========== 确认对话框 ==========
+					// 后端请求用户确认某操作，需要通过 cb 回调结果
 				} else if (type === 'confirmation') {
 					eventCallback = cb;
 
@@ -480,6 +521,8 @@
 
 					eventConfirmationTitle = data.title;
 					eventConfirmationMessage = data.message;
+					// ========== 执行代码 ==========
+					// 后端下发 JS 代码让前端执行（用于插件/工具扩展）
 				} else if (type === 'execute') {
 					eventCallback = cb;
 
@@ -494,6 +537,8 @@
 					} catch (error) {
 						console.error('Error executing code:', error);
 					}
+					// ========== 输入对话框 ==========
+					// 后端请求用户输入内容，需要通过 cb 回调用户输入
 				} else if (type === 'input') {
 					eventCallback = cb;
 
@@ -504,6 +549,7 @@
 					eventConfirmationMessage = data.message;
 					eventConfirmationInputPlaceholder = data.placeholder;
 					eventConfirmationInputValue = data?.value ?? '';
+					// ========== 未知事件类型 ==========
 				} else {
 					console.log('Unknown message type', data);
 				}
@@ -574,10 +620,20 @@
 	let showControlsSubscribe = null;
 	let selectedFolderSubscribe = null;
 
+	/**
+	 * 组件挂载生命周期
+	 * ========================================
+	 * 初始化 WS 事件监听、路由订阅、输入状态恢复等
+	 */
 	onMount(async () => {
 		loading = true;
 		console.log('mounted');
+
+		// ========== 事件监听绑定 ==========
+		// 1. postMessage 监听：用于跨窗口/iframe 通信
 		window.addEventListener('message', onMessageHandler);
+		// 2. Socket.IO 'events' 监听：接收后端推送的聊天事件
+		//    事件由 chatEventHandler 处理，包括消息更新、状态变更、错误等
 		$socket?.on('events', chatEventHandler);
 
 		pageSubscribe = page.subscribe(async (p) => {
@@ -665,13 +721,24 @@
 		}
 	});
 
+	/**
+	 * 组件销毁生命周期
+	 * ========================================
+	 * 清理所有事件监听和订阅，防止内存泄漏和重复处理
+	 */
 	onDestroy(() => {
 		try {
+			// ========== 订阅取消 ==========
 			pageSubscribe();
 			showControlsSubscribe();
 			selectedFolderSubscribe();
 			chatIdUnsubscriber?.();
+
+			// ========== 事件监听解绑 ==========
+			// 1. postMessage 监听解绑
 			window.removeEventListener('message', onMessageHandler);
+			// 2. Socket.IO 'events' 监听解绑
+			//    必须解绑，否则组件销毁后仍会处理事件，导致错误和内存泄漏
 			$socket?.off('events', chatEventHandler);
 		} catch (e) {
 			console.error(e);
@@ -1148,9 +1215,32 @@
 			});
 		}
 	};
+	/**
+	 * 聊天完成后处理器
+	 * ========================================
+	 * 在 LLM 响应完成后调用，负责：
+	 *   1. 调用后端 /api/chat/completed 接口，触发后处理逻辑（如 Filter outlet）
+	 *   2. 处理后端返回的消息更新（可能经过 Filter 修改）
+	 *   3. 持久化聊天记录到数据库
+	 *   4. 清理生成状态
+	 *
+	 * 调用时机：
+	 *   - 流式响应结束后（done=true）
+	 *   - 非流式响应接收后
+	 *
+	 * 后端位置：backend/open_webui/routers/chats.py - chat_completed
+	 *
+	 * @param chatId - 聊天 ID
+	 * @param modelId - 使用的模型 ID
+	 * @param responseMessageId - 助手响应消息的 ID
+	 * @param messages - 本次对话的消息列表（用于发送给后端处理）
+	 */
 	const chatCompletedHandler = async (chatId, modelId, responseMessageId, messages) => {
+		// ========== 1. 调用后端完成接口 ==========
+		// 触发 Filter outlet、后处理插件等逻辑
 		const res = await chatCompleted(localStorage.token, {
 			model: modelId,
+			// 构造精简的消息列表发送给后端
 			messages: messages.map((m) => ({
 				id: m.id,
 				role: m.role,
@@ -1166,12 +1256,14 @@
 			session_id: $socket?.id,
 			id: responseMessageId
 		}).catch(async (error) => {
+			// ========== 错误处理：回滚消息 ==========
 			toast.error(`${error}`);
 
 			// v2: 删除错误消息而不是设置 error 字段
 			const errorMessage = history.messages[responseMessageId];
 			if (errorMessage) {
 				const parentId = errorMessage.parentId;
+				// 从父消息的 childrenIds 中移除错误消息
 				if (parentId && history.messages[parentId]) {
 					// 从父消息的 childrenIds 中移除
 					history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
@@ -1202,11 +1294,14 @@
 			return null;
 		});
 
+		// ========== 2. 处理后端返回的消息更新 ==========
+		// 后端 Filter outlet 可能修改消息内容，需要同步更新
 		if (res !== null && res.messages) {
 			// Update chat history with the new messages
 			for (const message of res.messages) {
 				if (message?.id) {
 					// Add null check for message and message.id
+					// 如果内容被修改，保留原始内容到 originalContent
 					history.messages[message.id] = {
 						...history.messages[message.id],
 						...(history.messages[message.id].content !== message.content
@@ -1220,6 +1315,8 @@
 
 		await tick();
 
+		// ========== 3. 持久化聊天记录 ==========
+		// 仅当仍在当前聊天且非临时聊天时保存
 		if ($chatId == chatId) {
 			if (!$temporaryChatEnabled) {
 				const currentMessages = createMessagesList(history, history.currentId);
@@ -1231,11 +1328,13 @@
 					files: chatFiles
 				});
 
+				// 刷新侧边栏聊天列表
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
 		}
 
+		// ========== 4. 清理生成状态 ==========
 		taskIds = null;
 	};
 
@@ -1457,22 +1556,82 @@
 		}
 	};
 
+	/**
+	 * LLM 响应事件处理器（chat:completion）
+	 * ========================================
+	 * 处理后端通过 WebSocket 推送的 chat:completion 事件
+	 * 这是前端接收 LLM 响应的核心入口，负责解析并渲染 AI 回复内容
+	 *
+	 * 【调用链路】
+	 *   chatEventHandler (type === 'chat:completion')
+	 *       ↓
+	 *   chatCompletionEventHandler (本函数)
+	 *       ↓
+	 *   更新 message.content → 触发 UI 渲染
+	 *       ↓
+	 *   (done=true 时) chatCompletedHandler → 持久化
+	 *
+	 * 【数据来源 - 后端推送位置】
+	 *   - 非流式完整响应：backend/open_webui/utils/middleware.py:2262-2282
+	 *   - 流式增量 delta：backend/open_webui/utils/middleware.py:3055-3060
+	 *   - 流式 usage 信息：backend/open_webui/utils/middleware.py:3128-3135
+	 *   - 流式结束 done：backend/open_webui/utils/middleware.py:3823-3828
+	 *
+	 * 【处理流程】
+	 *   1. 错误检查：如果 data.error 存在，调用 handleOpenAIError 处理
+	 *   2. 引用源设置：首次收到 sources 时设置到 message.sources
+	 *   3. 内容更新：
+	 *      - choices 模式（OpenAI 兼容格式）：
+	 *        · 非流式：choices[0].message.content（完整内容追加）
+	 *        · 流式：choices[0].delta.content（增量内容追加）
+	 *      - content 模式（REALTIME_CHAT_SAVE 关闭时）：
+	 *        · 后端流结束后一次性返回完整内容，直接覆盖
+	 *   4. Arena 模式：设置 selected_model_id 和 arena 标记
+	 *   5. Token 统计：记录 usage 信息（prompt_tokens, completion_tokens）
+	 *   6. 流结束处理（done=true）：
+	 *      - 标记 message.done = true
+	 *      - 自动复制到剪贴板（如启用）
+	 *      - 自动播放 TTS（如启用）
+	 *      - 派发 chat:finish 事件
+	 *      - 调用 chatCompletedHandler 触发后处理和持久化
+	 *
+	 * @param data - 事件数据对象
+	 *   @param data.id - 消息 ID（与 message.id 对应）
+	 *   @param data.done - 是否完成（true 表示流式响应结束）
+	 *   @param data.choices - OpenAI 格式响应数组
+	 *     - choices[0].message.content：非流式完整内容
+	 *     - choices[0].delta.content：流式增量内容
+	 *   @param data.content - 完整内容（REALTIME_CHAT_SAVE=false 时使用）
+	 *   @param data.sources - RAG 检索的引用源数组
+	 *   @param data.selected_model_id - Arena 模式选中的模型 ID
+	 *   @param data.error - 错误信息对象
+	 *   @param data.usage - Token 使用量 { prompt_tokens, completion_tokens, total_tokens }
+	 * @param message - 当前消息对象（history.messages[message_id]）
+	 * @param chatId - 聊天 ID
+	 */
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, sources, selected_model_id, error, usage } = data;
 
+		// ========== 错误处理 ==========
 		if (error) {
 			await handleOpenAIError(error, message);
 		}
 
+		// ========== 引用源初始化 ==========
+		// 只在消息首次接收 sources 时设置
 		if (sources && !message?.sources) {
 			message.sources = sources;
 		}
 
+		// ========== 内容更新（choices 模式）==========
+		// OpenAI 兼容格式：通过 choices 数组传递内容
 		if (choices) {
 			if (choices[0]?.message?.content) {
+				// 非流式响应：choices[0].message.content 包含完整内容
 				// Non-stream response
 				message.content += choices[0]?.message?.content;
 			} else {
+				// 流式响应：choices[0].delta.content 包含增量内容
 				// Stream response
 				let value = choices[0]?.delta?.content ?? '';
 				if (message.content == '' && value == '\n') {
@@ -1480,10 +1639,12 @@
 				} else {
 					message.content += value;
 
+					// 触觉反馈（移动端）
 					if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
 						navigator.vibrate(5);
 					}
 
+					// TTS 实时朗读：按句子分割，逐句派发事件
 					// Emit chat event for TTS
 					const messageContentParts = getMessageContentParts(
 						removeAllDetails(message.content),
@@ -1510,6 +1671,8 @@
 			}
 		}
 
+		// ========== 内容更新（content 模式）==========
+		// 当后端 REALTIME_CHAT_SAVE 关闭时，流结束后一次性返回完整内容
 		if (content) {
 			// REALTIME_CHAT_SAVE is disabled
 			message.content = content;
@@ -1542,29 +1705,42 @@
 			}
 		}
 
+		// ========== Arena 模式 ==========
+		// 后端选择了特定模型（用于模型对比/评估）
 		if (selected_model_id) {
 			message.selectedModelId = selected_model_id;
 			message.arena = true;
 		}
 
+		// ========== Token 使用量 ==========
 		if (usage) {
 			message.usage = usage;
 		}
 
+		// 更新 history 中的消息（每次收到事件都更新，触发 Svelte 响应式渲染）
 		history.messages[message.id] = message;
 
+		// ========== 流式结束处理 ==========
+		// done=true 表示 LLM 响应完成，需要执行收尾逻辑
 		if (done) {
+			// 标记消息完成状态（UI 会根据此状态显示/隐藏加载指示器）
 			message.done = true;
 
+			// --- 自动复制功能 ---
+			// 用户设置：响应完成后自动复制内容到剪贴板
 			if ($settings.responseAutoCopy) {
 				copyToClipboard(message.content);
 			}
 
+			// --- 自动播放 TTS ---
+			// 用户设置：响应完成后自动朗读（排除通话覆盖层场景）
 			if ($settings.responseAutoPlayback && !$showCallOverlay) {
 				await tick();
 				document.getElementById(`speak-button-${message.id}`)?.click();
 			}
 
+			// --- TTS 最后一句派发 ---
+			// 确保最后一个句子片段也被派发给 TTS 引擎
 			// Emit chat event for TTS
 			let lastMessageContentPart =
 				getMessageContentParts(
@@ -1578,6 +1754,9 @@
 					})
 				);
 			}
+
+			// --- 派发 chat:finish 事件 ---
+			// 通知其他监听者（如 TTS 控制器）响应已完成
 			eventTarget.dispatchEvent(
 				new CustomEvent('chat:finish', {
 					detail: {
@@ -1587,13 +1766,17 @@
 				})
 			);
 
+			// 最终更新 history
 			history.messages[message.id] = message;
 
+			// 滚动到底部
 			await tick();
 			if (autoScroll) {
 				scrollToBottom();
 			}
 
+			// --- 调用完成后处理器 ---
+			// 触发后端 /api/chat/completed 接口，执行 Filter outlet、持久化等
 			await chatCompletedHandler(
 				chatId,
 				message.model,
@@ -2056,6 +2239,80 @@
 		return null;
 	};
 
+	/**
+	 * sendMessageSocket - 通过 WebSocket 向 LLM 发送对话请求
+	 *
+	 * 【调用链路】
+	 *
+	 *   用户发送消息
+	 *        ↓
+	 *   submitPrompt() (构建用户消息和空的助手消息)
+	 *        ↓
+	 *   ┌─────────────────────────────────────────────────────────────────────┐
+	 *   │  sendMessageSocket() ← 当前函数                                      │
+	 *   │    ├── 准备文件列表 (chatFiles + userMessage.files)                  │
+	 *   │    ├── 格式化消息数组 (添加 system prompt, 处理图片)                  │
+	 *   │    ├── 提取工具配置 (toolIds + toolServerIds)                        │
+	 *   │    ├── 调用 generateOpenAIChatCompletion() API                       │
+	 *   │    └── 注册 task_id 到 taskIds 数组                                  │
+	 *   └─────────────────────────────────────────────────────────────────────┘
+	 *        ↓
+	 *   后端 POST /api/chat/completions
+	 *        ↓
+	 *   后端通过 Socket.IO 推送 chat:completion 事件
+	 *        ↓
+	 *   chatEventHandler() → chatCompletionEventHandler() 处理流式响应
+	 *
+	 * 【后端代码位置】
+	 *
+	 *   • API 入口: backend/open_webui/routers/openai.py
+	 *     - generate_openai_chat_completion() 函数
+	 *   • 中间件处理: backend/open_webui/utils/middleware.py
+	 *     - chat_completion_filter_functions_handler() - Filter 管道
+	 *     - chat_completion_tools_and_web_search_handler() - 工具调用
+	 *   • 流式响应: backend/open_webui/utils/response.py
+	 *     - generate_chat_completion() - 创建 SSE 流
+	 *
+	 * 【请求体结构】(发送给 /api/chat/completions)
+	 *
+	 *   {
+	 *     stream: true,                    // 启用流式响应
+	 *     model: "gpt-4",                  // 模型 ID
+	 *     messages: [                      // OpenAI 格式的消息数组
+	 *       { role: "system", content: "..." },
+	 *       { role: "user", content: "..." | [...] },  // 可能包含图片
+	 *       { role: "assistant", content: "..." }
+	 *     ],
+	 *     params: { temperature, top_p, ... },  // 模型参数
+	 *     files: [...],                    // RAG 检索用的文件列表
+	 *     tool_ids: ["tool1", "tool2"],    // 启用的工具 ID
+	 *     tool_servers: [...],             // 外部工具服务器配置
+	 *     session_id: "socket-id",         // Socket.IO 会话 ID (用于推送响应)
+	 *     chat_id: "chat-uuid",            // 对话 ID
+	 *     id: "response-msg-id",           // 响应消息 ID
+	 *     background_tasks: {              // 后台任务配置
+	 *       title_generation: true,        // 自动生成标题
+	 *       tags_generation: true,         // 自动生成标签
+	 *       follow_up_generation: true     // 自动生成跟进问题
+	 *     }
+	 *   }
+	 *
+	 * 【错误处理策略】
+	 *
+	 *   API 调用失败时:
+	 *   1. 显示 toast 错误提示
+	 *   2. 从 history 中删除空的响应消息
+	 *   3. 从父消息的 childrenIds 中移除引用
+	 *   4. 重置 currentId 到父消息
+	 *   5. 设置父消息 done=true (恢复按钮状态)
+	 *   6. 保存更新后的 history 到数据库
+	 *
+	 * @param {Object} combinedModel - 组合模型对象，包含 model/credential/source 等信息
+	 * @param {Array} _messages - 要发送的消息数组 (已处理的对话历史)
+	 * @param {Object} _history - 完整的消息历史对象 { messages: {}, currentId }
+	 * @param {string} responseMessageId - 预创建的响应消息 ID
+	 * @param {string} _chatId - 对话 ID
+	 */
 	const sendMessageSocket = async (
 		combinedModel,
 		_messages,
@@ -2063,43 +2320,53 @@
 		responseMessageId,
 		_chatId
 	) => {
-		const responseMessage = _history.messages[responseMessageId];
-		const userMessage = _history.messages[responseMessage.parentId];
+		// 第一步: 从历史记录中获取消息引用
+		const responseMessage = _history.messages[responseMessageId]; // 预创建的空响应消息
+		const userMessage = _history.messages[responseMessage.parentId]; // 用户发送的消息
 
+		// 解析模型信息: 支持普通模型和用户自定义凭证模型
 		const model = combinedModel?.model ?? combinedModel?.credential ?? combinedModel;
 
+		// 第二步: 准备文件列表 (用于 RAG 检索)
+
+		// 从所有消息中提取附带的文件引用
 		const chatMessageFiles = _messages
 			.filter((message) => message.files)
 			.flatMap((message) => message.files);
 
-		// Filter chatFiles to only include files that are in the chatMessageFiles
+		// 清理 chatFiles: 只保留仍在消息中引用的文件 (移除已删除消息的文件)
 		chatFiles = chatFiles.filter((item) => {
 			const fileExists = chatMessageFiles.some((messageFile) => messageFile.id === item.id);
 			return fileExists;
 		});
 
+		// 合并文件列表: chatFiles (对话级) + userMessage.files (消息级)
 		let files = JSON.parse(JSON.stringify(chatFiles));
 		files.push(
+			// 只包含文档类型的文件 (图片在后面单独处理)
 			...(userMessage?.files ?? []).filter((item) =>
 				['doc', 'text', 'file', 'note', 'chat', 'collection'].includes(item.type)
 			)
 		);
-		// Remove duplicates
+		// 去重: 基于 JSON 序列化比较
 		files = files.filter(
 			(item, index, array) =>
 				array.findIndex((i) => JSON.stringify(i) === JSON.stringify(item)) === index
 		);
 
-		scrollToBottom();
+		// 第三步: 触发 UI 更新和事件
+		scrollToBottom(); // 滚动到底部显示新消息
 		eventTarget.dispatchEvent(
 			new CustomEvent('chat:start', {
+				// 通知其他组件对话开始
 				detail: {
 					id: responseMessageId
 				}
 			})
 		);
-		await tick();
+		await tick(); // 等待 Svelte 完成 DOM 更新
 
+		// 第四步: 获取用户位置 (可选, 用于 prompt 变量)
 		let userLocation;
 		if ($settings?.userLocation) {
 			userLocation = await getAndUpdateUserLocation(localStorage.token).catch((err) => {
@@ -2108,11 +2375,14 @@
 			});
 		}
 
+		// 判断是否为用户自定义模型 (使用个人 API Key)
 		const isUserModel = combinedModel?.source === 'user';
 		const credential = combinedModel?.credential;
 
-		const stream = true;
+		const stream = true; // 始终使用流式响应
 
+		// 第五步: 构建 OpenAI 格式的消息数组
+		// 5.1 添加 system prompt (如果配置了的话)
 		let messages = [
 			params?.system || $settings.system
 				? {
@@ -2120,18 +2390,24 @@
 						content: `${params?.system ?? $settings?.system ?? ''}`
 					}
 				: undefined,
+			// 处理消息内容中的 <details> 标签
 			..._messages.map((message) => ({
 				...message,
 				content: processDetails(message.content)
 			}))
-		].filter((message) => message);
+		].filter((message) => message); // 过滤掉 undefined
 
+		// 5.2 转换为 OpenAI API 格式
+		// - 用户消息如有图片，转为 multimodal content 格式
+		// - 使用 merged.content (如果有合并内容) 否则用原始 content
 		messages = messages
 			.map((message, idx, arr) => ({
 				role: message.role,
+				// 检查是否有图片需要处理 (仅用户消息)
 				...((message.files?.filter((file) => file.type === 'image').length > 0 ?? false) &&
 				message.role === 'user'
 					? {
+							// 有图片: 使用 OpenAI Vision 格式 [{ type: 'text' }, { type: 'image_url' }, ...]
 							content: [
 								{
 									type: 'text',
@@ -2148,38 +2424,49 @@
 							]
 						}
 					: {
+							// 无图片: 纯文本格式
 							content: message?.merged?.content ?? message.content
 						})
 			}))
+			// 过滤空消息 (保留用户消息，过滤空的助手消息)
 			.filter((message) => message?.role === 'user' || message?.content?.trim());
 
-		const toolIds = [];
-		const toolServerIds = [];
+		// 第六步: 解析工具配置
+		const toolIds = []; // 内置工具/函数 ID 列表
+		const toolServerIds = []; // 外部工具服务器 ID 列表
 
 		for (const toolId of selectedToolIds) {
 			if (toolId.startsWith('direct_server:')) {
+				// 外部工具服务器: "direct_server:0" 或 "direct_server:server-name"
 				let serverId = toolId.replace('direct_server:', '');
-				// Check if serverId is a number
+				// 检查是否为数字索引
 				if (!isNaN(parseInt(serverId))) {
 					toolServerIds.push(parseInt(serverId));
 				} else {
-					toolServerIds.push(serverId);
+					toolServerIds.push(serverId); // 字符串 ID
 				}
 			} else {
+				// 内置工具 ID
 				toolIds.push(toolId);
 			}
 		}
 
+		// 第七步: 发送 API 请求
+		// 调用 generateOpenAIChatCompletion() 发起 POST /api/chat/completions 请求
+		// 后端收到请求后，会通过 Socket.IO 推送 chat:completion 事件
 		const res = await generateOpenAIChatCompletion(
 			localStorage.token,
 			{
-				stream: stream,
-				model: isUserModel ? credential.model_id : model.id,
-				messages: messages,
+				stream: stream, // 启用流式响应
+				model: isUserModel ? credential.model_id : model.id, // 模型 ID
+				messages: messages, // OpenAI 格式的消息数组
+
+				// 模型参数: temperature, top_p, max_tokens, stop 等
 				params: {
-					...$settings?.params,
-					...params,
+					...$settings?.params, // 全局默认参数
+					...params, // 对话级覆盖参数
 					stop:
+						// 解析 stop tokens: 逗号分隔字符串 → 数组，并解码转义字符
 						(params?.stop ?? $settings?.params?.stop ?? undefined)
 							? (params?.stop.split(',').map((token) => token.trim()) ?? $settings.params.stop).map(
 									(str) => decodeURIComponent(JSON.parse('"' + str.replace(/\"/g, '\\"') + '"'))
@@ -2187,26 +2474,34 @@
 							: undefined
 				},
 
-				files: (files?.length ?? 0) > 0 ? files : undefined,
+				// RAG 和工具配置
+				files: (files?.length ?? 0) > 0 ? files : undefined, // RAG 检索用的文件
 
-				filter_ids: selectedFilterIds.length > 0 ? selectedFilterIds : undefined,
-				tool_ids: toolIds.length > 0 ? toolIds : undefined,
+				filter_ids: selectedFilterIds.length > 0 ? selectedFilterIds : undefined, // Filter 管道
+				tool_ids: toolIds.length > 0 ? toolIds : undefined, // 内置工具
 				tool_servers: ($toolServers ?? []).filter(
+					// 外部工具服务器
 					(server, idx) => toolServerIds.includes(idx) || toolServerIds.includes(server?.id)
 				),
-				features: getFeatures(),
+				features: getFeatures(), // 功能开关 (web_search 等)
 				variables: {
+					// prompt 模板变量
 					...getPromptVariables($user?.name, $settings?.userLocation ? userLocation : undefined)
 				},
+
+				// 模型元信息
 				model_item: isUserModel
-					? { credential_id: credential.id }
-					: $models.find((m) => m.id === model.id),
+					? { credential_id: credential.id } // 用户自定义模型: 传凭证 ID
+					: $models.find((m) => m.id === model.id), // 系统模型: 传完整模型配置
 				is_user_model: isUserModel,
 
-				session_id: $socket?.id,
-				chat_id: $chatId,
-				id: responseMessageId,
+				// Socket.IO 会话标识 (后端用于推送响应)
+				session_id: $socket?.id, // Socket.IO 连接 ID
+				chat_id: $chatId, // 对话 ID
+				id: responseMessageId, // 响应消息 ID
 
+				// 后台任务配置
+				// 只有第一条消息时才触发标题/标签生成
 				background_tasks: {
 					...(!$temporaryChatEnabled &&
 					(messages.length == 1 ||
@@ -2215,25 +2510,28 @@
 							messages.at(1)?.role === 'user')) &&
 					(selectedModels[0] === model.id || atSelectedModel !== undefined)
 						? {
-								title_generation: $settings?.title?.auto ?? true,
-								tags_generation: $settings?.autoTags ?? true
+								title_generation: $settings?.title?.auto ?? true, // 自动生成标题
+								tags_generation: $settings?.autoTags ?? true // 自动生成标签
 							}
 						: {}),
-					follow_up_generation: $settings?.autoFollowUps ?? true
+					follow_up_generation: $settings?.autoFollowUps ?? true // 自动生成跟进问题
 				},
 
+				// 流式响应选项: 如果模型支持 usage 统计，请求包含 token 计数
 				...(stream && (model.info?.meta?.capabilities?.usage ?? false)
 					? {
 							stream_options: {
-								include_usage: true
+								include_usage: true // 在最后一个 chunk 中包含 token 统计
 							}
 						}
 					: {})
 			},
 			`${WEBUI_BASE_URL}/api`
 		).catch(async (error) => {
+			// 错误处理: API 请求失败时的回滚逻辑
 			console.log(error);
 
+			// 提取错误信息 (支持多种错误格式)
 			let errorMessage = error;
 			if (error?.error?.message) {
 				errorMessage = error.error.message;
@@ -2241,47 +2539,51 @@
 				errorMessage = error.message;
 			}
 
+			// 如果错误是对象 (无法显示)，使用通用错误提示
 			if (typeof errorMessage === 'object') {
 				errorMessage = $i18n.t(`Uh-oh! There was an issue with the response.`);
 			}
 
-			toast.error(`${errorMessage}`);
+			toast.error(`${errorMessage}`); // 显示错误提示
 
-			// v2: 删除错误消息而不是设置 error 字段
+			// 回滚步骤 1: 从父消息的 childrenIds 中移除错误响应
 			const parentId = responseMessage.parentId;
 			if (parentId && history.messages[parentId]) {
-				// 从父消息的 childrenIds 中移除
 				history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
 					(id) => id !== responseMessageId
 				);
 			}
 
-			// 删除消息本身
+			// 回滚步骤 2: 删除空的响应消息
 			delete history.messages[responseMessageId];
 
-			// 如果这是当前消息，重置 currentId 到父消息
+			// 回滚步骤 3: 重置当前消息指针到父消息
 			if (history.currentId === responseMessageId) {
 				history.currentId = parentId;
 			}
 
-			// v3: 给父消息（用户消息）添加 done=true，确保按钮状态正确
+			// 回滚步骤 4: 恢复父消息状态 (显示发送按钮而非加载中)
 			if (parentId && history.messages[parentId]) {
 				history.messages[parentId].done = true;
 			}
 
-			// v3: 清理生成状态（防御性，任务未创建但确保状态干净）
+			// 回滚步骤 5: 清理生成状态 (防御性)
 			cleanupGenerationState();
 
-			// 保存更新后的 history 到数据库
+			// 回滚步骤 6: 保存回滚后的 history 到数据库
 			await saveChatHandler($chatId, history);
 
-			return null;
+			return null; // 返回 null 表示请求失败
 		});
 
+		// 第八步: 处理 API 响应
 		if (res) {
 			if (res.error) {
+				// API 返回了错误 (HTTP 200 但 body 包含 error)
 				await handleOpenAIError(res.error, responseMessage);
 			} else {
+				// 成功: 注册 task_id 到 taskIds 数组
+				// 用于后续通过 chatEventHandler 匹配 Socket.IO 事件
 				if (taskIds) {
 					taskIds.push(res.task_id);
 				} else {
@@ -2290,6 +2592,7 @@
 			}
 		}
 
+		// 等待 DOM 更新并滚动到底部
 		await tick();
 		scrollToBottom();
 	};

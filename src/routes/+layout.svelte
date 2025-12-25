@@ -258,9 +258,25 @@
 		}
 	};
 
+	/**
+	 * 全局布局 WebSocket 事件处理器
+	 * ========================================
+	 * 处理跨页面通知、RPC 调用（工具执行、客户端代发直连请求）
+	 *
+	 * 事件来源：后端通过 Socket.IO 'events' 通道推送
+	 * 绑定位置：onMount 中 $socket?.on('events', chatEventHandler)
+	 *
+	 * 分流逻辑（两个分支互斥）：
+	 *   分支 A：非当前聊天 或 窗口失焦 → 处理通知（toast/Notification/刷新列表）
+	 *   分支 B：当前 session 的 RPC 调用 → 执行 Python/工具/代发直连请求
+	 *
+	 * @param event - WS 事件对象，包含 chat_id, data: { type, data, session_id }
+	 * @param cb - RPC 回调函数，用于返回执行结果给后端
+	 */
 	const chatEventHandler = async (event, cb) => {
 		const chat = $page.url.pathname.includes(`/c/${event.chat_id}`);
 
+		// 检测窗口焦点状态（用于决定是否显示通知）
 		let isFocused = document.visibilityState !== 'visible';
 		if (window.electronAPI) {
 			const res = await window.electronAPI.send({
@@ -275,11 +291,16 @@
 		const type = event?.data?.type ?? null;
 		const data = event?.data?.data ?? null;
 
+		// ========== 分支 A：跨页面通知 ==========
+		// 条件：非当前聊天 或 窗口失焦（需要提醒用户）
 		if ((event.chat_id !== $chatId && !$temporaryChatEnabled) || isFocused) {
+			// ---------- 聊天完成通知 ----------
+			// 其他聊天完成时，通过声音/浏览器通知/Toast 提醒用户
 			if (type === 'chat:completion') {
 				const { done, content, title } = data;
 
 				if (done) {
+					// 播放通知音效
 					if ($settings?.notificationSoundAlways ?? false) {
 						playingNotificationSound.set(true);
 
@@ -290,6 +311,7 @@
 						});
 					}
 
+					// 浏览器原生通知（仅最后活跃标签页显示）
 					if ($isLastActiveTab) {
 						if ($settings?.notificationEnabled ?? false) {
 							new Notification(`${title} • Cakumi`, {
@@ -299,6 +321,7 @@
 						}
 					}
 
+					// Toast 通知（可点击跳转到对应聊天）
 					toast.custom(NotificationToast, {
 						componentProps: {
 							onClick: () => {
@@ -311,24 +334,41 @@
 						unstyled: true
 					});
 				}
+			// ---------- 标题更新通知 ----------
+			// 刷新侧边栏聊天列表
 			} else if (type === 'chat:title') {
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+			// ---------- 标签更新通知 ----------
+			// 刷新全局标签列表
 			} else if (type === 'chat:tags') {
 				tags.set(await getAllTags(localStorage.token));
 			}
+		// ========== 分支 B：RPC 调用 ==========
+		// 条件：事件的 session_id 匹配当前 socket（后端要求此客户端执行任务）
 		} else if (data?.session_id === $socket.id) {
+			// ---------- 执行 Python 代码 ----------
+			// 在 Web Worker (Pyodide) 中执行后端下发的 Python 代码
+			// 后端位置：backend/open_webui/utils/middleware.py:3662
 			if (type === 'execute:python') {
 				console.log('execute:python', data);
 				executePythonAsWorker(data.id, data.code, cb);
+			// ---------- 执行前端工具 ----------
+			// 执行后端请求的前端工具调用
+			// 后端位置：backend/open_webui/utils/middleware.py:412
 			} else if (type === 'execute:tool') {
 				console.log('execute:tool', data);
 				executeTool(data, cb);
+			// ---------- 客户端代发直连请求 ----------
+			// 当用户配置了直连 API 时，后端请求前端直接调用 LLM API
+			// 后端位置：backend/open_webui/utils/chat.py:99
+			// 流程：前端直接请求 LLM → 流式响应通过 WS 转发回后端 → 后端统一处理
 			} else if (type === 'request:chat:completion') {
 				console.log(data, $socket.id);
 				const { session_id, channel, form_data, model } = data;
 
 				try {
+					// 从用户设置获取直连配置
 					const directConnections = $settings?.directConnections ?? {};
 
 					if (directConnections) {
@@ -339,11 +379,13 @@
 						const API_CONFIG = directConnections.OPENAI_API_CONFIGS[urlIdx];
 
 						try {
+							// 处理模型前缀（某些 API 需要去掉前缀）
 							if (API_CONFIG?.prefix_id) {
 								const prefixId = API_CONFIG.prefix_id;
 								form_data['model'] = form_data['model'].replace(`${prefixId}.`, ``);
 							}
 
+							// 直接调用 LLM API
 							const [res, controller] = await chatCompletion(
 								OPENAI_API_KEY,
 								form_data,
@@ -356,6 +398,7 @@
 									throw await res.json();
 								}
 
+								// 流式响应：逐行读取并通过 WS 转发给后端
 								if (form_data?.stream ?? false) {
 									cb({
 										status: true
@@ -380,6 +423,7 @@
 											// Process lines within the chunk
 											const lines = chunk.split('\n').filter((line) => line.trim() !== '');
 
+											// 逐行转发 SSE 数据到后端指定的 channel
 											for (const line of lines) {
 												console.log(line);
 												$socket?.emit(channel, line);
@@ -390,6 +434,7 @@
 									// Process the stream in the background
 									await processStream();
 								} else {
+									// 非流式响应：直接回调完整数据
 									const data = await res.json();
 									cb(data);
 								}
@@ -405,6 +450,7 @@
 					console.error('chatCompletion', error);
 					cb(error);
 				} finally {
+					// 流结束后发送 done 信号
 					$socket.emit(channel, {
 						done: true
 					});
