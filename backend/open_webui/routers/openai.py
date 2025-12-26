@@ -10,6 +10,7 @@ import requests
 from urllib.parse import quote
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from open_webui.utils.chat_error_boundary import chat_error_boundary, CustmizedError
 
 from fastapi import Depends, HTTPException, Request, APIRouter
 from fastapi.responses import (
@@ -997,7 +998,6 @@ async def generate_chat_completion(
         except Exception as e:
             log.debug(f"chatting_completion 钩子执行失败: {e}")
 
-    
     # 移除上游 LLM API 不识别的内部参数
     for key in [
         "is_user_model",
@@ -1090,6 +1090,12 @@ async def generate_chat_completion(
                 response = await r.json()
             except Exception as e:
                 log.error(e)
+                log.error("json 解析失败")
+                log.error("response 是:" + str(r))
+                raise CustmizedError(
+                    user_toast_message = "调用 API 失败，请联系管理员！",
+                    cause = e
+                )
                 response = await r.text()  # 如果 JSON 解析失败，返回纯文本
 
             # 处理错误响应
