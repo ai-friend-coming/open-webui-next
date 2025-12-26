@@ -103,8 +103,8 @@
                 parsed = [parsed];
             }
 
-            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误：根节点必须是数组或包含 conversations/data/chunkedPrompt 的对象');
-            if (parsed.length === 0) throw new Error('JSON 数组为空');
+            if (!Array.isArray(parsed)) throw new Error('JSON 格式错误');
+            if (parsed.length === 0) throw new Error('未检测到聊天记录');
 
             rawChats = parsed;
             chatConfigs = new Map();

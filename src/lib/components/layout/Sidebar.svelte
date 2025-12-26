@@ -639,11 +639,18 @@
             let importedChat;
             if (chat.chat) {
                 const meta = { ...(chat.meta ?? {}), loaded_by_user: true };
+
+                // 将 importMemory 标志保存到 chat 对象的 memory_enabled 字段
+                const chatData = {
+                    ...chat.chat,
+                    memory_enabled: importMemory
+                };
+
                 // 导入的聊天使用当前时间（导入时间）而不是原始时间戳
                 // 这样导入的聊天会显示在侧边栏最上方
                 importedChat = await importChat(
                     localStorage.token,
-                    chat.chat,
+                    chatData,
                     meta,
                     false,
                     null,
@@ -651,8 +658,12 @@
                     null   // updated_at: 使用当前导入时间
                 );
             } else {
-                // Legacy format
-                importedChat = await importChat(localStorage.token, chat, { loaded_by_user: true }, false, null);
+                // Legacy format - 也需要设置 memory_enabled
+                const chatData = {
+                    ...chat,
+                    memory_enabled: importMemory
+                };
+                importedChat = await importChat(localStorage.token, chatData, { loaded_by_user: true }, false, null);
             }
 
             // **条件性导入记忆**（根据 importMemory 标志）
