@@ -1137,6 +1137,7 @@
 
 			if (chatContent) {
 				console.log(chatContent);
+				console.log('[Memory Debug] chatContent.memory_enabled:', chatContent?.memory_enabled);
 
 				const getLastModelId = (models: any) => {
 					if (Array.isArray(models)) {
@@ -1174,6 +1175,9 @@
 				chatFiles = chatContent?.files ?? [];
 				if (chatContent?.memory_enabled !== undefined) {
 					memoryEnabled = chatContent.memory_enabled;
+					console.log('[Memory Debug] Set memoryEnabled from chatContent:', memoryEnabled);
+				} else {
+					console.log('[Memory Debug] memory_enabled is undefined, using default');
 				}
 
 				autoScroll = true;

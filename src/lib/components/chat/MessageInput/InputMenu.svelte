@@ -51,10 +51,11 @@
 
 	let showAttachWebpageModal = false;
 
-	let fileUploadEnabled = true;
-	$: fileUploadEnabled =
-		fileUploadCapableModels.length === selectedModels.length &&
-		($user?.role === 'admin' || $user?.permissions?.chat?.file_upload);
+	// 禁用文件上传功能 - 取消下面的注释可恢复原功能
+	let fileUploadEnabled = false;
+	// $: fileUploadEnabled =
+	// 	fileUploadCapableModels.length === selectedModels.length &&
+	// 	($user?.role === 'admin' || $user?.permissions?.chat?.file_upload);
 
 	const detectMobile = () => {
 		const userAgent = navigator.userAgent || navigator.vendor || window.opera;

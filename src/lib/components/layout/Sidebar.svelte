@@ -645,6 +645,7 @@
                     ...chat.chat,
                     memory_enabled: importMemory
                 };
+                console.log('[Import Debug] Setting memory_enabled:', importMemory, 'for chat:', chat.chat?.title || 'untitled');
 
                 // 导入的聊天使用当前时间（导入时间）而不是原始时间戳
                 // 这样导入的聊天会显示在侧边栏最上方
