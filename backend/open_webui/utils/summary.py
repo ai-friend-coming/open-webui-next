@@ -2,8 +2,8 @@ from typing import Dict, List, Optional, Tuple, Sequence, Any, Union
 import json
 import re
 import os
-from dataclasses import dataclass
 from contextlib import contextmanager
+import time
 from logging import getLogger
 
 try:
@@ -12,6 +12,8 @@ except ImportError:
     OpenAI = None
 
 from open_webui.models.chats import Chats
+from open_webui.tasks import create_task
+from open_webui.utils.chat_error_boundary import chat_error_boundary, CustmizedError
 from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
 
 from starlette.responses import JSONResponse, Response
@@ -124,6 +126,44 @@ def _parse_response(payload: str):
 
     return summary, table
 
+def _extract_text_content(content) -> str:
+    """从消息 content 中提取文本（处理字符串和列表格式）"""
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        # 多模态消息，提取 text 部分
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                texts.append(item)
+        return " ".join(texts)
+    return str(content) if content else ""
+
+def compute_token_count(messages: List[Dict]) -> int:
+    """
+    计算消息的 token 数量（使用 tiktoken）
+
+    复用 billing/core.py 中的 estimate_prompt_tokens 函数，
+    使用 cl100k_base encoding 进行准确的 token 计算。
+    """
+    try:
+        from open_webui.billing.core import estimate_prompt_tokens
+        return estimate_prompt_tokens(messages, model_id="default")
+    except ImportError:
+        # 如果 billing 模块不可用，降级为字符估算
+        log.warning("billing 模块不可用，降级为字符估算")
+        total_chars = 0
+        for msg in messages:
+            content = msg.get('content')
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get('type') == 'text':
+                        total_chars += len(item.get('text', ''))
+        return max(total_chars // 4, 0)
 
 # --- Core Logic Modules ---
 
@@ -179,7 +219,6 @@ def build_ordered_messages(
     sortable.sort(key=lambda x: x[0])
     return [with_id(mid, msg) for _, mid, msg in sortable]
 
-
 def get_recent_messages_by_user_id(
     user_id: str,
     num: int,
@@ -232,7 +271,6 @@ def get_recent_messages_by_user_id(
 
     return messages[-num:]
 
-
 def get_recent_messages_by_user_id_and_chat_id(
     user_id: str, chat_id: str, num: int
 ) -> List[Dict]:
@@ -278,7 +316,6 @@ def get_recent_messages_by_user_id_and_chat_id(
 
     return messages[-num:]
 
-
 def slice_messages_with_summary(
     messages_map: Dict,
     boundary_message_id: Optional[str],
@@ -321,7 +358,6 @@ def slice_messages_with_summary(
 
     return ordered
 
-
 # 临时修改 request.state
 # 作用：为摘要调用注入 direct/model 配置，同时不污染后续请求处理。
 @contextmanager
@@ -359,7 +395,6 @@ def _temporary_request_state(
                 delattr(local_request.state, "model")
         else:
             local_request.state.model = original_model
-
 
 async def summarize(
     messages: List[Dict],
@@ -431,10 +466,11 @@ async def summarize(
     # 3. 直接调用 API（不使用 chat_with_billing，采用后付费模式）
     with _temporary_request_state(request, is_user_model, model_config, model_id) as local_request:
         response = await generate_openai_chat_completion(
-            request=local_request,
-            form_data=form_data,
-            user=user,
-            bypass_filter=True,  # 跳过权限检查（摘要是系统内部调用）
+            request = local_request,
+            form_data = form_data,
+            user = user,
+            bypass_filter = True,  # 跳过权限检查（摘要是系统内部调用）
+            chatting_completion = True
         )
 
     # 4. 解析响应（处理多种返回类型）
@@ -473,7 +509,6 @@ async def summarize(
 
         # 6. 解析 JSON 并提取摘要
         summary, table = _parse_response(payload)
-        # raise RuntimeError("test_error")
         if return_details:
             llm_details = {
                 "prompt": prompt,
@@ -483,47 +518,175 @@ async def summarize(
             }
             return summary, llm_details
         return summary
+    else:
+        # 错误响应：JSONResponse / Response / str（不扣费）
+        error_body = response.body.decode("utf-8") if hasattr(response, "body") else str(response)
 
-    # 错误响应：JSONResponse（不扣费）
-    error_body = response.body.decode("utf-8") if hasattr(response, "body") else str(response)
-    error_str = f"摘要 API 返回错误 (JSONResponse): status={response.status_code}, body={error_body[:500]}"
-    raise RuntimeError(error_str)
+        raise CustmizedError(
+            user_toast_message = "梳理记忆失败，请联系管理员。",
+            cause = RuntimeError(error_body)
+        )
 
-def _extract_text_content(content) -> str:
-    """从消息 content 中提取文本（处理字符串和列表格式）"""
-    if isinstance(content, str):
-        return content
-    elif isinstance(content, list):
-        # 多模态消息，提取 text 部分
-        texts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                texts.append(item.get("text", ""))
-            elif isinstance(item, str):
-                texts.append(item)
-        return " ".join(texts)
-    return str(content) if content else ""
-
-def compute_token_count(messages: List[Dict]) -> int:
+async def ensure_initial_summary(
+    request: Request,
+    metadata,
+    user,
+    chat_id,
+    model_id,
+    is_user_model: bool,
+    model_config,
+    perf_logger=None
+):
     """
-    计算消息的 token 数量（使用 tiktoken）
-
-    复用 billing/core.py 中的 estimate_prompt_tokens 函数，
-    使用 cl100k_base encoding 进行准确的 token 计算。
+    初始摘要生成器 - 为新聊天会话生成首次上下文摘要和冷启动消息
     """
-    try:
-        from open_webui.billing.core import estimate_prompt_tokens
-        return estimate_prompt_tokens(messages, model_id="default")
-    except ImportError:
-        # 如果 billing 模块不可用，降级为字符估算
-        log.warning("billing 模块不可用，降级为字符估算")
-        total_chars = 0
-        for msg in messages:
-            content = msg.get('content')
-            if isinstance(content, str):
-                total_chars += len(content)
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        total_chars += len(item.get('text', ''))
-        return max(total_chars // 4, 0)
+    if not chat_id:
+        return
+
+    # === 1. 基础信息提取 ===
+    chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+    old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+
+    # === 2. 已有摘要则跳过 ===
+    if old_summary:
+        return
+
+    # === 3. Token 选择器：按 token 数量从最近消息中选取 ===
+    def select_recent_messages_by_tokens(
+        messages,
+        token_target,
+        max_messages=None,
+        starting_tokens=0,
+    ):
+        selected = []
+        total_tokens = starting_tokens
+        for msg in reversed(messages):
+            if max_messages is not None and len(selected) >= max_messages:
+                break
+            selected.append(msg)
+            total_tokens += compute_token_count([msg])
+            if total_tokens >= token_target:
+                break
+        return list(reversed(selected)), total_tokens
+
+    # === 4. 判断聊天来源并收集消息 ===
+    loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
+    token_target = 50000
+
+    if loaded_by_user:
+        recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
+            user.id,
+            chat_id,
+            0,
+        )
+        chat_messages, total_tokens = select_recent_messages_by_tokens(
+            recent_conversation_in_this_chat,
+            token_target,
+        )
+
+        if total_tokens < token_target:
+            recent_conversation = get_recent_messages_by_user_id(
+                user.id,
+                0,
+                exclude_loaded_by_user=False,
+                exclude_by_chat_id=chat_id,
+            )
+            global_messages, total_tokens = select_recent_messages_by_tokens(
+                recent_conversation,
+                token_target,
+                max_messages=100,
+                starting_tokens=total_tokens,
+            )
+            messages_for_summary = global_messages + chat_messages
+        else:
+            messages_for_summary = chat_messages
+    else:
+        recent_conversation = get_recent_messages_by_user_id(
+            user_id=user.id,
+            num=0,
+            exclude_loaded_by_user=False,
+        )
+        messages_for_summary, _ = select_recent_messages_by_tokens(
+            recent_conversation,
+            token_target,
+            max_messages=100,
+        )
+
+    # === 5. 性能监控：标记摘要生成开始 ===
+    if perf_logger:
+        perf_logger.mark_summary_update(
+            start=True,
+            messages_count=len(messages_for_summary),
+            is_initial=True,
+        )
+
+    # === 6. 确定摘要截止点 ===
+    last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
+
+    # === 7. 构建冷启动消息 ===
+    cold_start_messages = [
+        {
+            "id": m.get("id"),
+            "role": m.get("role"),
+            "content": m.get("content"),
+            "timestamp": m.get("timestamp"),
+        }
+        for m in messages_for_summary[-20:]
+        if m.get("id") and m.get("content")
+    ]
+
+    # === 8. LLM 生成摘要 协程 ===
+    async def summarize_and_save():
+        async with chat_error_boundary(metadata, user):
+            summary_text, summary_llm_details = await summarize(
+                messages=messages_for_summary,
+                model_id=model_id,
+                user=user,
+                request=request,
+                is_user_model=is_user_model,
+                model_config=model_config,
+                old_summary=None,
+                return_details=True,
+            )
+            Chats.set_summary_by_user_id_and_chat_id(
+                user_id=user.id,
+                chat_id=chat_id,
+                summary=summary_text,
+                last_summary_id=last_summary_id,
+                last_timestamp=int(time.time()),
+                status="done",
+                summarize_task_id="",
+                cold_start_messages=cold_start_messages,
+            )
+
+        if perf_logger:
+            perf_logger.record_summary_materials(
+                messages=messages_for_summary,
+                old_summary=None,
+                model=model_id,
+                user_id=user.id,
+                new_summary=summary_text,
+                prompt=summary_llm_details.get("prompt"),
+                response=summary_llm_details.get("response"),
+                usage=summary_llm_details.get("usage"),
+            )
+            perf_logger.mark_summary_update(start=False)
+            await perf_logger.save_to_file()
+
+    summarize_task_id, _ = await create_task(
+        request.app.state.redis,
+        summarize_and_save(),
+        id=chat_id,
+    )
+
+    # === 9. 持久化待完成的 summarize 到数据库 ===
+    Chats.set_summary_by_user_id_and_chat_id(
+        user_id=user.id,
+        chat_id=chat_id,
+        summary="",
+        last_summary_id=last_summary_id,
+        last_timestamp=int(time.time()),
+        status="generating",
+        summarize_task_id=summarize_task_id,
+        cold_start_messages=cold_start_messages,
+    )

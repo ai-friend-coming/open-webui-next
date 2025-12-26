@@ -59,6 +59,7 @@ from starsessions.stores.redis import RedisStore
 
 from open_webui.utils import logger
 from open_webui.utils.audit import AuditLevel, AuditLoggingMiddleware
+from open_webui.utils.chat_error_boundary import chat_error_boundary
 from open_webui.utils.logger import start_logger
 from open_webui.socket.main import (
     app as socket_app,
@@ -487,13 +488,7 @@ from open_webui.utils.chat import (
 )
 from open_webui.billing import chat_with_billing
 from open_webui.utils.misc import get_message_list
-from open_webui.utils.summary import (
-    summarize,
-    compute_token_count,
-    build_ordered_messages,
-    get_recent_messages_by_user_id,
-    get_recent_messages_by_user_id_and_chat_id,
-)
+from open_webui.utils.summary import ensure_initial_summary
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
 from open_webui.utils.access_control import has_access
@@ -1658,200 +1653,17 @@ async def chat_completion(
     async def process_chat(request, form_data, user, metadata, model):
         """处理完整的聊天流程：Payload 处理 → LLM 调用 → 响应处理"""
 
-        async def ensure_initial_summary():
-            """
-            初始摘要生成器 - 为新聊天会话生成首次上下文摘要和冷启动消息
-
-            触发条件：该会话尚无已存储的摘要
-
-            设计思路：
-            ┌─────────────────────────────────────────────────────────────┐
-            │  用户打开新聊天窗口                                            │
-            │         ↓                                                    │
-            │  检查是否已有摘要 → 有则直接返回                                 │
-            │         ↓ (无)                                               │
-            │  判断聊天来源：用户上传 or 新建窗口                              │
-            │         ↓                                                    │
-            │  收集历史消息（目标 50000 token，最多 100 条）                   │
-            │         ↓                                                    │
-            │  调用 LLM 生成摘要文本                                         │
-            │         ↓                                                    │
-            │  保存摘要 + 冷启动消息到数据库                                   │
-            └─────────────────────────────────────────────────────────────┘
-            """
-
-            # === 1. 基础信息提取 ===
-            chat_id = metadata.get("chat_id")      # 当前会话 ID
-            model_id = form_data.get("model")      # 使用的模型 ID
-            chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)  # 获取会话实体
-            old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)  # 查询已有摘要
-
-            # === 2. 已有摘要则跳过 ===
-            if old_summary:
-                return
-
-            # === 3. Token 选择器：按 token 数量从最近消息中选取 ===
-            def select_recent_messages_by_tokens(
-                messages,          # 消息列表（按时间正序）
-                token_target,      # 目标 token 数
-                max_messages=None, # 最大消息条数限制
-                starting_tokens=0, # 初始 token 计数（用于累加场景）
-            ):
-                """
-                从消息列表末尾（最近）开始，逐条累加 token，
-                直到达到目标 token 数或最大消息条数。
-                返回选中的消息（恢复时间正序）和总 token 数。
-                """
-                selected = []
-                total_tokens = starting_tokens
-                for msg in reversed(messages):  # 从最新消息开始遍历
-                    if max_messages is not None and len(selected) >= max_messages:
-                        break
-                    selected.append(msg)
-                    total_tokens += compute_token_count([msg])
-                    if total_tokens >= token_target:
-                        break
-                return list(reversed(selected)), total_tokens  # 恢复时间正序
-
-            # === 4. 判断聊天来源并收集消息 ===
-            loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)  # 是否为用户导入的历史聊天
-            token_target = 50000  # 目标上下文 token 数
-
-            # 场景 A：用户上传的历史聊天记录
-            if loaded_by_user:
-                # A.1 优先从当前 chat 内提取消息
-                recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
-                    user.id,
-                    chat_id,
-                    0,  # num=0 表示获取全部
-                )
-                chat_messages, total_tokens = select_recent_messages_by_tokens(
-                    recent_conversation_in_this_chat,
-                    token_target,
-                )
-
-                # A.2 如果当前 chat 的 token 不足，从其他会话补充
-                if total_tokens < token_target:
-                    # 从全局（排除当前 chat）获取更多消息，最多补充 100 条
-                    recent_conversation = get_recent_messages_by_user_id(
-                        user.id,
-                        0,
-                        exclude_loaded_by_user = False,         # 不排除用户上传的聊天
-                        exclude_by_chat_id = chat_id     # 排除当前会话避免重复
-                    )
-                    global_messages, total_tokens = select_recent_messages_by_tokens(
-                        recent_conversation,
-                        token_target,
-                        max_messages=100,                # 全局补充最多 100 条
-                        starting_tokens=total_tokens,   # 累加已有 token
-                    )
-                    # 合并：全局消息（较早）+ 当前 chat 消息（较近）
-                    messages_for_summary = global_messages + chat_messages
-                else:
-                    messages_for_summary = chat_messages
-
-            # 场景 B：用户新建的空白聊天窗口
-            else:
-                # 直接从用户全局历史中收集消息
-                recent_conversation = get_recent_messages_by_user_id(
-                    user_id = user.id,
-                    num = 0,                        # 获取全部消息
-                    exclude_loaded_by_user = False  # 包含用户上传的聊天
-                )
-                messages_for_summary, _ = select_recent_messages_by_tokens(
-                    recent_conversation,
-                    token_target,
-                    max_messages=100,  # 最多 100 条消息
-                )
-
-            # === 5. 性能监控：标记摘要生成开始 ===
-            if perf_logger:
-                perf_logger.mark_summary_update(
-                    start=True,
-                    messages_count=len(messages_for_summary),
-                    is_initial=True  # 标识为初始摘要生成（区别于增量更新）
-                )
-
-            # === 6. 确定摘要截止点 ===
-            # last_summary_id：记录生成摘要时使用的最后一条消息 ID
-            # 用于后续增量摘要更新时判断哪些消息是"新"消息
-            last_summary_id = (
-                messages_for_summary[-1].get("id") if messages_for_summary else None
+        async with chat_error_boundary(metadata, user):
+            await ensure_initial_summary(
+                request=request,
+                metadata=metadata,
+                user=user,
+                chat_id=metadata.get("chat_id"),
+                model_id=form_data.get("model"),
+                is_user_model=form_data.get("is_user_model", False),
+                model_config=model,
+                perf_logger=perf_logger
             )
-
-            # === 7. 构建冷启动消息 ===
-            # 冷启动消息：最近 20 条完整消息，用于快速恢复对话上下文
-            # 作用：当摘要过于抽象时，这些原始消息能提供具体细节
-            cold_start_messages = [
-                {
-                    "id": m.get("id"),
-                    "role": m.get("role"),          # user / assistant
-                    "content": m.get("content"),    # 消息内容
-                    "timestamp": m.get("timestamp") # 时间戳
-                }
-                for m in messages_for_summary[-20:]  # 取最近 20 条
-                if m.get("id") and m.get("content")  # 过滤无效消息
-            ]
-
-            # === 8. LLM 生成摘要 协程 ===
-            is_user_model = form_data.get("is_user_model", False)
-
-            async def summarize_and_save():
-                summary_text, summary_llm_details = await summarize(
-                    messages = messages_for_summary,   # 用于生成摘要的消息列表
-                    model_id = model_id,               # 使用的 LLM 模型
-                    user = user,                       # 用户对象
-                    request = request,                 # HTTP 请求上下文
-                    is_user_model = is_user_model,     # 是否为用户自定义模型
-                    model_config = model,              # 模型配置
-                    old_summary = None,                # 初始生成，无旧摘要
-                    return_details = True,
-                )
-                Chats.set_summary_by_user_id_and_chat_id(
-                    user_id = user.id,
-                    chat_id = chat_id,
-                    summary = summary_text,                   # 摘要文本
-                    last_summary_id = last_summary_id,                # 摘要截止消息 ID
-                    last_timestamp = int(time.time()),               # 生成时间戳
-                    status = 'done',
-                    summarize_task_id = '',
-                    cold_start_messages = cold_start_messages,  # 冷启动消息
-                )
-
-                # === 7. 性能监控：记录摘要生成的入参和输出 ===
-                if perf_logger:
-                    perf_logger.record_summary_materials(
-                        messages=messages_for_summary,
-                        old_summary=None,       # 初始生成没有旧摘要
-                        model=model_id,
-                        user_id=user.id,
-                        new_summary=summary_text,
-                        prompt=summary_llm_details.get("prompt"),
-                        response=summary_llm_details.get("response"),
-                        usage=summary_llm_details.get("usage"),
-                    )
-                    perf_logger.mark_summary_update(start=False)  # 标记结束
-                    await perf_logger.save_to_file()
-
-            summarize_task_id, _ = await create_task(
-                request.app.state.redis,
-                summarize_and_save(),
-                id=metadata["chat_id"],
-            )
-
-            # === 9. 持久化待完成的 summarize 到数据库 ===
-            res = Chats.set_summary_by_user_id_and_chat_id(
-                user_id = user.id,
-                chat_id = chat_id,
-                summary = '', # 待定
-                last_summary_id = last_summary_id,                # 摘要截止消息 ID
-                last_timestamp = int(time.time()),               # 生成时间戳
-                status = 'generating',
-                summarize_task_id = summarize_task_id,
-                cold_start_messages = cold_start_messages,  # 冷启动消息
-            )
-        try:
-            await ensure_initial_summary()
 
             # 标记 payload 处理开始
             if perf_logger:
@@ -1895,49 +1707,6 @@ async def chat_completion(
             return await process_chat_response(
                 request, response, form_data, user, metadata, model, events, tasks
             )
-
-        # 8.5 异常处理：取消任务
-        except asyncio.CancelledError:
-            log.info("Chat processing was cancelled")
-            event_emitter = get_event_emitter(metadata)
-            await event_emitter(
-                {"type": "chat:tasks:cancel"},  # 通知前端任务已取消
-            )
-
-        # 8.6 异常处理：通过 WebSocket 通知前端（不持久化）
-        except Exception as e:
-            log.exception(f"Error processing chat payload: {e}")
-            if metadata.get("chat_id") and metadata.get("message_id"):
-
-                # 使用 chat.meta["error_messages"] 存储错误记录
-                Chats.add_error_message_by_user_id_and_chat_id(
-                    user.id,
-                    metadata["chat_id"],
-                    {"error": {"content": str(e)}},
-                )
-
-                # 通过 WebSocket 发送错误事件到前端（临时通知）
-                event_emitter = get_event_emitter(metadata)
-                await event_emitter(
-                    {
-                        "type": "chat:message:error",
-                        "data": {"error": {"content": str(e)}},
-                    }
-                )
-                await event_emitter(
-                    {"type": "chat:tasks:cancel"},
-                )
-
-
-        # 8.7 清理资源：断开 MCP 客户端连接
-        finally:
-            try:
-                if mcp_clients := metadata.get("mcp_clients"):
-                    for client in mcp_clients.values():
-                        await client.disconnect()  # 断开 Model Context Protocol 客户端
-            except Exception as e:
-                log.debug(f"Error cleaning up: {e}")
-                pass
 
     # === 9. 决定执行模式：异步任务 vs 同步执行 ===
     if (
