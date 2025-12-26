@@ -263,7 +263,7 @@
 		webSearchEnabled = false;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
-		memoryEnabled = true;
+		// memoryEnabled = true;
 
 		setDefaults();
 	};
@@ -311,9 +311,9 @@
 					codeInterpreterEnabled = model.info.meta.defaultFeatureIds.includes('code_interpreter');
 				}
 
-				if (model.info?.meta?.capabilities?.['memory']) {
-					memoryEnabled = model.info.meta.defaultFeatureIds.includes('memory');
-				}
+				// if (model.info?.meta?.capabilities?.['memory']) {
+				// 	memoryEnabled = model.info.meta.defaultFeatureIds.includes('memory');
+				// }
 			}
 		}
 	};
