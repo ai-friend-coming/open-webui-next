@@ -579,26 +579,28 @@ async def chat_memory_handler(
     entries = []
 
     # 3.1 用户记忆库全量
-    for mem in memories:
-        created_at_date = time.strftime("%Y-%m-%d", time.localtime(mem.created_at)) if mem.created_at else "Unknown Date"
-        entries.append(f"[{created_at_date}] {mem.content}")
+    if user_memory_enabled:
+        for mem in memories:
+            created_at_date = time.strftime("%Y-%m-%d", time.localtime(mem.created_at)) if mem.created_at else "Unknown Date"
+            entries.append(f"[{created_at_date}] {mem.content}")
 
     # 3.2 Mem0 检索结果
     '''
-      {
-    "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
-    "memory": "<string>",
-    "user_id": "<string>",
-    "metadata": {},
-    "categories": [
-      "<string>"
-    ],
-    "immutable": false,
-    "expiration_date": null,
-    "created_at": "2023-11-07T05:31:56Z",
-    "updated_at": "2023-11-07T05:31:56Z"
-  }
+    {
+        "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+        "memory": "<string>",
+        "user_id": "<string>",
+        "metadata": {},
+        "categories": [
+        "<string>"
+        ],
+        "immutable": false,
+        "expiration_date": null,
+        "created_at": "2023-11-07T05:31:56Z",
+        "updated_at": "2023-11-07T05:31:56Z"
+    }
     '''
+
     for item in mem0_results:
         memory_content = item["memory"] if isinstance(item, dict) else item
         created_at_date = item["created_at"] if isinstance(item, dict) else "unknown date"
