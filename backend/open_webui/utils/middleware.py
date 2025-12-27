@@ -3373,13 +3373,16 @@ async def process_chat_response(
                                                     ),
                                                 },
                                             )
-                                        else:
-                                            # 准备待发送的数据
-                                            data = {
-                                                "content": serialize_content_blocks(
-                                                    content_blocks
-                                                ),
-                                            }
+
+                                        # 准备待发送的数据（用于 WebSocket 流式推送）
+                                        # 注意：无论 ENABLE_REALTIME_CHAT_SAVE 是否开启，
+                                        # 都需要设置 data 以便 last_delta_data 包含累积内容，
+                                        # 否则当 delta_chunk_size > 1 时会丢失前面的 chunk
+                                        data = {
+                                            "content": serialize_content_blocks(
+                                                content_blocks
+                                            ),
+                                        }
 
                                 # === 14. 流式推送控制 ===
                                 if delta:
