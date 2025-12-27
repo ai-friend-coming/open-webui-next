@@ -1037,6 +1037,7 @@
 											: ''}
 										placement="bottom"
 									>
+										{#if false}
 										<button
 											aria-hidden="true"
 											class=" {isLastMessage || ($settings?.highContrastMode ?? false)
@@ -1063,6 +1064,7 @@
 												/>
 											</svg>
 										</button>
+										{/if}
 									</Tooltip>
 								{/if}
 
