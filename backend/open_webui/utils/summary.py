@@ -15,8 +15,9 @@ from open_webui.models.chats import Chats
 from open_webui.tasks import create_task
 from open_webui.utils.chat_error_boundary import chat_error_boundary, CustmizedError
 from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
+from open_webui.utils.perf_logger import ChatPerfLogger
 
-from starlette.responses import JSONResponse, Response
+from open_webui.utils.misc import merge_consecutive_messages
 
 # Import for calling main chat API
 from fastapi import Request
@@ -690,3 +691,47 @@ async def ensure_initial_summary(
         summarize_task_id=summarize_task_id,
         cold_start_messages=cold_start_messages,
     )
+
+def messages_loaded(metadata, user, perf_logger: Optional[ChatPerfLogger] = None):
+    chat_id = metadata.get("chat_id", None)
+    chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+    summary_record = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+
+    current_message_id = metadata.get("message_id")
+    # 1 注入 system prompt
+    summary_system_message = {
+        "role": "system",
+        "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
+    }
+
+    # 2 准备冷启动消息（直接读取消息内容）
+    # 获取冷启动消息（用于注入关键历史消息）
+    cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
+
+    # 获取 last_summary_id 往后的所有消息
+    messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+    current_message_id = metadata.get("message_id")
+    last_summary_id = summary_record.get("last_summary_id") if summary_record else None
+    if last_summary_id is None: # 兼容旧版本, last_summary_id 之前 被命名为 last_message_id
+        last_summary_id = summary_record.get("last_message_id")
+    ordered_messages_in_chat = build_ordered_messages(messages_map, current_message_id)
+    boundary_idx = next(
+        idx
+        for idx, msg in enumerate(ordered_messages_in_chat)
+        if msg.get("id") == last_summary_id
+    )
+    recent_conversation_in_this_chat = ordered_messages_in_chat[boundary_idx + 1 :]
+
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("db_get_messages_map")
+
+    # 移除旧的 system 消息
+    recent_conversation_in_this_chat = [
+        m for m in recent_conversation_in_this_chat if m.get("role") != "system"
+    ]
+
+    # 正确的消息顺序：System Message + Cold Start Messages + 当前窗口消息
+    ordered_messages = [summary_system_message, *cold_start_messages, *recent_conversation_in_this_chat]
+    # 合并连续的同角色消息，避免 LLM API 报错
+    ordered_messages = merge_consecutive_messages(ordered_messages)
+    return ordered_messages
