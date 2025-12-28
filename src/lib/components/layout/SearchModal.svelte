@@ -297,10 +297,11 @@
 			<div
 				class="flex flex-col overflow-y-auto h-96 md:h-[40rem] max-h-full scrollbar-hidden w-full flex-1 pr-2"
 			>
+				
+				{#if false}
 				<div class="w-full text-xs text-gray-500 dark:text-gray-500 font-medium pb-2 px-2">
 					{$i18n.t('Actions')}
 				</div>
-
 				{#each actions as action, idx (action.label)}
 					<button
 						class=" w-full flex items-center rounded-xl text-sm py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-850 {selectedIdx ===
@@ -326,6 +327,7 @@
 						</div>
 					</button>
 				{/each}
+				{/if}
 
 				{#if chatList}
 					<hr class="border-gray-50 dark:border-gray-850 my-3" />

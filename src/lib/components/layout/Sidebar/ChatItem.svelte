@@ -33,6 +33,7 @@
 	import ChatMenu from './ChatMenu.svelte';
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import ShareChatModal from '$lib/components/chat/ShareChatModal.svelte';
+	import Drawer from '$lib/components/common/Drawer.svelte';
 	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import ArchiveBox from '$lib/components/icons/ArchiveBox.svelte';
@@ -71,8 +72,10 @@
 
 	let showShareChatModal = false;
 	let confirmEdit = false;
+	let showRenameDrawer = false;  // 移动端重命名弹窗
 
 	let chatTitle = title;
+	let renameInputEl: HTMLInputElement;  // 弹窗内输入框引用
 
 	const editChatTitle = async (id, title) => {
 		if (title === '') {
@@ -291,17 +294,38 @@
 
 	const renameHandler = async () => {
 		chatTitle = title;
-		confirmEdit = true;
 
-		await tick();
+		if ($mobile) {
+			// 移动端使用底部弹窗
+			showRenameDrawer = true;
+		} else {
+			// 桌面端使用内联编辑
+			confirmEdit = true;
 
-		setTimeout(() => {
-			const input = document.getElementById(`chat-title-input-${id}`);
-			if (input) {
-				input.focus();
-				input.select();
-			}
-		}, 0);
+			await tick();
+
+			setTimeout(() => {
+				const input = document.getElementById(`chat-title-input-${id}`);
+				if (input) {
+					input.focus();
+				}
+			}, 0);
+		}
+	};
+
+	// 移动端弹窗内确认重命名
+	const confirmRename = async () => {
+		if (chatTitle !== '' && chatTitle !== title) {
+			await editChatTitle(id, chatTitle);
+		}
+		showRenameDrawer = false;
+		chatTitle = '';
+	};
+
+	// 移动端弹窗内取消重命名
+	const cancelRename = () => {
+		showRenameDrawer = false;
+		chatTitle = '';
 	};
 
 	const generateTitleHandler = async () => {
@@ -343,6 +367,50 @@
 </script>
 
 <ShareChatModal bind:show={showShareChatModal} chatId={id} />
+
+<!-- 移动端重命名弹窗 -->
+<Drawer bind:show={showRenameDrawer} className="rounded-t-2xl">
+	<div class="p-4 pb-6">
+		<div class="flex items-center justify-between mb-4">
+			<h3 class="text-lg font-semibold">{$i18n.t('Rename')}</h3>
+			<button
+				class="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition"
+				on:click={cancelRename}
+			>
+				<XMark className="size-5" />
+			</button>
+		</div>
+
+		<input
+			bind:this={renameInputEl}
+			bind:value={chatTitle}
+			class="w-full px-4 py-3 rounded-xl border-2 border-blue-500 dark:border-blue-400 bg-white dark:bg-gray-800 text-base outline-none transition"
+			placeholder={$i18n.t('点击此处输入新标题')}
+			on:keydown={(e) => {
+				if (e.key === 'Enter') {
+					e.preventDefault();
+					confirmRename();
+				}
+			}}
+		/>
+
+		<div class="flex gap-3 mt-4">
+			<button
+				class="flex-1 px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition font-medium"
+				on:click={cancelRename}
+			>
+				{$i18n.t('Cancel')}
+			</button>
+			<button
+				class="flex-1 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+				on:click={confirmRename}
+				disabled={chatTitle === '' || chatTitle === title}
+			>
+				{$i18n.t('Confirm')}
+			</button>
+		</div>
+	</div>
+</Drawer>
 
 <DeleteConfirmDialog
 	bind:show={showDeleteConfirm}
@@ -390,7 +458,7 @@
 			<input
 				id="chat-title-input-{id}"
 				bind:value={chatTitle}
-				class=" bg-transparent w-full outline-hidden mr-10"
+				class=" bg-transparent w-full outline-hidden mr-16 border-b border-blue-500 dark:border-blue-400"
 				placeholder={generating ? $i18n.t('Generating...') : ''}
 				disabled={generating}
 				on:keydown={chatTitleInputKeydownHandler}
@@ -503,20 +571,45 @@
 	>
 		{#if confirmEdit}
 			<div
-				class="flex self-center items-center space-x-1.5 z-10 translate-y-[0.5px] -translate-x-[0.5px]"
+				class="flex self-center items-center space-x-1 z-10"
 			>
-				<Tooltip content={$i18n.t('Generate')}>
-					<button
-						class=" self-center dark:hover:text-white transition disabled:cursor-not-allowed"
-						id="generate-title-button"
-						disabled={generating}
-						on:mouseenter={() => {
-							ignoreBlur = true;
-						}}
-					>
-						<Sparkles strokeWidth="2" />
-					</button>
-				</Tooltip>
+				<!-- 确认按钮 -->
+				<button
+					class="self-center p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition text-green-600 dark:text-green-400"
+					on:click|stopPropagation={() => {
+						if (chatTitle !== title && chatTitle !== '') {
+							editChatTitle(id, chatTitle);
+						}
+						confirmEdit = false;
+						chatTitle = '';
+					}}
+					on:touchend|stopPropagation|preventDefault={() => {
+						if (chatTitle !== title && chatTitle !== '') {
+							editChatTitle(id, chatTitle);
+						}
+						confirmEdit = false;
+						chatTitle = '';
+					}}
+					type="button"
+				>
+					<Check className="size-4" strokeWidth="2.5" />
+				</button>
+
+				<!-- 取消按钮 -->
+				<button
+					class="self-center p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition text-red-500"
+					on:click|stopPropagation={() => {
+						confirmEdit = false;
+						chatTitle = '';
+					}}
+					on:touchend|stopPropagation|preventDefault={() => {
+						confirmEdit = false;
+						chatTitle = '';
+					}}
+					type="button"
+				>
+					<XMark className="size-4" strokeWidth="2.5" />
+				</button>
 			</div>
 		{:else if shiftKey && mouseOver}
 			<div class=" flex items-center self-center space-x-1.5">
