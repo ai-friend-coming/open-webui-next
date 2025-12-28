@@ -4,6 +4,7 @@
 	import { onDestroy } from 'svelte';
 
 	import tippy from 'tippy.js';
+	import { isMobileDevice } from '$lib/stores';
 
 	export let elementId = '';
 
@@ -41,7 +42,7 @@
 					content: tooltipContent,
 					placement: placement,
 					allowHTML: allowHTML,
-					touch: touch,
+					touch: isMobileDevice() ? false : touch,
 					...(theme !== '' ? { theme } : { theme: 'dark' }),
 					arrow: false,
 					offset: offset,
