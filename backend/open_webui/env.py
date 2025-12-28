@@ -417,7 +417,7 @@ ENABLE_SIGNUP_PASSWORD_CONFIRMATION = (
     os.environ.get("ENABLE_SIGNUP_PASSWORD_CONFIRMATION", "False").lower() == "true"
 )
 
-# 注册邮箱验证码相关配置（强制开启，不再提供开关）
+# 注册邮箱验证码相关配置
 # - EMAIL_SMTP_SERVER：SMTP 服务器地址，必填
 # - EMAIL_SMTP_PORT：SMTP 端口（默认 587）
 # - EMAIL_SMTP_USERNAME：SMTP 登录用户名
@@ -426,7 +426,9 @@ ENABLE_SIGNUP_PASSWORD_CONFIRMATION = (
 # - EMAIL_VERIFICATION_CODE_TTL：验证码有效期秒数（默认 600）
 # - EMAIL_VERIFICATION_SEND_INTERVAL：同邮箱再次发送的冷却秒数（默认 60）
 # - EMAIL_VERIFICATION_MAX_ATTEMPTS：验证码最大验证次数，超限需重发（默认 5）
-ENABLE_SIGNUP_EMAIL_VERIFICATION = True
+ENABLE_SIGNUP_EMAIL_VERIFICATION = (
+    os.environ.get("ENABLE_SIGNUP_EMAIL_VERIFICATION", "True").lower() == "true"
+)
 
 # SMTP 配置：用于发送注册验证码
 # 服务器地址（开启验证码时必填）
