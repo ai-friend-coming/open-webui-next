@@ -484,18 +484,22 @@
 			? 'from-gray-100 dark:from-gray-900 selected'
 			: selected
 				? 'from-gray-100 dark:from-gray-950 selected'
-				: 'invisible group-hover:visible from-gray-100 dark:from-gray-950'}
+				: $mobile
+					? ''
+					: 'invisible group-hover:visible from-gray-100 dark:from-gray-950'}
             absolute {className === 'pr-2'
 			? 'right-[8px]'
-			: 'right-1'} top-[4px] py-1 pr-0.5 mr-1.5 pl-5 bg-linear-to-l from-80%
-
-              to-transparent"
+			: 'right-1'} top-[4px] py-1 pr-0.5 mr-1.5 {$mobile ? 'pl-0' : 'pl-5 bg-linear-to-l from-80% to-transparent'}
+			z-10"
 		on:mouseenter={(e) => {
 			if (!$mobile) mouseOver = true;
 		}}
 		on:mouseleave={(e) => {
 			if (!$mobile) mouseOver = false;
 		}}
+		on:touchstart|stopPropagation
+		on:touchend|stopPropagation
+		on:click|stopPropagation
 	>
 		{#if confirmEdit}
 			<div

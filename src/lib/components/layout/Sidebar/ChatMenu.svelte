@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { DropdownMenu } from 'bits-ui';
 	import { flyAndScale } from '$lib/utils/transitions';
-	import { getContext, createEventDispatcher, tick } from 'svelte';
+	import { getContext, createEventDispatcher, tick, onMount, onDestroy } from 'svelte';
 
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
@@ -23,7 +23,7 @@
 		getChatPinnedStatusById,
 		toggleChatPinnedStatusById
 	} from '$lib/apis/chats';
-	import { chats, folders, settings, theme, user } from '$lib/stores';
+	import { chats, folders, mobile, settings, theme, user } from '$lib/stores';
 	import { createMessagesList } from '$lib/utils';
 	import { downloadChatAsPDF } from '$lib/apis/utils';
 	import Download from '$lib/components/icons/Download.svelte';
@@ -48,6 +48,36 @@
 
 	let chat = null;
 	let showFullMessages = false;
+
+	// 监听其他菜单打开事件，关闭当前菜单
+	const handleOtherMenuOpen = (e: CustomEvent) => {
+		if (e.detail !== chatId && show) {
+			show = false;
+		}
+	};
+
+	// 滚动时关闭菜单
+	const handleScroll = () => {
+		if (show) {
+			show = false;
+		}
+	};
+
+	onMount(() => {
+		window.addEventListener('chatmenu:open', handleOtherMenuOpen as EventListener);
+		// 监听滚动事件关闭菜单
+		document.addEventListener('scroll', handleScroll, { capture: true });
+	});
+
+	onDestroy(() => {
+		window.removeEventListener('chatmenu:open', handleOtherMenuOpen as EventListener);
+		document.removeEventListener('scroll', handleScroll, { capture: true });
+	});
+
+	// 当菜单打开时，通知其他菜单关闭
+	$: if (show) {
+		window.dispatchEvent(new CustomEvent('chatmenu:open', { detail: chatId }));
+	}
 
 	const pinHandler = async () => {
 		await toggleChatPinnedStatusById(localStorage.token, chatId);
@@ -288,42 +318,69 @@
 		}
 	}}
 >
-	<Tooltip content={$i18n.t('More')}>
-		<slot />
-	</Tooltip>
+	{#if $mobile}
+		<!-- 移动端直接显示按钮，点击时手动触发菜单 -->
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<span
+			class="contents"
+			on:click|stopPropagation={() => {
+				show = !show;
+			}}
+			on:touchend|stopPropagation|preventDefault={() => {
+				show = !show;
+			}}
+		>
+			<slot />
+		</span>
+	{:else}
+		<Tooltip content={$i18n.t('More')}>
+			<slot />
+		</Tooltip>
+	{/if}
 
 	<div slot="content">
 		<DropdownMenu.Content
-			class="w-full max-w-[200px] rounded-2xl px-1 py-1  border border-gray-100  dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg transition"
+			class="w-full max-w-[200px] rounded-2xl px-1 py-1  border border-gray-100  dark:border-gray-800 z-[9999] bg-white dark:bg-gray-850 dark:text-white shadow-lg transition"
 			sideOffset={-2}
 			side="bottom"
 			align="start"
 			transition={flyAndScale}
+			onInteractOutside={() => {
+				show = false;
+			}}
 		>
-			<!-- {#if $user?.role === 'admin' || ($user.permissions?.chat?.share ?? true)}
+			{#if false}
+				<!-- Share -->
+				{#if $user?.role === 'admin' || ($user.permissions?.chat?.share ?? true)}
+					<DropdownMenu.Item
+						class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800  rounded-xl"
+						on:click={() => {
+							shareHandler();
+						}}
+					>
+						<Share strokeWidth="1.5" />
+						<div class="flex items-center">{$i18n.t('Share')}</div>
+					</DropdownMenu.Item>
+				{/if}
+			{/if}
+
+			{#if false}
+				<!-- Download -->
 				<DropdownMenu.Item
-					class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800  rounded-xl"
+					class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
 					on:click={() => {
-						shareHandler();
+						downloadJSONExport();
 					}}
 				>
-					<Share strokeWidth="1.5" />
-					<div class="flex items-center">{$i18n.t('Share')}</div>
+					<Download strokeWidth="1.5" />
+					<div class="flex items-center">{$i18n.t('Download')}</div>
 				</DropdownMenu.Item>
-			{/if} -->
+			{/if}
 
+			<!-- 重命名 -->
 			<DropdownMenu.Item
-				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
-				on:click={() => {
-					downloadJSONExport();
-				}}
-			>
-				<Download strokeWidth="1.5" />
-				<div class="flex items-center">{$i18n.t('Download')}</div>
-			</DropdownMenu.Item>
-
-			<DropdownMenu.Item
-				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
 				on:click={() => {
 					renameHandler();
 				}}
@@ -332,10 +389,9 @@
 				<div class="flex items-center">{$i18n.t('Rename')}</div>
 			</DropdownMenu.Item>
 
-			<hr class="border-gray-50 dark:border-gray-800 my-1" />
-
+			<!-- 置顶/取消置顶 -->
 			<DropdownMenu.Item
-				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
 				on:click={() => {
 					pinHandler();
 				}}
@@ -349,58 +405,66 @@
 				{/if}
 			</DropdownMenu.Item>
 
-			<DropdownMenu.Item
-				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
-				on:click={() => {
-					cloneChatHandler();
-				}}
-			>
-				<DocumentDuplicate strokeWidth="1.5" />
-				<div class="flex items-center">{$i18n.t('Clone')}</div>
-			</DropdownMenu.Item>
-
-			{#if chatId}
-				<DropdownMenu.Sub>
-					<!-- <DropdownMenu.SubTrigger
-						class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl select-none w-full"
-					>
-						<Folder />
-
-						<div class="flex items-center">{$i18n.t('Move')}</div>
-					</DropdownMenu.SubTrigger> -->
-					<DropdownMenu.SubContent
-						class="w-full rounded-2xl p-1 z-50 bg-white dark:bg-gray-850 dark:text-white border border-gray-100  dark:border-gray-800 shadow-lg max-h-52 overflow-y-auto scrollbar-hidden"
-						transition={flyAndScale}
-						sideOffset={8}
-					>
-						{#each $folders.sort((a, b) => b.updated_at - a.updated_at) as folder}
-							<DropdownMenu.Item
-								class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
-								on:click={() => {
-									moveChatHandler(chatId, folder.id);
-								}}
-							>
-								<Folder />
-
-								<div class="flex items-center">{folder?.name ?? 'Folder'}</div>
-							</DropdownMenu.Item>
-						{/each}
-					</DropdownMenu.SubContent>
-				</DropdownMenu.Sub>
+			{#if false}
+				<!-- Clone -->
+				<DropdownMenu.Item
+					class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+					on:click={() => {
+						cloneChatHandler();
+					}}
+				>
+					<DocumentDuplicate strokeWidth="1.5" />
+					<div class="flex items-center">{$i18n.t('Clone')}</div>
+				</DropdownMenu.Item>
 			{/if}
 
-			<DropdownMenu.Item
-				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
-				on:click={() => {
-					archiveChatHandler();
-				}}
-			>
-				<ArchiveBox strokeWidth="1.5" />
-				<div class="flex items-center">{$i18n.t('Archive')}</div>
-			</DropdownMenu.Item>
+			{#if false}
+				<!-- Move to folder -->
+				{#if chatId}
+					<DropdownMenu.Sub>
+						<DropdownMenu.SubTrigger
+							class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl select-none w-full"
+						>
+							<Folder />
+							<div class="flex items-center">{$i18n.t('Move')}</div>
+						</DropdownMenu.SubTrigger>
+						<DropdownMenu.SubContent
+							class="w-full rounded-2xl p-1 z-50 bg-white dark:bg-gray-850 dark:text-white border border-gray-100  dark:border-gray-800 shadow-lg max-h-52 overflow-y-auto scrollbar-hidden"
+							transition={flyAndScale}
+							sideOffset={8}
+						>
+							{#each $folders.sort((a, b) => b.updated_at - a.updated_at) as folder}
+								<DropdownMenu.Item
+									class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+									on:click={() => {
+										moveChatHandler(chatId, folder.id);
+									}}
+								>
+									<Folder />
+									<div class="flex items-center">{folder?.name ?? 'Folder'}</div>
+								</DropdownMenu.Item>
+							{/each}
+						</DropdownMenu.SubContent>
+					</DropdownMenu.Sub>
+				{/if}
+			{/if}
 
+			{#if false}
+				<!-- Archive -->
+				<DropdownMenu.Item
+					class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+					on:click={() => {
+						archiveChatHandler();
+					}}
+				>
+					<ArchiveBox strokeWidth="1.5" />
+					<div class="flex items-center">{$i18n.t('Archive')}</div>
+				</DropdownMenu.Item>
+			{/if}
+
+			<!-- 删除 -->
 			<DropdownMenu.Item
-				class="flex  gap-2  items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl text-red-500"
 				on:click={() => {
 					deleteHandler();
 				}}
