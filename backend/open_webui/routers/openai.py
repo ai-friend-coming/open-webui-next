@@ -1076,6 +1076,14 @@ async def generate_chat_completion(
             # 流式响应：直接返回原始流
             # 计费由 chat_with_billing (billing/proxy.py) 的 BillingStreamWrapper 处理
             streaming = True
+
+            # 统计用户交互次数（流式响应）
+            try:
+                from open_webui.utils.user_stats import increment_daily_interaction_count
+                increment_daily_interaction_count(user.id)
+            except Exception as stats_error:
+                log.error(f"统计交互次数失败: {stats_error}")
+
             return StreamingResponse(
                 r.content,
                 status_code=r.status,
@@ -1092,11 +1100,15 @@ async def generate_chat_completion(
                 log.error(e)
                 log.error("json 解析失败")
                 log.error("response 是:" + str(r))
+                # 尝试获取纯文本响应用于错误信息
+                try:
+                    response = await r.text()
+                except Exception:
+                    response = str(r)
                 raise CustmizedError(
                     user_toast_message = "调用 API 失败，请联系管理员！",
                     cause = e
                 )
-                response = await r.text()  # 如果 JSON 解析失败，返回纯文本
 
             # 处理错误响应
             if r.status >= 400:
@@ -1105,6 +1117,13 @@ async def generate_chat_completion(
                     return JSONResponse(status_code=r.status, content=response)
                 else:
                     return PlainTextResponse(status_code=r.status, content=response)
+
+            # 统计用户交互次数（非流式响应，成功时）
+            try:
+                from open_webui.utils.user_stats import increment_daily_interaction_count
+                increment_daily_interaction_count(user.id)
+            except Exception as stats_error:
+                log.error(f"统计交互次数失败: {stats_error}")
 
             # 计费由 chat_with_billing (billing/proxy.py) 统一处理
             return response

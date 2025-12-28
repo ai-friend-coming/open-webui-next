@@ -354,6 +354,21 @@
 						</div>
 					</th>
 
+					<!-- 当日交互次数列 -->
+					<th scope="col" class="px-2.5 py-2 text-center">
+						<div class="flex gap-1.5 items-center justify-center">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 16 16"
+								fill="currentColor"
+								class="size-3.5 mr-0.5"
+							>
+								<path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4.414a1 1 0 0 0-.707.293L.854 15.146A.5.5 0 0 1 0 14.793V2z"/>
+							</svg>
+							{$i18n.t('当日交互')}
+						</div>
+					</th>
+
 					<th
 						scope="col"
 						class="px-2.5 py-2 cursor-pointer select-none"
@@ -457,6 +472,36 @@
 								>
 									¥{(Number(user.balance || 0) / 10000).toFixed(2)}
 								</button>
+							</div>
+						</td>
+
+						<!-- 当日交互次数单元格 -->
+						<td class="px-3 py-1 text-center">
+							{@const dailyInteraction = user.info?.daily_interaction || {}}
+							{@const today = new Date().toISOString().split('T')[0]}
+							{@const count = dailyInteraction.date === today ? (dailyInteraction.count || 0) : 0}
+
+							<div class="flex items-center justify-center gap-1.5">
+								<span class="text-gray-700 dark:text-gray-300 font-medium">
+									{count}
+								</span>
+
+								{#if count > 0}
+									<span class="text-xs text-gray-500 dark:text-gray-400">
+										次
+									</span>
+								{/if}
+
+								<!-- 高频使用标识 -->
+								{#if count >= 100}
+									<span class="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+										高频
+									</span>
+								{:else if count >= 50}
+									<span class="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+										活跃
+									</span>
+								{/if}
 							</div>
 						</td>
 
