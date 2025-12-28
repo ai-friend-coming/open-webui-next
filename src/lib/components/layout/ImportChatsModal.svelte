@@ -91,7 +91,7 @@
             }
 
             // Handle Grok format (object with conversations array)
-            else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
                 parsed = parsed.conversations;
             }
             // Handle AI Studio single conversation (object with chunkedPrompt)
