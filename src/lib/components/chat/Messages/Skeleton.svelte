@@ -4,12 +4,18 @@
 	export let size = 'md';
 
 	// 随机选择一种动画类型
-	const animations = ['ecg', 'breathing', 'thinking', 'wave'] as const;
-	let animationType: typeof animations[number] = 'ecg';
+	const animations = ['ecg', 'thinking', 'wave'] as const;
+	let animationType: typeof animations[number] | 'dog' = 'ecg';
 
 	onMount(() => {
-		// 组件挂载时随机选择动画类型
-		animationType = animations[Math.floor(Math.random() * animations.length)];
+		// 10% 概率出现小狗彩蛋
+		const random = Math.random();
+		if (random < 0.1) {
+			animationType = 'dog';
+		} else {
+			// 其余90%从常规动画中随机选择
+			animationType = animations[Math.floor(Math.random() * animations.length)];
+		}
 	});
 
 	// 根据size计算容器高度
@@ -32,13 +38,6 @@
 			</svg>
 		</div>
 
-	{:else if animationType === 'breathing'}
-		<!-- 呼吸式光晕 -->
-		<div class="relative {size === 'md' ? 'size-4' : size === 'xs' ? 'size-2' : 'size-3'}">
-			<div class="absolute inset-0 breathing-glow rounded-full bg-gradient-to-r from-blue-400 to-purple-400 opacity-60"></div>
-			<div class="absolute inset-0 breathing-core rounded-full bg-gradient-to-r from-blue-500 to-purple-500"></div>
-		</div>
-
 	{:else if animationType === 'thinking'}
 		<!-- 思考气泡 -->
 		<div class="flex items-center gap-1">
@@ -55,6 +54,35 @@
 			<span class="wave-bar wave-bar-3 {size === 'md' ? 'w-1' : size === 'xs' ? 'w-0.5' : 'w-0.5'} bg-gradient-to-t from-cyan-500 to-blue-500 rounded-full"></span>
 			<span class="wave-bar wave-bar-4 {size === 'md' ? 'w-1' : size === 'xs' ? 'w-0.5' : 'w-0.5'} bg-gradient-to-t from-cyan-500 to-blue-500 rounded-full"></span>
 			<span class="wave-bar wave-bar-5 {size === 'md' ? 'w-1' : size === 'xs' ? 'w-0.5' : 'w-0.5'} bg-gradient-to-t from-cyan-500 to-blue-500 rounded-full"></span>
+		</div>
+
+	{:else if animationType === 'dog'}
+		<!-- 🐕 欢快的小狗彩蛋 -->
+		<div class="dog-container {size === 'md' ? 'scale-100' : size === 'xs' ? 'scale-75' : 'scale-90'}">
+			<div class="dog">
+				<!-- 身体 -->
+				<div class="dog-body"></div>
+				<!-- 头部 -->
+				<div class="dog-head">
+					<!-- 耳朵 -->
+					<div class="dog-ear dog-ear-left"></div>
+					<div class="dog-ear dog-ear-right"></div>
+					<!-- 眼睛 -->
+					<div class="dog-eyes">
+						<div class="dog-eye"></div>
+						<div class="dog-eye"></div>
+					</div>
+					<!-- 鼻子 -->
+					<div class="dog-nose"></div>
+				</div>
+				<!-- 尾巴 -->
+				<div class="dog-tail"></div>
+				<!-- 腿 -->
+				<div class="dog-legs">
+					<div class="dog-leg dog-leg-1"></div>
+					<div class="dog-leg dog-leg-2"></div>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -78,37 +106,6 @@
 
 	.ecg-wave {
 		filter: drop-shadow(0 0 2px currentColor);
-	}
-
-	/* 呼吸式动画 */
-	@keyframes breathing-glow {
-		0%, 100% {
-			transform: scale(1);
-			opacity: 0.3;
-		}
-		50% {
-			transform: scale(1.8);
-			opacity: 0.1;
-		}
-	}
-
-	@keyframes breathing-core {
-		0%, 100% {
-			transform: scale(0.8);
-			opacity: 0.9;
-		}
-		50% {
-			transform: scale(1);
-			opacity: 1;
-		}
-	}
-
-	.breathing-glow {
-		animation: breathing-glow 3s ease-in-out infinite;
-	}
-
-	.breathing-core {
-		animation: breathing-core 3s ease-in-out infinite;
 	}
 
 	/* 思考气泡动画 */
@@ -169,5 +166,169 @@
 
 	.wave-bar-5 {
 		animation-delay: 0.4s;
+	}
+
+	/* 小狗彩蛋动画 */
+	.dog-container {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 24px;
+		width: 32px;
+		transform-origin: center;
+	}
+
+	.dog {
+		position: relative;
+		animation: dog-jump 0.6s ease-in-out infinite;
+	}
+
+	@keyframes dog-jump {
+		0%, 100% {
+			transform: translateY(0) rotate(0deg);
+		}
+		50% {
+			transform: translateY(-4px) rotate(2deg);
+		}
+	}
+
+	.dog-body {
+		width: 14px;
+		height: 10px;
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		border-radius: 6px 6px 4px 4px;
+		position: relative;
+	}
+
+	.dog-head {
+		position: absolute;
+		top: -6px;
+		left: 9px;
+		width: 10px;
+		height: 10px;
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		border-radius: 5px;
+		z-index: 2;
+	}
+
+	.dog-ear {
+		position: absolute;
+		width: 4px;
+		height: 5px;
+		background: #d97706;
+		border-radius: 3px 3px 0 0;
+		animation: ear-wiggle 0.8s ease-in-out infinite;
+	}
+
+	.dog-ear-left {
+		left: 0;
+		top: -2px;
+		transform-origin: bottom center;
+	}
+
+	.dog-ear-right {
+		right: 0;
+		top: -2px;
+		transform-origin: bottom center;
+		animation-delay: 0.1s;
+	}
+
+	@keyframes ear-wiggle {
+		0%, 100% {
+			transform: rotate(-10deg);
+		}
+		50% {
+			transform: rotate(10deg);
+		}
+	}
+
+	.dog-eyes {
+		position: absolute;
+		top: 3px;
+		left: 2px;
+		display: flex;
+		gap: 3px;
+	}
+
+	.dog-eye {
+		width: 2px;
+		height: 2px;
+		background: #1f2937;
+		border-radius: 50%;
+		animation: blink 2s ease-in-out infinite;
+	}
+
+	@keyframes blink {
+		0%, 48%, 52%, 100% {
+			transform: scaleY(1);
+		}
+		50% {
+			transform: scaleY(0.1);
+		}
+	}
+
+	.dog-nose {
+		position: absolute;
+		bottom: 2px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 2px;
+		height: 2px;
+		background: #1f2937;
+		border-radius: 50%;
+	}
+
+	.dog-tail {
+		position: absolute;
+		right: -3px;
+		top: 1px;
+		width: 6px;
+		height: 2px;
+		background: #f59e0b;
+		border-radius: 0 2px 2px 0;
+		transform-origin: left center;
+		animation: tail-wag 0.3s ease-in-out infinite;
+	}
+
+	@keyframes tail-wag {
+		0%, 100% {
+			transform: rotate(-20deg);
+		}
+		50% {
+			transform: rotate(20deg);
+		}
+	}
+
+	.dog-legs {
+		position: absolute;
+		bottom: -4px;
+		left: 2px;
+		display: flex;
+		gap: 6px;
+	}
+
+	.dog-leg {
+		width: 2px;
+		height: 4px;
+		background: #d97706;
+		border-radius: 0 0 1px 1px;
+		animation: leg-walk 0.4s ease-in-out infinite;
+	}
+
+	.dog-leg-1 {
+		animation-delay: 0s;
+	}
+
+	.dog-leg-2 {
+		animation-delay: 0.2s;
+	}
+
+	@keyframes leg-walk {
+		0%, 100% {
+			transform: scaleY(1);
+		}
+		50% {
+			transform: scaleY(0.8);
+		}
 	}
 </style>
