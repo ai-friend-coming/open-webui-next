@@ -90,10 +90,6 @@
                 throw new Error('无法解析 JSON，请检查文件格式');
             }
 
-            // Handle QWEN format (object with success + data array)
-            if (parsed && typeof parsed === 'object' && 'success' in parsed && Array.isArray(parsed.data)) {
-                parsed = parsed.data;
-            }
             // Handle Grok format (object with conversations array)
             else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.conversations)) {
                 parsed = parsed.conversations;
@@ -255,7 +251,7 @@
                     <span class="text-blue-500"><ArrowUpTray className="size-5 stroke-2"/></span>
                     导入聊天记录
                 </h2>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI、DeepSeek、ChatGPT、Gemini、Grok、QWEN JSON 格式</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">支持 WebUI、DeepSeek、ChatGPT、Gemini、Grok JSON 格式</p>
             </div>
             <button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" on:click={() => show = false}>
                 <span class="text-xl leading-none">&times;</span>
@@ -339,10 +335,15 @@
                                 </div>
                             </div>
 
-                            <div class="flex items-center gap-2 py-1.5">
-                                <span class="shrink-0 w-4">🌐</span>
-                                <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">QWEN</span>
-                                <span class="text-gray-600 dark:text-gray-400 truncate">通义千问网页版 → 导出聊天记录</span>
+                            <div class="flex flex-col gap-1 py-1.5">
+                                <div class="flex items-center gap-2">
+                                    <span class="shrink-0 w-4">🧪</span>
+                                    <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">AI Studio</span>
+                                    <span class="text-gray-600 dark:text-gray-400 truncate">Google Drive → 📁 Google AI Studio 文件夹</span>
+                                </div>
+                                <div class="pl-6 text-[11px] text-gray-500 dark:text-gray-500">
+                                    📥 下载对应标题文件 (无后缀，内容即 JSON)
+                                </div>
                             </div>
                         </div>
                     {/if}
