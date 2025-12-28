@@ -477,32 +477,36 @@
 
 						<!-- 当日交互次数单元格 -->
 						<td class="px-3 py-1 text-center">
-							{@const dailyInteraction = user.info?.daily_interaction || {}}
-							{@const today = new Date().toISOString().split('T')[0]}
-							{@const count = dailyInteraction.date === today ? (dailyInteraction.count || 0) : 0}
+							{#if user.info}
+								{@const dailyInteraction = user.info?.daily_interaction || {}}
+								{@const today = new Date().toISOString().split('T')[0]}
+								{@const count = dailyInteraction.date === today ? (dailyInteraction.count || 0) : 0}
 
-							<div class="flex items-center justify-center gap-1.5">
-								<span class="text-gray-700 dark:text-gray-300 font-medium">
-									{count}
-								</span>
+								<div class="flex items-center justify-center gap-1.5">
+									<span class="text-gray-700 dark:text-gray-300 font-medium">
+										{count}
+									</span>
 
-								{#if count > 0}
-									<span class="text-xs text-gray-500 dark:text-gray-400">
-										次
-									</span>
-								{/if}
+									{#if count > 0}
+										<span class="text-xs text-gray-500 dark:text-gray-400">
+											次
+										</span>
+									{/if}
 
-								<!-- 高频使用标识 -->
-								{#if count >= 100}
-									<span class="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
-										高频
-									</span>
-								{:else if count >= 50}
-									<span class="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-										活跃
-									</span>
-								{/if}
-							</div>
+									<!-- 高频使用标识 -->
+									{#if count >= 100}
+										<span class="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+											高频
+										</span>
+									{:else if count >= 50}
+										<span class="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+											活跃
+										</span>
+									{/if}
+								</div>
+							{:else}
+								<span class="text-gray-700 dark:text-gray-300 font-medium">0</span>
+							{/if}
 						</td>
 
 						<td class=" px-3 py-1">
