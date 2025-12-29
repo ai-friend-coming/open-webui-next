@@ -701,7 +701,10 @@ def messages_loaded(metadata, user, perf_logger: Optional[ChatPerfLogger] = None
     # 1 注入 system prompt
     summary_system_message = {
         "role": "system",
-        "content": f"Conversation History Summary:\n{summary_record.get('content', '')}",
+        "content": (
+            "Conversation History Summary:\n"
+            f"{summary_record.get('content', '') if summary_record else ''}"
+        ),
     }
 
     # 2 准备冷启动消息（直接读取消息内容）
@@ -712,15 +715,33 @@ def messages_loaded(metadata, user, perf_logger: Optional[ChatPerfLogger] = None
     messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
     current_message_id = metadata.get("message_id")
     last_summary_id = summary_record.get("last_summary_id") if summary_record else None
-    if last_summary_id is None: # 兼容旧版本, last_summary_id 之前 被命名为 last_message_id
+    if last_summary_id is None and summary_record: # 兼容旧版本, last_summary_id 之前 被命名为 last_message_id
         last_summary_id = summary_record.get("last_message_id")
     ordered_messages_in_chat = build_ordered_messages(messages_map, current_message_id)
-    boundary_idx = next(
-        idx
-        for idx, msg in enumerate(ordered_messages_in_chat)
-        if msg.get("id") == last_summary_id
-    )
-    recent_conversation_in_this_chat = ordered_messages_in_chat[boundary_idx + 1 :]
+    recent_conversation_in_this_chat = []
+    if summary_record and last_summary_id:
+        try:
+            boundary_idx = next(
+                idx
+                for idx, msg in enumerate(ordered_messages_in_chat)
+                if msg.get("id") == last_summary_id
+            )
+            recent_conversation_in_this_chat = ordered_messages_in_chat[boundary_idx + 1 :]
+        except StopIteration:
+            recent_conversation_in_this_chat = []
+
+    if not recent_conversation_in_this_chat:
+        # Fallback: use as many recent messages as possible within 30k tokens.
+        token_budget = 30000
+        token_count = 0
+        window = []
+        for msg in reversed(ordered_messages_in_chat):
+            next_tokens = compute_token_count([msg])
+            if token_count + next_tokens > token_budget and window:
+                break
+            token_count += next_tokens
+            window.append(msg)
+        recent_conversation_in_this_chat = list(reversed(window))
 
     if perf_logger:
         perf_logger.mark_payload_checkpoint("db_get_messages_map")
