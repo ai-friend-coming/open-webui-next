@@ -51,19 +51,20 @@ async def add_memory(
 ):
     memory = Memories.insert_new_memory(user.id, form_data.content)
 
-    VECTOR_DB_CLIENT.upsert(
-        collection_name=f"user-memory-{user.id}",
-        items=[
-            {
-                "id": memory.id,
-                "text": memory.content,
-                "vector": request.app.state.EMBEDDING_FUNCTION(
-                    memory.content, user=user
-                ),
-                "metadata": {"created_at": memory.created_at},
-            }
-        ],
-    )
+    # 不使用 VECTOR_DB
+    # VECTOR_DB_CLIENT.upsert(
+    #     collection_name=f"user-memory-{user.id}",
+    #     items=[
+    #         {
+    #             "id": memory.id,
+    #             "text": memory.content,
+    #             "vector": request.app.state.EMBEDDING_FUNCTION(
+    #                 memory.content, user=user
+    #             ),
+    #             "metadata": {"created_at": memory.created_at},
+    #         }
+    #     ],
+    # )
 
     return memory
 
