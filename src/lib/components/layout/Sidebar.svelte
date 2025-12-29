@@ -633,7 +633,10 @@
             importMemory: _chats[idx]?.importMemory ?? true
         }));
 
-        for (const { chat, importMemory } of chatsWithFlags) {
+        // 反转数组顺序，这样第一个聊天最后导入，获得最新的时间戳，从而显示在侧边栏最上方
+        const reversedChats = [...chatsWithFlags].reverse();
+
+        for (const { chat, importMemory } of reversedChats) {
             console.log(chat);
 
             let importedChat;
