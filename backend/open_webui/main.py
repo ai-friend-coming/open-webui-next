@@ -71,6 +71,7 @@ from open_webui.socket.main import (
 from open_webui.routers import (
     audio,
     billing,
+    redeem_codes,
     images,
     ollama,
     openai,
@@ -1350,6 +1351,7 @@ app.include_router(prompts.router, prefix="/api/v1/prompts", tags=["prompts"])
 app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
 
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
+app.include_router(redeem_codes.router, prefix="/api/v1", tags=["redeem_codes"])
 app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"])
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])

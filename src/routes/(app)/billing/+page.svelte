@@ -8,6 +8,7 @@
 	import BillingStatsChart from '$lib/components/billing/BillingStatsChart.svelte';
 	import LowBalanceAlert from '$lib/components/billing/LowBalanceAlert.svelte';
 	import RechargeCard from '$lib/components/billing/RechargeCard.svelte';
+	import RedeemCodeInput from '$lib/components/billing/RedeemCodeInput.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
 	import { toast } from 'svelte-sonner';
@@ -115,8 +116,9 @@
 
 				<!-- 右侧充值卡片（固定宽度，移动端显示在上方） -->
 				<div class="lg:w-[360px] lg:flex-shrink-0 order-1 lg:order-2">
-					<div class="lg:sticky lg:top-6">
+					<div class="lg:sticky lg:top-6 space-y-4">
 						<RechargeCard />
+						<RedeemCodeInput />
 					</div>
 				</div>
 			</div>
