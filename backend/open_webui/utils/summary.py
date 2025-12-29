@@ -830,7 +830,8 @@ async def update_summary(request, metadata, user, model, is_user_model):
             old_summary=old_summary,
             return_details=True,
         )
-        last_summary_id = to_be_summarized_summary_messages[-30].get("id")
+        pre_num = min(30, len(to_be_summarized_summary_messages)-1)
+        last_summary_id = to_be_summarized_summary_messages[-pre_num].get("id")
         Chats.set_summary_by_user_id_and_chat_id(
             user_id = user.id,
             chat_id = chat_id,
