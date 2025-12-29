@@ -41,6 +41,7 @@ from open_webui.env import (
     EMAIL_SMTP_USERNAME,
     EMAIL_SMTP_PASSWORD,
     EMAIL_SMTP_FROM,
+    ENABLE_SIGNUP_EMAIL_VERIFICATION,
     ENABLE_INITIAL_ADMIN_SIGNUP,
     SRC_LOG_LEVELS,
 )
@@ -598,6 +599,9 @@ async def send_signup_code(request: Request, form_data: SignupCodeForm):
                 status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
             )
 
+    if not ENABLE_SIGNUP_EMAIL_VERIFICATION:
+        return {"status": True}
+
     email = form_data.email.lower()
 
     if not validate_email_format(email):
@@ -694,25 +698,26 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
     if Users.get_user_by_email(email):
         raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
 
-    if form_data.code is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Verification code is required.",
-        )
-
-    if form_data.code:
-        manager: EmailVerificationManager = getattr(
-            request.app.state, "email_verification_manager", None
-        )
-        if manager is None:
-            manager = EmailVerificationManager(request.app.state.redis)
-            request.app.state.email_verification_manager = manager
-
-        if not await manager.validate_code(email, form_data.code):
+    if ENABLE_SIGNUP_EMAIL_VERIFICATION:
+        if form_data.code is None:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired verification code.",
+                detail="Verification code is required.",
             )
+
+        if form_data.code:
+            manager: EmailVerificationManager = getattr(
+                request.app.state, "email_verification_manager", None
+            )
+            if manager is None:
+                manager = EmailVerificationManager(request.app.state.redis)
+                request.app.state.email_verification_manager = manager
+
+            if not await manager.validate_code(email, form_data.code):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid or expired verification code.",
+                )
 
     try:
         role = "admin" if not has_users else "user"
@@ -805,6 +810,9 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
 
 @router.post("/password/reset/code")
 async def send_reset_code(request: Request, form_data: ResetPasswordCodeForm):
+    if not ENABLE_SIGNUP_EMAIL_VERIFICATION:
+        return {"status": True}
+
     email = form_data.email.lower()
 
     if not validate_email_format(email):
@@ -894,18 +902,19 @@ async def reset_password(request: Request, form_data: ResetPasswordForm):
             status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_CRED
         )
 
-    manager: EmailVerificationManager = getattr(
-        request.app.state, "reset_verification_manager", None
-    )
-    if manager is None:
-        manager = EmailVerificationManager(request.app.state.redis, prefix="reset:code")
-        request.app.state.reset_verification_manager = manager
-
-    if not await manager.validate_code(email, form_data.code):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired verification code.",
+    if ENABLE_SIGNUP_EMAIL_VERIFICATION:
+        manager: EmailVerificationManager = getattr(
+            request.app.state, "reset_verification_manager", None
         )
+        if manager is None:
+            manager = EmailVerificationManager(request.app.state.redis, prefix="reset:code")
+            request.app.state.reset_verification_manager = manager
+
+        if not await manager.validate_code(email, form_data.code):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired verification code.",
+            )
 
     if len(form_data.new_password.encode("utf-8")) > 72:
         raise HTTPException(
