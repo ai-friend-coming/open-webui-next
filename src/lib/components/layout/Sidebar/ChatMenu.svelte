@@ -365,18 +365,16 @@
 				{/if}
 			{/if}
 
-			{#if false}
-				<!-- Download -->
-				<DropdownMenu.Item
-					class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
-					on:click={() => {
-						downloadJSONExport();
-					}}
-				>
-					<Download strokeWidth="1.5" />
-					<div class="flex items-center">{$i18n.t('Download')}</div>
-				</DropdownMenu.Item>
-			{/if}
+			<!-- Download -->
+			<DropdownMenu.Item
+				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				on:click={() => {
+					downloadJSONExport();
+				}}
+			>
+				<Download strokeWidth="1.5" />
+				<div class="flex items-center">{$i18n.t('Download')}</div>
+			</DropdownMenu.Item>
 
 			<!-- 重命名 -->
 			<DropdownMenu.Item
@@ -405,18 +403,16 @@
 				{/if}
 			</DropdownMenu.Item>
 
-			{#if false}
-				<!-- Clone -->
-				<DropdownMenu.Item
-					class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
-					on:click={() => {
-						cloneChatHandler();
-					}}
-				>
-					<DocumentDuplicate strokeWidth="1.5" />
-					<div class="flex items-center">{$i18n.t('Clone')}</div>
-				</DropdownMenu.Item>
-			{/if}
+			<!-- Clone -->
+			<DropdownMenu.Item
+				class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+				on:click={() => {
+					cloneChatHandler();
+				}}
+			>
+				<DocumentDuplicate strokeWidth="1.5" />
+				<div class="flex items-center">{$i18n.t('Clone')}</div>
+			</DropdownMenu.Item>
 
 			{#if false}
 				<!-- Move to folder -->
