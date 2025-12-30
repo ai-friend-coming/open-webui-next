@@ -541,7 +541,11 @@
 
 									{#if activeDays > 0}
 										<span class="text-xs text-gray-500 dark:text-gray-400">
-											次/天
+											({activeDays}天)
+										</span>
+									{:else}
+										<span class="text-xs text-gray-500 dark:text-gray-400">
+											(0天)
 										</span>
 									{/if}
 
@@ -557,7 +561,7 @@
 									{/if}
 								</div>
 							{:else}
-								<span class="text-gray-700 dark:text-gray-300 font-medium">0.0</span>
+								<span class="text-gray-700 dark:text-gray-300 font-medium">0.0 (0天)</span>
 							{/if}
 						</td>
 
