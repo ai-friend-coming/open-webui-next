@@ -18,8 +18,10 @@ from open_webui.routers.openai import generate_chat_completion as generate_opena
 from open_webui.utils.perf_logger import ChatPerfLogger
 
 from open_webui.env import (
+    CHAT_DEBUG_FLAG,
     SUMMARY_TOKEN_THRESHOLD_DEFAULT,
-    CHAT_DEBUG_FLAG
+    INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT,
+    COLD_START_TOKEN_WINDOW_DEFAULT,
 )
 
 from open_webui.utils.misc import merge_consecutive_messages
@@ -31,15 +33,43 @@ log = getLogger(__name__)
 
 # --- Constants & Prompts from persona_extractor ---
 
-SUMMARY_PROMPT = """你是一名“对话历史整理员”，请在保持事实准确的前提下，概括当前为止的聊天记录。
+SUMMARY_PROMPT = """你是一名“对话历史整理员”，请在保持事实准确的前提下，将最近用户 和 Assistant 的聊天记录 <chat_transcript> 概括为一段描述。
 ## 要求
-1. 最终摘要不得超过 1000 字。
+1. 最终摘要需要尽可能详细，1000 字左右，在此基础上尽可能详细地描述用户与 Assistant 之间的互动，以及对话中发生过和用户说的的所有事情。
 2. 聚焦人物状态、事件节点、情绪/意图等关键信息，将片段整合为连贯文字。
 3. 输出需包含 who / how / why / what 四个字段，每项不超过 50 字。
 4. 禁止臆测或脏话，所有内容都必须能在聊天中找到对应描述。
-5. 目标：帮助后续对话快速回忆上下文与人物设定。
+5. 要求 Assistant 在后续的和用户对话中，参考你总结出的信息，能快速回忆历史。
+6. 要求绝对不能遗漏 <chat_transcript> 中重要的信息！一定要显式地在概括中描述清楚！
 
-已存在的摘要（如无则写“无”）：
+聊天片段：
+<chat_transcript>
+{chat_transcript}
+</chat_transcript>
+
+请严格输出下列 JSON：
+{{
+  "summary": "1000字左右的连贯摘要，尽可能详细！",
+  "table": {{
+    "who": "不超过50字",
+    "how": "不超过50字",
+    "why": "不超过50字",
+    "what": "不超过50字"
+  }}
+}}
+"""
+
+UPDATE_SUMMARY_PROMPT = """你是一名“对话历史整理员”，请在保持事实准确的前提下，根据已有的摘要 <existing_summary> 和到当前为止的聊天记录 <chat_transcript> 结合并概括为一段描述。
+## 要求
+1. 最终摘要需要尽可能详细，1000 字左右，在此基础上尽可能详细地描述用户与 Assistant 之间的互动，以及对话中发生过和用户说的的所有事情。
+2. 聚焦人物状态、事件节点、情绪/意图等关键信息，将片段整合为连贯文字。
+3. 输出需包含 who / how / why / what 四个字段，每项不超过 50 字。
+4. 禁止臆测或脏话，所有内容都必须能在聊天中找到对应描述。
+5. 要求 Assistant 在后续的和用户对话中，参考你总结出的信息，能快速回忆历史。
+6. 要求不能遗漏 <existing_summary> 中的信息，要将 <existing_summary> 中的信息与 <chat_transcript> 按照时间顺序总结概括！
+
+请注意！以下是已经存在的摘要，这段摘要是发生在 <chat_transcript> 聊天历史之前的用户与 Assistant 发生的事情。
+已存在的摘要：
 <existing_summary>
 {existing_summary}
 </existing_summary>
@@ -51,7 +81,7 @@ SUMMARY_PROMPT = """你是一名“对话历史整理员”，请在保持事实
 
 请严格输出下列 JSON：
 {{
-  "summary": "不超过1000字的连贯摘要",
+  "summary": "1000字左右的连贯摘要，尽可能详细！",
   "table": {{
     "who": "不超过50字",
     "how": "不超过50字",
@@ -416,10 +446,33 @@ def build_summary_prompt(
         f"{m.get('role', 'user')}: {_extract_text_content(m.get('content', ''))}"
         for m in sorted_messages
     )
-    return SUMMARY_PROMPT.format(
-        existing_summary=old_summary.strip() if old_summary else "无",
-        chat_transcript=transcript,
-    )
+    if not old_summary:
+        return SUMMARY_PROMPT.format(
+            chat_transcript=transcript,
+        )
+    else:
+        return UPDATE_SUMMARY_PROMPT.format(
+            existing_summary=old_summary.strip(),
+            chat_transcript=transcript,
+        )
+
+# === 3. Token 选择器：按 token 数量从最近消息中选取 ===
+def select_recent_messages_by_tokens(
+    messages,
+    token_target,
+    max_messages=None,
+    starting_tokens=0,
+):
+    selected = []
+    total_tokens = starting_tokens
+    for msg in reversed(messages):
+        if max_messages is not None and len(selected) >= max_messages:
+            break
+        selected.append(msg)
+        total_tokens += compute_token_count([msg])
+        if total_tokens >= token_target:
+            break
+    return list(reversed(selected)), total_tokens
 
 
 async def summarize(
@@ -584,29 +637,14 @@ async def ensure_initial_summary(
     if old_summary:
         return
 
-    # === 3. Token 选择器：按 token 数量从最近消息中选取 ===
-    def select_recent_messages_by_tokens(
-        messages,
-        token_target,
-        max_messages=None,
-        starting_tokens=0,
-    ):
-        selected = []
-        total_tokens = starting_tokens
-        for msg in reversed(messages):
-            if max_messages is not None and len(selected) >= max_messages:
-                break
-            selected.append(msg)
-            total_tokens += compute_token_count([msg])
-            if total_tokens >= token_target:
-                break
-        return list(reversed(selected)), total_tokens
-
-    # === 4. 判断聊天来源并收集消息 ===
+    # === 4. 判断聊天来源并准备用于 summary 的 message ===
     loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
-    token_target = 50000
+    token_target = INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT
 
+    # 如果是用户导入的聊天
     if loaded_by_user:
+
+        # 从该对话框中读取不超过 token_target 数目最大条数的 message
         recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
             user.id,
             chat_id,
@@ -617,6 +655,7 @@ async def ensure_initial_summary(
             token_target,
         )
 
+        # 如果该对话框中的 message 不足以填满 token_target，则继续从全局 message 中寻找
         if total_tokens < token_target:
             recent_conversation = get_recent_messages_by_user_id(
                 user.id,
@@ -633,6 +672,8 @@ async def ensure_initial_summary(
             messages_for_summary = global_messages + chat_messages
         else:
             messages_for_summary = chat_messages
+    
+    # 如果不是用户导入的聊天，直接从 global message 读取最多不超过 token_target token 的最大条数的 message
     else:
         recent_conversation = get_recent_messages_by_user_id(
             user_id=user.id,
@@ -654,6 +695,12 @@ async def ensure_initial_summary(
     last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
 
     # === 7. 构建冷启动消息 ===
+    # 从要摘要的 messages_for_summary 中取最多 15000 token, 不超过 80 条 message 作为冷启动 message
+    cold_start_messages, _ = select_recent_messages_by_tokens(
+        messages_for_summary,
+        token_target=COLD_START_TOKEN_WINDOW_DEFAULT,
+        max_messages=80
+    )
     cold_start_messages = [
         {
             "id": m.get("id"),
@@ -661,7 +708,7 @@ async def ensure_initial_summary(
             "content": m.get("content"),
             "timestamp": m.get("timestamp"),
         }
-        for m in messages_for_summary[-20:]
+        for m in cold_start_messages
         if m.get("id") and m.get("content")
     ]
 
@@ -689,25 +736,16 @@ async def ensure_initial_summary(
                 cold_start_messages=cold_start_messages,
             )
 
-        if perf_logger:
-            perf_logger.ensure_initial_summary_end(
-                response={
-                    "summary_text": summary_text,
-                    "llm_response": summary_llm_details.get("response"),
-                },
-                usage=summary_llm_details.get("usage"),
-            )
-            perf_logger.record_summary_materials(
-                messages=messages_for_summary,
-                old_summary=None,
-                model=model_id,
-                user_id=user.id,
-                new_summary=summary_text,
-                prompt=summary_llm_details.get("prompt"),
-                response=summary_llm_details.get("response"),
-                usage=summary_llm_details.get("usage"),
-            )
-            await perf_logger.save_to_file()
+            if perf_logger:
+                perf_logger.ensure_initial_summary_end(
+                    response={
+                        "summary_text": summary_text,
+                        "llm_response": summary_llm_details.get("response"),
+                    },
+                    prompt=summary_llm_details.get("prompt"),
+                    usage=summary_llm_details.get("usage"),
+                )
+                await perf_logger.save_to_file()
 
     summarize_task_id, _ = await create_task(
         request.app.state.redis,
@@ -803,6 +841,7 @@ def messages_loaded(metadata, user, memory_enabled:bool, perf_logger: Optional[C
 async def update_summary(request, metadata, user, model, is_user_model):
     perf_logger: Optional[ChatPerfLogger] = metadata.get("perf_logger")
     chat_id = metadata.get("chat_id")
+    chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
     messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
     threshold = getattr(request.app.state.config, "SUMMARY_TOKEN_THRESHOLD", SUMMARY_TOKEN_THRESHOLD_DEFAULT)
     existing_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
@@ -813,6 +852,7 @@ async def update_summary(request, metadata, user, model, is_user_model):
 
     # 已有摘要：只计算新增部分的 token
     current_message_id = metadata.get("message_id")
+    cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
     new_messages = slice_messages_with_summary(
         messages_map = messages_map,
         boundary_message_id = last_summary_id,
@@ -820,28 +860,23 @@ async def update_summary(request, metadata, user, model, is_user_model):
         pre_boundary = 0,
     )
     # 只统计 user 和 assistant 消息
-    new_messages = [msg for msg in new_messages if msg.get("role") in ("user", "assistant")]
-    tokens = compute_token_count(new_messages)
+    messages_in_window = [msg for msg in cold_start_messages + new_messages if msg.get("role") in ("user", "assistant")]
+    tokens_in_window = compute_token_count(messages_in_window)
 
     if CHAT_DEBUG_FLAG:
         print(
             f"[summary:update] chat_id={chat_id} 已有摘要，"
-            f"新增消息数={len(new_messages)} 新增token={tokens} 阈值={threshold}"
+            f"新增消息数={len(new_messages)} 新增token={tokens_in_window} 阈值={threshold} tokens_in_window={tokens_in_window}"
         )
 
     # 若超过阈值，才生成/更新摘要
-    if tokens >= threshold:
+    if tokens_in_window >= threshold:
         # 读取已有的 summary
         old_summary = summary_content
-        to_be_summarized_summary_messages = slice_messages_with_summary(
-            messages_map,
-            last_summary_id,
-            metadata.get("message_id"),
-            pre_boundary=0,
-        )
+
         # 过滤
         to_be_summarized_summary_messages = [
-            msg for msg in to_be_summarized_summary_messages if msg.get("role") in ("user", "assistant")
+            msg for msg in messages_in_window if msg.get("role") in ("user", "assistant")
         ]
 
         # 标记 summary 更新开始
@@ -849,7 +884,7 @@ async def update_summary(request, metadata, user, model, is_user_model):
             perf_logger.update_summary_start(
                 old_summary=old_summary,
                 to_be_summarized_messages=to_be_summarized_summary_messages,
-                tokens=tokens,
+                tokens=tokens_in_window,
                 threshold=threshold,
             )
         
@@ -868,8 +903,14 @@ async def update_summary(request, metadata, user, model, is_user_model):
             old_summary=old_summary,
             return_details=True,
         )
-        pre_num = min(30, len(to_be_summarized_summary_messages)-1)
-        last_summary_id = to_be_summarized_summary_messages[-pre_num].get("id")
+
+        recent_messages_in_summary_window ,_ = select_recent_messages_by_tokens(
+            to_be_summarized_summary_messages,
+            token_target=5000,
+            max_messages=16,
+            starting_tokens=0
+        )
+        last_summary_id = recent_messages_in_summary_window[0].get("id")
         Chats.set_summary_by_user_id_and_chat_id(
             user_id = user.id,
             chat_id = chat_id,
@@ -889,17 +930,71 @@ async def update_summary(request, metadata, user, model, is_user_model):
                     "summary_text": summary_text,
                     "llm_response": summary_llm_details.get("response"),
                 },
-                usage=summary_llm_details.get("usage"),
-            )
-            perf_logger.record_summary_materials(
-                messages=to_be_summarized_summary_messages,      # summarize 的第1个参数
-                old_summary=old_summary,
-                model=model_id,
-                user_id=user.id,
-                new_summary=summary_text,
                 prompt=summary_llm_details.get("prompt"),
-                response=summary_llm_details.get("response"),
                 usage=summary_llm_details.get("usage"),
             )
     else: # tokens 未超过阈值，不执行摘要更新
         pass
+
+def messages_loaded_new(
+    metadata,
+    user,
+    user_token_num: int,
+    assistant_token_num: int,
+    perf_logger: Optional[ChatPerfLogger] = None,
+):
+    chat_id = metadata.get("chat_id", None)
+    chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+    summary_record = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+
+    # 1 注入 system prompt
+    summary_system_message = {
+        "role": "system",
+        "content": (
+            "Conversation History Summary:\n"
+            f"{summary_record.get('content', '') if summary_record else ''}"
+        ),
+    }
+
+    # 2 冷启动消息
+    cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
+
+    messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+    current_message_id = metadata.get("message_id")
+    all_messages = build_ordered_messages(messages_map, current_message_id)
+
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("db_get_messages_map")
+
+    # 3 按分支顺序从新到旧遍历消息，按角色分别扣减 token 配额
+    all_messages = list(reversed(all_messages))
+    selected_messages = []
+
+    def append_if_budget_allows(message):
+        nonlocal user_token_num, assistant_token_num
+        role = message.get("role")
+        if role == "user" and user_token_num > 0:
+            selected_messages.append(message)
+            user_token_num -= compute_token_count([message])
+        if role == "assistant" and assistant_token_num > 0:
+            selected_messages.append(message)
+            assistant_token_num -= compute_token_count([message])
+
+    for message in all_messages:
+        append_if_budget_allows(message)
+        if user_token_num <= 0 and assistant_token_num <= 0:
+            break
+
+    # 4 若配额未用完，则从 cold_start_messages 中继续补充
+    if user_token_num > 0 or assistant_token_num > 0:
+        for message in reversed(cold_start_messages):
+            append_if_budget_allows(message)
+            if user_token_num <= 0 and assistant_token_num <= 0:
+                break
+
+    # 保证消息顺序为旧到新
+    selected_messages = list(reversed(selected_messages))
+
+    ordered_messages = [summary_system_message, *selected_messages]
+    ordered_messages = merge_consecutive_messages(ordered_messages)
+    return ordered_messages

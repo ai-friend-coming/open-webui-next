@@ -68,7 +68,6 @@ class ChatPerfLogger:
         # 新增：LLM 调用和 Summary 材料存储
         self.llm_payload: Optional[Dict[str, Any]] = None  # LLM 调用的完整 payload
         self.llm_response_content: Optional[Any] = None  # LLM 回复内容（最终响应）
-        self.summary_materials: Optional[Dict[str, Any]] = None  # Summary 更新使用的材料
 
         self.model_id: Optional[str] = None
         self._filepath: Optional[Path] = None
@@ -201,12 +200,13 @@ class ChatPerfLogger:
         )
 
     def ensure_initial_summary_end(
-        self, response: Optional[Any], usage: Optional[Dict[str, Any]]
+        self, response: Optional[Any], prompt:str, usage: Optional[Dict[str, Any]]
     ) -> None:
         """3. ensure_initial_summary 结束"""
         self.t_ensure_initial_summary_end = time.time()
-        self.ensure_initial_summary_info["response"] = response
         self.ensure_initial_summary_info["usage"] = usage
+        self.ensure_initial_summary_info["prompt"] = prompt
+        self.ensure_initial_summary_info["response"] = response
         print(
             f"[PERF] ensure_initial_summary 结束: {self.t_ensure_initial_summary_end:.6f}"
         )
@@ -252,11 +252,12 @@ class ChatPerfLogger:
         )
 
     def update_summary_end(
-        self, response: Optional[Any], usage: Optional[Dict[str, Any]]
+        self, response: Optional[Any], prompt:str, usage: Optional[Dict[str, Any]], 
     ) -> None:
         """8. update_summary 结束"""
         self.t_update_summary_end = time.time()
         self.update_summary_info["response"] = response
+        self.update_summary_info["prompt"] = prompt
         self.update_summary_info["usage"] = usage
         print(f"[PERF] update_summary 结束: {self.t_update_summary_end:.6f}")
 
@@ -282,67 +283,6 @@ class ChatPerfLogger:
             }
         }
         print(f"[PERF] 记录 LLM Payload: model={payload.get('model')}, 消息数={len(payload.get('messages', []))}")
-
-    def record_summary_materials(
-        self,
-        messages: List[Dict],
-        old_summary: Optional[str] = None,
-        model: Optional[str] = None,
-        user_id: Optional[str] = None,
-        new_summary: Optional[str] = None,
-        prompt: Optional[str] = None,
-        response: Optional[str] = None,
-        usage: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """
-        记录 Summary 更新时 summarize() 函数的完整参数
-
-        Args:
-            messages: 参与摘要的消息列表（对应 summarize 的 messages 参数）
-            old_summary: 旧的摘要内容（对应 summarize 的 old_summary 参数）
-            model: 模型 ID（对应 summarize 的 model 参数）
-            user_id: 用户 ID（对应 summarize 的 user 参数）
-            new_summary: 新生成的摘要内容（summarize 的返回值）
-            prompt: summarize 调用时的 prompt
-            response: summarize 返回的原始 response 内容
-            usage: summarize 调用的 usage 统计
-        """
-        self.summary_materials = {
-            # summarize() 函数的输入参数
-            "function_args": {
-                "messages": self._sanitize_messages(messages),
-                "old_summary": old_summary,
-                "model": model,
-                "user_id": user_id,
-            },
-            # summarize() 函数的输出
-            "function_output": {
-                "new_summary": new_summary,
-            },
-            # summarize() LLM 调用细节
-            "llm_call": {
-                "prompt": prompt,
-                "response": response,
-                "usage": usage,
-            },
-            # 统计元数据
-            "metadata": {
-                "messages_count": len(messages),
-                "old_summary_length": len(old_summary) if old_summary else 0,
-                "new_summary_length": len(new_summary) if new_summary else 0,
-                "prompt_length": len(prompt) if prompt else 0,
-                "response_length": len(response) if response else 0,
-                "total_messages_content_length": sum(
-                    len(str(msg.get("content", "")))
-                    for msg in messages
-                ),
-            }
-        }
-        print(
-            f"[PERF] 记录 Summary 材料: model={model}, 消息数={len(messages)}, "
-            f"旧摘要长度={len(old_summary) if old_summary else 0}, "
-            f"新摘要长度={len(new_summary) if new_summary else 0}"
-        )
 
     def _sanitize_messages(self, messages: List[Dict]) -> List[Dict]:
         """
@@ -407,7 +347,6 @@ class ChatPerfLogger:
             "update_summary_info": self.update_summary_info,
             "llm_payload": self.llm_payload,  # LLM 调用的完整 payload
             "llm_response": self.llm_response_content,  # LLM 回复内容
-            "summary_materials": self.summary_materials,  # Summary 更新使用的材料
         }
 
         # 计算各个阶段的耗时
