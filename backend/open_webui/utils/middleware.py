@@ -522,7 +522,7 @@ async def chat_completion_tools_handler(
 
 
 async def chat_memory_handler(
-    request: Request, form_data: dict, extra_params: dict, user, metadata
+    request: Request, form_data: dict, extra_params: dict, user, metadata, memory_enabled:bool
 ):
     """
     聊天记忆处理器 - 注入用户手动保存的记忆 + Mem0 检索结果到当前对话上下文
@@ -539,26 +539,11 @@ async def chat_memory_handler(
     # === 1. 获取用户全部记忆（不再截断 Top-K） ===
     memories = Memories.get_memories_by_user_id(user.id) or []
 
-    # === 2. 预留的 Mem0 检索结果 ===
-    # 检查用户设置中的 memory 开关
-    user_memory_enabled = False
-    if user.settings:
-        settings = user.settings
-        if isinstance(settings, dict):
-            user_memory_enabled = settings.get(
-                "memory",
-                settings.get("ui", {}).get("memory", False),
-            )
-        else:
-            ui_settings = getattr(settings, "ui", {}) or {}
-            if isinstance(ui_settings, dict):
-                user_memory_enabled = ui_settings.get("memory", False)
-
     # 用户自有模型跳过 Mem0 调用
     is_user_model = form_data.get("is_user_model", False)
 
     # 同时检查用户设置和模型类型
-    if not user_memory_enabled:
+    if not memory_enabled:
         log.info(f"[mem0] Skipped: User memory setting disabled for user {user.id}")
         mem0_results = []
     elif is_user_model:
@@ -571,7 +556,7 @@ async def chat_memory_handler(
     entries = []
 
     # 3.1 用户记忆库全量
-    if user_memory_enabled:
+    if memory_enabled:
         for mem in memories:
             created_at_date = time.strftime("%Y-%m-%d", time.localtime(mem.created_at)) if mem.created_at else "Unknown Date"
             entries.append(f"[{created_at_date}] {mem.content}")
@@ -1111,6 +1096,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     """
     # 获取性能日志记录器
     perf_logger: Optional[ChatPerfLogger] = metadata.get("perf_logger")
+    chat_id = metadata.get("chat_id", None)
+    chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+    memory_enabled = chat_item.chat['memory_enabled']
 
     # === 0. 计费预检查 ===
     # 注意：只做预检查，不扣费。实际计费由openai.py负责
@@ -1138,7 +1126,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if perf_logger:
         perf_logger.mark_payload_checkpoint("apply_params")
 
-    form_data["messages"] = messages_loaded(metadata, user, perf_logger)
+    form_data["messages"] = messages_loaded(metadata, user, memory_enabled, perf_logger)
 
     # === 2. 处理 System Prompt 变量替换 ===
     system_message = get_system_message(form_data.get("messages", []))
@@ -1224,7 +1212,6 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # === 8. Folder "Project" 处理 - 注入文件夹的 System Prompt 和文件 [已屏蔽] ===
     # Check if the request has chat_id and is inside of a folder
-    chat_id = metadata.get("chat_id", None)
     if False:
         if chat_id and user:
             chat = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
@@ -1336,7 +1323,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 perf_logger.mark_payload_checkpoint("before_memory")
 
             form_data = await chat_memory_handler(
-                request, form_data, extra_params, user, metadata
+                request, form_data, extra_params, user, metadata, memory_enabled
             )
 
             if perf_logger:

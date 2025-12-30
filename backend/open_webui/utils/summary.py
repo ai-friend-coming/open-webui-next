@@ -564,6 +564,21 @@ async def ensure_initial_summary(
     # === 1. 基础信息提取 ===
     chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
     old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
+    memory_enabled = chat_item.chat['memory_enabled']
+
+    if not memory_enabled:
+        current_message_id = metadata.get("message_id")
+        Chats.set_summary_by_user_id_and_chat_id(
+            user_id=user.id,
+            chat_id=chat_id,
+            summary="",
+            last_summary_id=current_message_id,
+            last_timestamp=int(time.time()),
+            status="done",
+            summarize_task_id='',
+            cold_start_messages=[]
+        )
+        return 
 
     # === 2. 已有摘要则跳过 ===
     if old_summary:
@@ -712,7 +727,7 @@ async def ensure_initial_summary(
         cold_start_messages=cold_start_messages,
     )
 
-def messages_loaded(metadata, user, perf_logger: Optional[ChatPerfLogger] = None):
+def messages_loaded(metadata, user, memory_enabled:bool, perf_logger: Optional[ChatPerfLogger] = None):
     chat_id = metadata.get("chat_id", None)
     chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
     summary_record = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
@@ -729,7 +744,10 @@ def messages_loaded(metadata, user, perf_logger: Optional[ChatPerfLogger] = None
 
     # 2 准备冷启动消息（直接读取消息内容）
     # 获取冷启动消息（用于注入关键历史消息）
-    cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
+    if memory_enabled:
+        cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
+    else:
+        cold_start_messages = []
 
     # 获取 last_summary_id 往后的所有消息
     messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
