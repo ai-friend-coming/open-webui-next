@@ -2203,10 +2203,8 @@ async def process_chat_response(
                             # 标记 LLM 完成并保存性能日志（非流式）
                             perf_logger = metadata.get("perf_logger")
                             if perf_logger:
-                                perf_logger.record_llm_response(content)
-                                # 标记 LLM 完成
-                                perf_logger.mark_llm_complete(
-                                    usage=response_data.get("usage")
+                                perf_logger.llm_response(
+                                    content, usage=response_data.get("usage")
                                 )
 
                                 # 补充 chat_title 信息
@@ -3712,13 +3710,12 @@ async def process_chat_response(
                 await background_tasks_handler()
 
                 # 标记 LLM 完成并保存性能日志
-                perf_logger = metadata.get("perf_logger")
+                perf_logger: ChatPerfLogger = metadata.get("perf_logger")
                 if perf_logger:
-                    perf_logger.record_llm_response(
-                        serialize_content_blocks(content_blocks)
+                    perf_logger.llm_response(
+                        serialize_content_blocks(content_blocks),
+                        usage=usage_holder.get("usage"),
                     )
-                    # 标记 LLM 完成
-                    perf_logger.mark_llm_complete(usage=usage_holder.get("usage"))
 
                     # 补充 chat_title 信息
                     perf_logger.chat_title = title

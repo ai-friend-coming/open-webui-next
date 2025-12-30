@@ -257,6 +257,7 @@ async def generate_chat_completion(
             request=request,
             form_data=form_data,
             user=user,
+            chatting_completion=chatting_completion,
         )
     else:
         # === 6. 标准模式：检查用户权限 ===

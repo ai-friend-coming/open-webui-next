@@ -3,12 +3,12 @@
 
 记录关键时间节点：
 1. 接口调用开始
-2. ensure_initial_summary 开始
-3. 摘要生成（开始/结束）
-4. 上下文装入（开始/结束）
-5. 调用 LLM 之前
-6. LLM 返回第一个 token
-7. LLM 完成
+2. ensure_initial_summary 开始/结束
+3. messages_loaded 组装完成
+4. 调用 LLM 之前
+5. LLM 返回第一个 token
+6. LLM 回复完成
+7. update_summary 开始/结束
 
 最终保存为 JSON 文件，便于性能分析。
 """
@@ -48,28 +48,39 @@ class ChatPerfLogger:
 
         # 时间戳
         self.t0 = None  # 接口调用开始
-        self.t4_before_llm = None  # 调用 LLM 之前
-        self.t5_first_token = None  # LLM 返回第一个 token
-        self.t6_llm_complete = None  # LLM 完成
+        self.t_before_llm = None  # 调用 LLM 之前
+        self.t_first_token = None  # LLM 返回第一个 token
+        self.t_llm_response = None  # LLM 回复完成
         self.t_payload_start = None  # process_chat_payload 开始
         self.t_payload_end = None  # process_chat_payload 结束
-        self.t_summary_update_start = None  # 摘要更新开始（统一语义：初始生成 + 后台更新）
-        self.t_summary_update_end = None  # 摘要更新结束
+        self.t_ensure_initial_summary_start = None
+        self.t_ensure_initial_summary_end = None
+        self.t_update_summary_start = None
+        self.t_update_summary_end = None
 
         # 详细信息
         self.llm_info: Dict[str, Any] = {}
         self.payload_info: Dict[str, Any] = {}  # payload 处理详情
-        self.summary_update_info: Dict[str, Any] = {}  # summary 更新详情
+        self.ensure_initial_summary_info: Dict[str, Any] = {}
+        self.messages_loaded_info: Dict[str, Any] = {}
+        self.update_summary_info: Dict[str, Any] = {}
 
         # 新增：LLM 调用和 Summary 材料存储
         self.llm_payload: Optional[Dict[str, Any]] = None  # LLM 调用的完整 payload
-        self.llm_response: Optional[Any] = None  # LLM 回复内容（最终响应）
+        self.llm_response_content: Optional[Any] = None  # LLM 回复内容（最终响应）
         self.summary_materials: Optional[Dict[str, Any]] = None  # Summary 更新使用的材料
 
-    def mark_api_start(self) -> None:
-        """1. 标记接口调用开始"""
+        self.model_id: Optional[str] = None
+        self._filepath: Optional[Path] = None
+
+    def start(self, model_id: Optional[str] = None) -> None:
+        """1. 标记接口调用开始，并记录核心元信息"""
         self.t0 = time.time()
-        print(f"[PERF] 1. /api/chat/completions 接口调用开始: {self.t0:.6f}")
+        self.model_id = model_id
+        print(
+            f"[PERF] 1. /api/chat/completions 接口调用开始: {self.t0:.6f} "
+            f"(user_id={self.user_id}, chat_id={self.chat_id}, model_id={self.model_id})"
+        )
 
     def mark_payload_processing(self, start: bool = True) -> None:
         """
@@ -119,109 +130,135 @@ class ChatPerfLogger:
         self._payload_checkpoints.append({"name": name, "time": t_now})
         self.payload_info[f"checkpoint_{name}"] = t_now
 
-    def mark_before_llm(self) -> None:
-        """5. 标记调用 LLM 之前"""
-        self.t4_before_llm = time.time()
-        delta_ms = (self.t4_before_llm - self.t0) * 1000 if self.t0 else 0
+    def before_call_llm(self, payload: Dict[str, Any]) -> None:
+        """5. 标记调用 LLM 之前，并记录 payload"""
+        self.t_before_llm = time.time()
+        self.record_llm_payload(payload)
+        delta_ms = (self.t_before_llm - self.t0) * 1000 if self.t0 else 0
         print(
-            f"[PERF] 5. 调用 LLM 之前: {self.t4_before_llm:.6f} "
+            f"[PERF] 5. 调用 LLM 之前: {self.t_before_llm:.6f} "
             f"(距接口调用 +{delta_ms:.2f}ms)"
         )
 
     def mark_first_token(self) -> None:
         """6. 标记 LLM 返回第一个 token"""
-        self.t5_first_token = time.time()
+        self.t_first_token = time.time()
         ttft_ms = (
-            (self.t5_first_token - self.t4_before_llm) * 1000
-            if self.t4_before_llm
+            (self.t_first_token - self.t_before_llm) * 1000
+            if self.t_before_llm
             else 0
         )
-        total_ms = (self.t5_first_token - self.t0) * 1000 if self.t0 else 0
+        total_ms = (self.t_first_token - self.t0) * 1000 if self.t0 else 0
         print(
-            f"[PERF] 6. LLM 返回第一个 token: {self.t5_first_token:.6f} "
+            f"[PERF] 6. LLM 返回第一个 token: {self.t_first_token:.6f} "
             f"(TTFT={ttft_ms:.2f}ms, 距接口调用 +{total_ms:.2f}ms)"
         )
 
-    def mark_llm_complete(self, usage: Optional[Dict] = None) -> None:
+    def llm_response(self, response: Any, usage: Optional[Dict] = None) -> None:
         """
-        7. 标记 LLM 完成
-
-        Args:
-            usage: LLM 使用情况统计（tokens 等）
-        """
-        self.t6_llm_complete = time.time()
-        if usage:
-            self.llm_info["usage"] = usage
-
-        generation_ms = (
-            (self.t6_llm_complete - self.t5_first_token) * 1000
-            if self.t5_first_token
-            else 0
-        )
-        total_ms = (self.t6_llm_complete - self.t0) * 1000 if self.t0 else 0
-        print(
-            f"[PERF] 7. LLM 完成: {self.t6_llm_complete:.6f} "
-            f"(生成耗时 {generation_ms:.2f}ms, 总耗时 {total_ms:.2f}ms)"
-        )
-
-    def record_llm_response(self, response: Any) -> None:
-        """
-        记录 LLM 最终回复内容
+        记录 LLM 最终回复内容与时间
 
         Args:
             response: LLM 回复内容（文本或序列化内容块）
+            usage: LLM 使用情况统计（tokens 等）
         """
-        self.llm_response = response
+        self.t_llm_response = time.time()
+        if usage:
+            self.llm_info["usage"] = usage
+        self.llm_response_content = response
+        # 尝试从完整响应中提取 usage（如果存在）
+        if isinstance(response, dict):
+            response_usage = response.get("usage")
+            if isinstance(response_usage, dict) and response_usage:
+                self.llm_info["usage"] = response_usage
+        elif isinstance(response, str):
+            try:
+                response_data = json.loads(response)
+                if isinstance(response_data, dict):
+                    response_usage = response_data.get("usage")
+                    if isinstance(response_usage, dict) and response_usage:
+                        self.llm_info["usage"] = response_usage
+            except Exception:
+                pass
         if isinstance(response, (str, list, dict)):
             self.llm_info["response_length"] = len(response)
         print("[PERF] 记录 LLM 回复内容")
 
-    def mark_summary_update(
+    def ensure_initial_summary_start(
+        self, messages: List[Dict], prompt: str
+    ) -> None:
+        """2. ensure_initial_summary 开始"""
+        self.t_ensure_initial_summary_start = time.time()
+        self.ensure_initial_summary_info = {
+            "messages": self._sanitize_messages(messages),
+            "prompt": prompt,
+            "messages_count": len(messages),
+            "prompt_length": len(prompt) if prompt else 0,
+        }
+        print(
+            f"[PERF] ensure_initial_summary 开始: {self.t_ensure_initial_summary_start:.6f} "
+            f"(messages={len(messages)})"
+        )
+
+    def ensure_initial_summary_end(
+        self, response: Optional[Any], usage: Optional[Dict[str, Any]]
+    ) -> None:
+        """3. ensure_initial_summary 结束"""
+        self.t_ensure_initial_summary_end = time.time()
+        self.ensure_initial_summary_info["response"] = response
+        self.ensure_initial_summary_info["usage"] = usage
+        print(
+            f"[PERF] ensure_initial_summary 结束: {self.t_ensure_initial_summary_end:.6f}"
+        )
+
+    def record_messages_loaded(
         self,
-        start: bool = True,
+        summary_system_message: Dict[str, Any],
+        cold_start_messages: List[Dict[str, Any]],
+        recent_conversation_in_this_chat: List[Dict[str, Any]],
+    ) -> None:
+        """4. messages_loaded 内部组装完成"""
+        t_now = time.time()
+        self.messages_loaded_info = {
+            "time": t_now,
+            "summary_system_message": summary_system_message,
+            "cold_start_messages": self._sanitize_messages(cold_start_messages),
+            "recent_conversation_in_this_chat": self._sanitize_messages(
+                recent_conversation_in_this_chat
+            ),
+        }
+        print(f"[PERF] messages_loaded 组装完成: {t_now:.6f}")
+
+    def update_summary_start(
+        self,
+        old_summary: Optional[str],
+        to_be_summarized_messages: List[Dict[str, Any]],
         tokens: Optional[int] = None,
         threshold: Optional[int] = None,
-        messages_count: Optional[int] = None,
-        is_initial: bool = False,
     ) -> None:
-        """
-        标记摘要更新（统一追踪初始摘要生成和后台摘要更新）
+        """7. update_summary 开始"""
+        self.t_update_summary_start = time.time()
+        self.update_summary_info = {
+            "old_summary": old_summary,
+            "to_be_summarized_messages": self._sanitize_messages(
+                to_be_summarized_messages
+            ),
+            "tokens": tokens,
+            "threshold": threshold,
+        }
+        print(
+            f"[PERF] update_summary 开始: {self.t_update_summary_start:.6f} "
+            f"(messages={len(to_be_summarized_messages)})"
+        )
 
-        Args:
-            start: True=开始，False=结束
-            tokens: 当前 token 数量
-            threshold: token 阈值
-            messages_count: 参与摘要的消息数量
-            is_initial: 是否为初始摘要生成（True=首次生成，False=后台更新）
-        """
-        if start:
-            self.t_summary_update_start = time.time()
-            self.summary_update_info = {
-                "tokens": tokens,
-                "threshold": threshold,
-                "messages_count": messages_count,
-                "is_initial": is_initial,
-            }
-            stage_text = "初始摘要生成" if is_initial else "后台摘要更新"
-            print(
-                f"[PERF] 摘要更新开始 ({stage_text}): {self.t_summary_update_start:.6f} "
-                f"(tokens={tokens}, threshold={threshold}, 消息数={messages_count})"
-            )
-        else:
-            self.t_summary_update_end = time.time()
-            if self.t_summary_update_start:
-                duration_ms = (
-                    self.t_summary_update_end - self.t_summary_update_start
-                ) * 1000
-                stage_text = "初始摘要生成" if self.summary_update_info.get("is_initial") else "后台摘要更新"
-                print(
-                    f"[PERF] 摘要更新完成 ({stage_text}): {self.t_summary_update_end:.6f} "
-                    f"(耗时 {duration_ms:.2f}ms)"
-                )
-            else:
-                print(
-                    f"[PERF] 摘要更新完成: {self.t_summary_update_end:.6f}"
-                )
+    def update_summary_end(
+        self, response: Optional[Any], usage: Optional[Dict[str, Any]]
+    ) -> None:
+        """8. update_summary 结束"""
+        self.t_update_summary_end = time.time()
+        self.update_summary_info["response"] = response
+        self.update_summary_info["usage"] = usage
+        print(f"[PERF] update_summary 结束: {self.t_update_summary_end:.6f}")
 
     def record_llm_payload(self, payload: Dict[str, Any]) -> None:
         """
@@ -347,23 +384,29 @@ class ChatPerfLogger:
                 "message_id": self.message_id,
                 "user_name": self.user_name,
                 "chat_title": self.chat_title,
+                "model_id": self.model_id,
             },
             "timestamps": {
                 "api_start": self.t0,
                 "payload_processing_start": self.t_payload_start,
                 "payload_processing_end": self.t_payload_end,
-                "before_llm": self.t4_before_llm,
-                "first_token": self.t5_first_token,
-                "llm_complete": self.t6_llm_complete,
-                "summary_update_start": self.t_summary_update_start,
-                "summary_update_end": self.t_summary_update_end,
+                "ensure_initial_summary_start": self.t_ensure_initial_summary_start,
+                "ensure_initial_summary_end": self.t_ensure_initial_summary_end,
+                "messages_loaded": self.messages_loaded_info.get("time"),
+                "before_llm": self.t_before_llm,
+                "first_token": self.t_first_token,
+                "llm_response": self.t_llm_response,
+                "update_summary_start": self.t_update_summary_start,
+                "update_summary_end": self.t_update_summary_end,
             },
             "durations_ms": {},
             "llm_info": self.llm_info,
             "payload_info": self.payload_info,  # 包含所有 checkpoint 信息
-            "summary_update_info": self.summary_update_info,  # summary 更新详情
+            "ensure_initial_summary_info": self.ensure_initial_summary_info,
+            "messages_loaded_info": self.messages_loaded_info,
+            "update_summary_info": self.update_summary_info,
             "llm_payload": self.llm_payload,  # LLM 调用的完整 payload
-            "llm_response": self.llm_response,  # LLM 回复内容
+            "llm_response": self.llm_response_content,  # LLM 回复内容
             "summary_materials": self.summary_materials,  # Summary 更新使用的材料
         }
 
@@ -376,29 +419,25 @@ class ChatPerfLogger:
                     self.t_payload_end - self.t_payload_start
                 ) * 1000
 
-            if self.t4_before_llm:
-                durations["total_preprocessing"] = (self.t4_before_llm - self.t0) * 1000
+            if self.t_before_llm:
+                durations["total_preprocessing"] = (self.t_before_llm - self.t0) * 1000
 
-            if self.t5_first_token:
+            if self.t_first_token:
                 durations["ttft"] = (
-                    (self.t5_first_token - self.t4_before_llm) * 1000
-                    if self.t4_before_llm
+                    (self.t_first_token - self.t_before_llm) * 1000
+                    if self.t_before_llm
                     else None
                 )
-                durations["total_to_first_token"] = (self.t5_first_token - self.t0) * 1000
+                durations["total_to_first_token"] = (
+                    self.t_first_token - self.t0
+                ) * 1000
 
-            if self.t6_llm_complete:
-                durations["llm_generation"] = (
-                    (self.t6_llm_complete - self.t5_first_token) * 1000
-                    if self.t5_first_token
-                    else None
-                )
-                durations["total"] = (self.t6_llm_complete - self.t0) * 1000
+            if self.t_llm_response:
+                durations["total"] = (self.t_llm_response - self.t0) * 1000
 
-            # 计算后台 summary 更新耗时
-            if self.t_summary_update_start and self.t_summary_update_end:
-                durations["summary_update"] = (
-                    self.t_summary_update_end - self.t_summary_update_start
+            if self.t_update_summary_start and self.t_update_summary_end:
+                durations["update_summary"] = (
+                    self.t_update_summary_end - self.t_update_summary_start
                 ) * 1000
 
             # 计算 payload checkpoints 之间的耗时
@@ -435,33 +474,33 @@ class ChatPerfLogger:
             log_path = Path(log_dir)
             log_path.mkdir(exist_ok=True)
 
-            # 生成文件名
-            user_name = self.user_name or self.user_id or "unknown"
-            chat_title = self.chat_title or "untitled"
-            message_id = str(self.message_id) or "unknown"
-
-            # 清理文件名中的非法字符
-            safe_user = "".join(
-                c for c in user_name if c.isalnum() or c in (" ", "-", "_")
-            ).strip()[:50]  # 限制长度
-            safe_title = "".join(
-                c for c in chat_title if c.isalnum() or c in (" ", "-", "_")
-            ).strip()[:50]
-            safe_msg = "".join(
-                c for c in message_id if c.isalnum() or c in ("-", "_")
-            )[:50]
-
-            # 添加时间戳避免冲突
-            filename = f"{safe_user}_{safe_title}_{safe_msg}.json"
-            filepath = log_path / filename
+            if self._filepath is None:
+                self._filepath = self._build_filepath(log_path)
 
             # 保存 JSON
-            with open(filepath, "w", encoding="utf-8") as f:
+            with open(self._filepath, "w", encoding="utf-8") as f:
                 json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
-            print(f"[PERF] Performance log saved to: {filepath}")
-            return filepath
+            print(f"[PERF] Performance log saved to: {self._filepath}")
+            return self._filepath
 
         except Exception as e:
             print(f"[PERF] Failed to save performance log: {e}")
             return None
+
+    def _build_filepath(self, log_path: Path) -> Path:
+        user_name = self.user_name or self.user_id or "unknown"
+        chat_title = self.chat_title or "untitled"
+        message_id = str(self.message_id) or "unknown"
+
+        safe_user = "".join(
+            c for c in user_name if c.isalnum() or c in (" ", "-", "_")
+        ).strip()[:50]
+        safe_title = "".join(
+            c for c in chat_title if c.isalnum() or c in (" ", "-", "_")
+        ).strip()[:50]
+        safe_msg = "".join(c for c in message_id if c.isalnum() or c in ("-", "_"))[
+            :50
+        ]
+        filename = f"{safe_user}_{safe_title}_{safe_msg}.json"
+        return log_path / filename

@@ -33,10 +33,12 @@ from open_webui.env import (
     AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST,
     ENABLE_FORWARD_USER_INFO_HEADERS,
     BYPASS_MODEL_ACCESS_CONTROL,
+    CHAT_DEBUG_FLAG,
 )
 from open_webui.models.users import UserModel
 from open_webui.memory.cross_window_memory import last_process_payload
 from open_webui.utils.misc import extract_timestamped_messages
+from open_webui.utils.perf_logger import ChatPerfLogger
 
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
@@ -1027,25 +1029,16 @@ async def generate_chat_completion(
             payload['messages'][index].pop(key, None)
 
     # === 10.5 流式请求自动注入 stream_options 以获取精确 usage ===
-    if payload.get("stream", False):
-        # 从 api_config 获取配置，默认启用
-        enable_stream_options = api_config.get("enable_stream_options", True)
-
-        if enable_stream_options:
-            # 已知支持 stream_options 的提供商
-            known_providers = ["api.openai.com", "azure.com", "openrouter.ai"]
-            is_known_provider = any(p in url.lower() for p in known_providers)
-
-            if is_known_provider or api_config.get("force_stream_options", False):
-                if "stream_options" not in payload:
-                    payload["stream_options"] = {}
-                payload["stream_options"]["include_usage"] = True
-                log.debug(f"[Billing] 已注入 stream_options: model={payload.get('model')}")
+    payload["stream"] = True # 强制流式输出
+    if "stream_options" not in payload:
+        payload["stream_options"] = {}
+    payload["stream_options"]["include_usage"] = True
+    log.debug(f"[Billing] 已注入 stream_options: model={payload.get('model')}")
 
     # 记录 LLM 调用的 payload
-    perf_logger = metadata.get("perf_logger") if metadata else None
+    perf_logger: ChatPerfLogger = metadata.get("perf_logger") if metadata else None
     if chatting_completion and perf_logger:
-        perf_logger.record_llm_payload(payload)
+        perf_logger.before_call_llm(payload)
     payload = json.dumps(payload)  # 序列化为 JSON 字符串
 
     # === 11. 初始化请求状态变量 ===

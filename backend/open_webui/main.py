@@ -1543,7 +1543,7 @@ async def chat_completion(
         )
 
         # 标记接口调用开始
-        perf_logger.mark_api_start()
+        perf_logger.start(model_id=form_data.get("model"))
 
     # === 2. 初始化阶段：加载模型列表 ===
     if not request.app.state.MODELS:
@@ -1680,10 +1680,6 @@ async def chat_completion(
             # 标记 payload 处理结束
             if perf_logger:
                 perf_logger.mark_payload_processing(start=False)
-
-            # 标记调用 LLM 之前
-            if perf_logger:
-                perf_logger.mark_before_llm()
 
             # 8.2 调用 LLM 完成对话 (核心) - 使用计费代理包装
             response = await chat_with_billing(

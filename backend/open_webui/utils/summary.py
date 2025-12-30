@@ -402,6 +402,26 @@ def _temporary_request_state(
         else:
             local_request.state.model = original_model
 
+def build_summary_prompt(
+    messages: List[Dict], old_summary: Optional[str]
+) -> str:
+    # 使用 _extract_text_content 处理多模态消息
+    sorted_messages = sorted(
+        messages,
+        key=lambda m: m.get("timestamp", 0)
+        if isinstance(m.get("timestamp"), (int, float))
+        else 0,
+    )
+    transcript = "\n".join(
+        f"{m.get('role', 'user')}: {_extract_text_content(m.get('content', ''))}"
+        for m in sorted_messages
+    )
+    return SUMMARY_PROMPT.format(
+        existing_summary=old_summary.strip() if old_summary else "无",
+        chat_transcript=transcript,
+    )
+
+
 async def summarize(
     messages: List[Dict],
     model_id: str,
@@ -447,16 +467,8 @@ async def summarize(
         log.warning("摘要生成跳过：无消息")
         return ""
 
-    # 1. 构建摘要 prompt, 排序并截断消息（最近 120 条）
-    sorted_messages = sorted(messages, key=lambda m: m.get('timestamp', 0) if isinstance(m.get('timestamp'), (int, float)) else 0)
-
-    # 使用 _extract_text_content 处理多模态消息
-    transcript = "\n".join(f"{m.get('role', 'user')}: {_extract_text_content(m.get('content', ''))}" for m in sorted_messages)
-
-    prompt = SUMMARY_PROMPT.format(
-        existing_summary=old_summary.strip() if old_summary else "无",
-        chat_transcript=transcript,
-    )
+    # 1. 构建摘要 prompt
+    prompt = build_summary_prompt(messages, old_summary)
 
     # 2. 构造请求参数（OpenAI 格式）
     form_data = {
@@ -620,11 +632,8 @@ async def ensure_initial_summary(
 
     # === 5. 性能监控：标记摘要生成开始 ===
     if perf_logger:
-        perf_logger.mark_summary_update(
-            start=True,
-            messages_count=len(messages_for_summary),
-            is_initial=True,
-        )
+        prompt = build_summary_prompt(messages_for_summary, None)
+        perf_logger.ensure_initial_summary_start(messages_for_summary, prompt)
 
     # === 6. 确定摘要截止点 ===
     last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
@@ -666,6 +675,13 @@ async def ensure_initial_summary(
             )
 
         if perf_logger:
+            perf_logger.ensure_initial_summary_end(
+                response={
+                    "summary_text": summary_text,
+                    "llm_response": summary_llm_details.get("response"),
+                },
+                usage=summary_llm_details.get("usage"),
+            )
             perf_logger.record_summary_materials(
                 messages=messages_for_summary,
                 old_summary=None,
@@ -676,7 +692,6 @@ async def ensure_initial_summary(
                 response=summary_llm_details.get("response"),
                 usage=summary_llm_details.get("usage"),
             )
-            perf_logger.mark_summary_update(start=False)
             await perf_logger.save_to_file()
 
     summarize_task_id, _ = await create_task(
@@ -750,6 +765,11 @@ def messages_loaded(metadata, user, perf_logger: Optional[ChatPerfLogger] = None
 
     if perf_logger:
         perf_logger.mark_payload_checkpoint("db_get_messages_map")
+        perf_logger.record_messages_loaded(
+            summary_system_message,
+            cold_start_messages,
+            recent_conversation_in_this_chat,
+        )
 
     # 移除旧的 system 消息
     recent_conversation_in_this_chat = [
@@ -808,11 +828,11 @@ async def update_summary(request, metadata, user, model, is_user_model):
 
         # 标记 summary 更新开始
         if perf_logger:
-            perf_logger.mark_summary_update(
-                start=True,
+            perf_logger.update_summary_start(
+                old_summary=old_summary,
+                to_be_summarized_messages=to_be_summarized_summary_messages,
                 tokens=tokens,
                 threshold=threshold,
-                messages_count=len(to_be_summarized_summary_messages),
             )
         
         # 获取当前模型ID和用户模型标记，确保使用正确的模型进行摘要更新
@@ -846,6 +866,13 @@ async def update_summary(request, metadata, user, model, is_user_model):
         # 记录 summary 更新使用的材料（summarize 函数的完整参数）
         # 标记 summary 更新结束
         if perf_logger:
+            perf_logger.update_summary_end(
+                response={
+                    "summary_text": summary_text,
+                    "llm_response": summary_llm_details.get("response"),
+                },
+                usage=summary_llm_details.get("usage"),
+            )
             perf_logger.record_summary_materials(
                 messages=to_be_summarized_summary_messages,      # summarize 的第1个参数
                 old_summary=old_summary,
@@ -856,6 +883,5 @@ async def update_summary(request, metadata, user, model, is_user_model):
                 response=summary_llm_details.get("response"),
                 usage=summary_llm_details.get("usage"),
             )
-            perf_logger.mark_summary_update(start=False)
     else: # tokens 未超过阈值，不执行摘要更新
         pass
