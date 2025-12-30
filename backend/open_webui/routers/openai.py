@@ -1029,11 +1029,19 @@ async def generate_chat_completion(
             payload['messages'][index].pop(key, None)
 
     # === 10.5 流式请求自动注入 stream_options 以获取精确 usage ===
-    payload["stream"] = True # 强制流式输出
-    if "stream_options" not in payload:
-        payload["stream_options"] = {}
-    payload["stream_options"]["include_usage"] = True
-    log.debug(f"[Billing] 已注入 stream_options: model={payload.get('model')}")
+
+    if payload.get("stream", False):
+        # 从 api_config 获取配置，默认启用
+        enable_stream_options = api_config.get("enable_stream_options", True)
+        if enable_stream_options:
+            # 已知支持 stream_options 的提供商
+            known_providers = ["api.openai.com", "azure.com", "openrouter.ai"]
+            is_known_provider = any(p in url.lower() for p in known_providers)
+            if is_known_provider or api_config.get("force_stream_options", False):
+                if "stream_options" not in payload:
+                    payload["stream_options"] = {}
+                payload["stream_options"]["include_usage"] = True
+                log.debug(f"[Billing] 已注入 stream_options: model={payload.get('model')}")
 
     # 记录 LLM 调用的 payload
     perf_logger: ChatPerfLogger = metadata.get("perf_logger") if metadata else None
