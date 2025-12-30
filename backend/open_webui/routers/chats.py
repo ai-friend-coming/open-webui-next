@@ -19,7 +19,7 @@ from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS, ENABLE_IMPORT_MEMORY_EXTRACTION, MAX_IMPORT_CHATS_COUNT
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from open_webui.memory.mem0 import mem0_delete
+from open_webui.memory.mem0 import mem0_delete, mem0_delete_by_message_content
 
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -808,6 +808,51 @@ async def delete_chat_by_id(request: Request, id: str, user=Depends(get_verified
         result = Chats.delete_chat_by_id_and_user_id(id, user.id)
         return result
 
+
+############################
+# DeleteMessageMemory
+############################
+
+
+class DeleteMessageMemoryForm(BaseModel):
+    """删除消息记忆的请求体"""
+
+    message_content: str
+
+
+@router.post("/{id}/message/memory/delete", response_model=bool)
+async def delete_message_memory(
+    id: str,
+    form_data: DeleteMessageMemoryForm,
+    user=Depends(get_verified_user)
+):
+    """
+    删除指定消息的 mem0 记忆
+
+    Args:
+        id: 聊天ID
+        form_data: 包含消息内容的表单
+        user: 当前用户
+
+    Returns:
+        bool: 删除成功返回 True
+    """
+    # 验证聊天所有权
+    chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found"
+        )
+
+    # 调用 mem0 删除函数
+    result = await mem0_delete_by_message_content(
+        user.id,
+        id,
+        form_data.message_content
+    )
+
+    return result
 
 
 ############################

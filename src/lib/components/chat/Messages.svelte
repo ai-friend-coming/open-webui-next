@@ -13,7 +13,7 @@
 	const dispatch = createEventDispatcher();
 
 	import { toast } from 'svelte-sonner';
-	import { getChatList, updateChatById } from '$lib/apis/chats';
+	import { getChatList, updateChatById, deleteMessageMemory } from '$lib/apis/chats';
 	import { copyToClipboard, extractCurlyBraceWords } from '$lib/utils';
 
 	import Message from './Messages/Message.svelte';
@@ -409,6 +409,17 @@
 		const messageToDelete = history.messages[messageId];
 		const parentMessageId = messageToDelete.parentId;
 		const childMessageIds = messageToDelete.childrenIds ?? [];
+
+		// 如果是用户消息，删除对应的 mem0 记忆
+		if (messageToDelete.role === 'user' && messageToDelete.content && chatId) {
+			try {
+				await deleteMessageMemory(localStorage.token, chatId, messageToDelete.content);
+				console.log('[Memory] Deleted memory for message:', messageId);
+			} catch (error) {
+				console.warn('[Memory] Failed to delete memory:', error);
+				// 继续执行消息删除，不阻止
+			}
+		}
 
 		// Collect all grandchildren
 		const grandchildrenIds = childMessageIds.flatMap(

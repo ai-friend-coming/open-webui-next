@@ -1050,6 +1050,43 @@ export const deleteChatById = async (token: string, id: string) => {
 	return res;
 };
 
+export const deleteMessageMemory = async (
+	token: string,
+	chatId: string,
+	messageContent: string
+) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/chats/${chatId}/message/memory/delete`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		},
+		body: JSON.stringify({
+			message_content: messageContent
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err;
+			console.error(err);
+			return false;
+		});
+
+	if (error) {
+		console.warn('Failed to delete message memory:', error);
+		// 不抛出错误,因为记忆删除失败不应阻止消息删除
+		return false;
+	}
+
+	return res;
+};
+
 export const getTagsById = async (token: string, id: string) => {
 	let error = null;
 

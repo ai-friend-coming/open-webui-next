@@ -1,6 +1,7 @@
 import os
 import zlib
 import re
+import hashlib
 import jieba.posseg as pseg  # [新增] 引入jieba词性标注
 from logging import getLogger
 from typing import Dict, List
@@ -223,13 +224,19 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
         truncated_message = truncate_text_if_needed(last_message)
         added_messages = [{"role": "user", "content": truncated_message}]
 
+        # 计算消息内容的哈希值，用于后续删除记忆时定位
+        message_hash = hashlib.sha256(last_message.encode('utf-8')).hexdigest()
+
         # 执行添加
         memory_client.add(
             added_messages,
             user_id=user_id,
             enable_graph=True,
             async_mode=True,
-            metadata={"session_id": chat_id},
+            metadata={
+                "session_id": chat_id,
+                "message_hash": message_hash  # 添加消息哈希用于后续删除
+            },
         )
         
         # 再对添加计费
@@ -241,12 +248,61 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
         return []
         
 async def mem0_delete(user_id: str, chat_id: str) -> bool:
+    """
+    删除指定聊天会话的 mem0 记忆
+
+    Args:
+        user_id: 用户ID
+        chat_id: 聊天会话ID
+
+    Returns:
+        bool: 删除成功返回 True
+    """
     try:
         log.info(f"[mem: delete]mem0_delete called with user_id: {user_id}, chat_id: {chat_id}")
+
+        # 使用 session_id 过滤，只删除该聊天窗口的记忆，而不是用户所有记忆
         memory_client.delete(
-            filters={"user_id": user_id}
+            filters={
+                "user_id": user_id,
+                "session_id": chat_id  # 修复：添加 session_id 过滤
+            }
         )
+        log.info(f"[mem: delete]Successfully deleted memories for chat_id: {chat_id}")
         return True
     except Exception as e:
-        log.debug(f"[mem: delete] mem0_delete failed: {e}")
+        log.error(f"[mem: delete] mem0_delete failed: {e}")
+        return False
+
+
+async def mem0_delete_by_message_content(user_id: str, chat_id: str, message_content: str) -> bool:
+    """
+    根据消息内容删除对应的 mem0 记忆
+
+    Args:
+        user_id: 用户ID
+        chat_id: 聊天会话ID
+        message_content: 消息内容（用于计算哈希）
+
+    Returns:
+        bool: 删除成功返回 True
+    """
+    try:
+        # 计算消息内容的哈希值
+        message_hash = hashlib.sha256(message_content.encode('utf-8')).hexdigest()
+
+        log.info(f"[mem: delete]mem0_delete_by_message_content called with user_id: {user_id}, chat_id: {chat_id}, hash: {message_hash[:16]}...")
+
+        # 使用多重过滤：user_id + session_id + message_hash
+        memory_client.delete(
+            filters={
+                "user_id": user_id,
+                "session_id": chat_id,
+                "message_hash": message_hash  # 精确匹配消息哈希
+            }
+        )
+        log.info(f"[mem: delete]Successfully deleted memory for message_hash: {message_hash[:16]}...")
+        return True
+    except Exception as e:
+        log.error(f"[mem: delete] mem0_delete_by_message_content failed: {e}")
         return False
