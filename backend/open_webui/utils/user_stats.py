@@ -202,9 +202,10 @@ def get_interaction_stats(user_id: str, days: int = 7) -> Dict:
         统计摘要字典，包含：
         - history: 每日交互次数
         - total: 期间总交互次数
-        - average: 日均交互次数
+        - average: 日均交互次数（只计算有交互的天数）
         - max_day: 交互最多的一天
         - max_count: 最大交互次数
+        - active_days: 有交互的天数
     """
     try:
         history = get_interaction_history(user_id, days=days)
@@ -215,11 +216,17 @@ def get_interaction_stats(user_id: str, days: int = 7) -> Dict:
                 "total": 0,
                 "average": 0.0,
                 "max_day": None,
-                "max_count": 0
+                "max_count": 0,
+                "days_count": 0,
+                "active_days": 0
             }
 
         total = sum(history.values())
-        average = total / len(history) if history else 0.0
+
+        # 只计算交互次数大于0的天数
+        active_days = sum(1 for count in history.values() if count > 0)
+        average = total / active_days if active_days > 0 else 0.0
+
         max_day = max(history, key=history.get) if history else None
         max_count = history[max_day] if max_day else 0
 
@@ -229,7 +236,8 @@ def get_interaction_stats(user_id: str, days: int = 7) -> Dict:
             "average": round(average, 2),
             "max_day": max_day,
             "max_count": max_count,
-            "days_count": len(history)
+            "days_count": len(history),
+            "active_days": active_days
         }
 
     except Exception as e:
@@ -239,7 +247,9 @@ def get_interaction_stats(user_id: str, days: int = 7) -> Dict:
             "total": 0,
             "average": 0.0,
             "max_day": None,
-            "max_count": 0
+            "max_count": 0,
+            "days_count": 0,
+            "active_days": 0
         }
 
 

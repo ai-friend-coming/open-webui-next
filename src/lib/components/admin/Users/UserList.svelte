@@ -369,6 +369,22 @@
 						</div>
 					</th>
 
+					<!-- 平均交互列 -->
+					<th scope="col" class="px-2.5 py-2 text-center">
+						<div class="flex gap-1.5 items-center justify-center">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 16 16"
+								fill="currentColor"
+								class="size-3.5 mr-0.5"
+							>
+								<path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H4z"/>
+								<path d="M8 3.5a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3a.5.5 0 0 1 .5-.5z"/>
+							</svg>
+							{$i18n.t('平均交互')}
+						</div>
+					</th>
+
 					<th
 						scope="col"
 						class="px-2.5 py-2 cursor-pointer select-none"
@@ -506,6 +522,42 @@
 								</div>
 							{:else}
 								<span class="text-gray-700 dark:text-gray-300 font-medium">0</span>
+							{/if}
+						</td>
+
+						<!-- 平均交互单元格 -->
+						<td class="px-3 py-1 text-center">
+							{#if user.info}
+								{@const interactionHistory = user.info?.interaction_history || {}}
+								{@const counts = Object.values(interactionHistory)}
+								{@const activeDays = counts.filter(c => c > 0).length}
+								{@const total = counts.reduce((sum, c) => sum + c, 0)}
+								{@const average = activeDays > 0 ? (total / activeDays).toFixed(1) : '0.0'}
+
+								<div class="flex items-center justify-center gap-1.5">
+									<span class="text-gray-700 dark:text-gray-300 font-medium">
+										{average}
+									</span>
+
+									{#if activeDays > 0}
+										<span class="text-xs text-gray-500 dark:text-gray-400">
+											次/天
+										</span>
+									{/if}
+
+									<!-- 活跃度标识 -->
+									{#if parseFloat(average) >= 50}
+										<span class="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+											高活
+										</span>
+									{:else if parseFloat(average) >= 20}
+										<span class="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+											稳定
+										</span>
+									{/if}
+								</div>
+							{:else}
+								<span class="text-gray-700 dark:text-gray-300 font-medium">0.0</span>
 							{/if}
 						</td>
 
