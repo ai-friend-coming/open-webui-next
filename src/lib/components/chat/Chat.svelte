@@ -1789,7 +1789,6 @@
 			);
 		}
 
-		console.log(data);
 		await tick();
 
 		if (autoScroll) {
@@ -2660,6 +2659,7 @@
 	};
 
 	const stopResponse = async () => {
+		console.log("stopResponse");
 		if (taskIds) {
 			for (const taskId of taskIds) {
 				const res = await stopTask(localStorage.token, taskId).catch((error) => {
@@ -2669,14 +2669,20 @@
 			}
 
 			taskIds = null;
-
-			const responseMessage = history.messages[history.currentId];
-			// Set all response messages to done
-			for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-				history.messages[messageId].done = true;
+			
+			// 发现当前一条 assistant message 还没有收到第一个 token, 因此该消息可以直接撤回！
+			const last_message = history.messages[history.currentId];
+			if (last_message.role === 'assistant' && last_message.content === '') {
+				const parentID = last_message.parentId;
+				delete history.messages[history.currentId];
+				history.currentId = parentID;
+				history.messages[parentID].done = true;
+				history.messages[parentID].childrenIds = [];
+				console.log(history.messages[parentID]);
 			}
-
-			history.messages[history.currentId] = responseMessage;
+			const _chatId = JSON.parse(JSON.stringify($chatId));
+			const _history = JSON.parse(JSON.stringify(history));
+			await saveChatHandler(_chatId, _history);
 
 			if (autoScroll) {
 				scrollToBottom();
