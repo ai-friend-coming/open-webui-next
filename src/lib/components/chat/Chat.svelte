@@ -2757,12 +2757,23 @@
 	};
 
 	const regenerateResponse = async (message, suggestionPrompt = null) => {
-		console.log('regenerateResponse');
 
 		if (history.currentId) {
-			// 错误消息已在 chatEventHandler 中删除，此处无需清除
+			// 先删除旧的 response message，避免产生分支
+			const parentId = message.parentId;
+			const userMessage = history.messages[parentId];
 
-			let userMessage = history.messages[message.parentId];
+			if (parentId && history.messages[parentId]) {
+				history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
+					(id) => id !== message.id
+				);
+			}
+
+			delete history.messages[message.id];
+
+			if (history.currentId === message.id) {
+				history.currentId = parentId;
+			}
 
 			if (autoScroll) {
 				scrollToBottom();
@@ -2772,7 +2783,7 @@
 				...(suggestionPrompt
 					? {
 							messages: [
-								...createMessagesList(history, message.id),
+								...createMessagesList(history, userMessage.id),
 								{
 									role: 'user',
 									content: suggestionPrompt
