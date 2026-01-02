@@ -148,6 +148,7 @@
 	};
 
 	let taskIds = null;
+	const requestStatus: Record<string, { failed: boolean }> = {};
 
 	// Chat Input
 	let prompt = '';
@@ -394,6 +395,9 @@
 					// ========== 任务取消事件 ==========
 					// 用户点击停止或后端异常时触发，清理生成状态
 				} else if (type === 'chat:tasks:cancel') {
+					if (event.message_id) {
+						requestStatus[event.message_id] = { failed: true };
+					}
 					taskIds = null;
 					const responseMessage = history.messages[history.currentId];
 					// Set all response messages to done
@@ -417,6 +421,9 @@
 					// ========== 错误处理 ==========
 					// 后端处理失败时触发，需要回滚消息并清理状态
 				} else if (type === 'chat:message:error') {
+					if (event.message_id) {
+						requestStatus[event.message_id] = { failed: true };
+					}
 					// 显示 Toast 通知用户错误
 					toast.error(data.error?.content || $i18n.t('An error occurred'));
 
@@ -1727,6 +1734,7 @@
 		// ========== 流式结束处理 ==========
 		// done=true 表示 LLM 响应完成，需要执行收尾逻辑
 		if (done) {
+			delete requestStatus[message.id];
 			// 标记消息完成状态（UI 会根据此状态显示/隐藏加载指示器）
 			message.done = true;
 
@@ -2323,6 +2331,7 @@
 		responseMessageId,
 		_chatId
 	) => {
+		requestStatus[responseMessageId] = { failed: false };
 		// 第一步: 从历史记录中获取消息引用
 		const responseMessage = _history.messages[responseMessageId]; // 预创建的空响应消息
 		const userMessage = _history.messages[responseMessage.parentId]; // 用户发送的消息
@@ -2584,7 +2593,13 @@
 			if (res.error) {
 				// API 返回了错误 (HTTP 200 但 body 包含 error)
 				await handleOpenAIError(res.error, responseMessage);
-			} else {
+			} 
+			else if (requestStatus[responseMessageId]?.failed) // 这里用于规避 ws 先于 http response 到达之前返回了错误
+			{ 
+				delete requestStatus[responseMessageId];
+			} 
+			else 
+			{
 				// 成功: 注册 task_id 到 taskIds 数组
 				// 用于后续通过 chatEventHandler 匹配 Socket.IO 事件
 				if (taskIds) {

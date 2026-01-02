@@ -72,6 +72,3 @@ async def chat_error_boundary(metadata, user):
                     "data": {"error": {"content": user_toast_message}},
                 }
             )
-            await event_emitter(
-                {"type": "chat:tasks:cancel"},
-            )
