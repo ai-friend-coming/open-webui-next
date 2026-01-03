@@ -96,7 +96,7 @@
 									{#each memories as memory}
 										<tr class="border-b border-gray-50 dark:border-gray-850 items-center">
 											<td class="px-3 py-1">
-												<div class="line-clamp-1">
+												<div class="line-clamp-1 sensitive">
 													{memory.content}
 												</div>
 											</td>
@@ -214,13 +214,16 @@
 	}}
 />
 
+<div class='sensitive'>
 <AddMemoryModal
 	bind:show={showAddMemoryModal}
 	on:save={async () => {
 		memories = await getMemories(localStorage.token);
 	}}
 />
+</div>
 
+<div class='sensitive'>
 <EditMemoryModal
 	bind:show={showEditMemoryModal}
 	memory={selectedMemory}
@@ -228,3 +231,4 @@
 		memories = await getMemories(localStorage.token);
 	}}
 />
+</div>

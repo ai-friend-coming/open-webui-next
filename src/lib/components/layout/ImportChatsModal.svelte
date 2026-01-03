@@ -355,7 +355,7 @@
                             <DocumentText className="size-6" />
                         </div>
                         <div class="min-w-0">
-                            <div class="font-medium text-gray-900 dark:text-white truncate" title={fileName}>{fileName}</div>
+                            <div class="sensitive font-medium text-gray-900 dark:text-white truncate" title={fileName}>{fileName}</div>
                             <div class="text-xs text-gray-500">包含 {rawChats.length} 条记录</div>
                         </div>
                     </div>
@@ -402,12 +402,14 @@
                             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
                                 <MagnifyingGlass className="size-4" />
                             </div>
-                            <input 
-                                type="text"
-                                bind:value={searchQuery}
-                                placeholder="搜索标题..."
-                                class="w-full pl-9 pr-4 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border-none rounded-lg focus:ring-2 focus:ring-blue-500/50 text-gray-900 dark:text-white"
-                            />
+                            <div class='sensitive'>
+                                <input 
+                                    type="text"
+                                    bind:value={searchQuery}
+                                    placeholder="搜索标题..."
+                                    class="w-full pl-9 pr-4 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border-none rounded-lg focus:ring-2 focus:ring-blue-500/50 text-gray-900 dark:text-white"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -436,7 +438,7 @@
                                         
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center justify-between gap-2">
-                                                <div class="font-medium text-gray-900 dark:text-gray-100 truncate text-sm">
+                                                <div class="sensitive font-medium text-gray-900 dark:text-gray-100 truncate text-sm">
                                                     {item.title || '无标题对话'}
                                                 </div>
 

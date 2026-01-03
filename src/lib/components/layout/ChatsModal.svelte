@@ -235,7 +235,7 @@
 										href={shareUrl ? `/s/${chat.id}` : `/c/${chat.id}`}
 										on:click={() => (show = false)}
 									>
-										<div class="text-ellipsis line-clamp-1 w-full">
+										<div class="sensitive text-ellipsis line-clamp-1 w-full">
 											{chat?.title}
 										</div>
 									</a>

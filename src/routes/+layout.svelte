@@ -46,6 +46,7 @@
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
 	import { chatCompletion } from '$lib/apis/openai';
+	import { logOutTracking, signInTracking, initTabTracking } from '$lib/posthog';
 
 	import { beforeNavigate } from '$app/navigation';
 	import { updated } from '$app/state';
@@ -519,10 +520,11 @@
 			return;
 		}
 
-		if (now >= exp - TOKEN_EXPIRY_BUFFER) {
-			const res = await userSignOut();
-			user.set(null);
-			localStorage.removeItem('token');
+			if (now >= exp - TOKEN_EXPIRY_BUFFER) {
+				const res = await userSignOut();
+				logOutTracking({ reason: 'token_expired' });
+				user.set(null);
+				localStorage.removeItem('token');
 
 			location.href = res?.redirect_url ?? '/auth';
 		}
@@ -619,6 +621,8 @@
 		};
 		window.addEventListener('resize', onResize);
 
+		const cleanupTabTracking = initTabTracking();
+
 		user.subscribe((value) => {
 			if (value) {
 				$socket?.off('events', chatEventHandler);
@@ -679,6 +683,7 @@
 					});
 
 					if (sessionUser) {
+						signInTracking(sessionUser);
 						await user.set(sessionUser);
 						await config.set(await getBackendConfig());
 					} else {
@@ -733,6 +738,7 @@
 
 		return () => {
 			window.removeEventListener('resize', onResize);
+			if (cleanupTabTracking) cleanupTabTracking();
 		};
 	});
 </script>

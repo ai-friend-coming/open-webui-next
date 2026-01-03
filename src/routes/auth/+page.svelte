@@ -22,6 +22,7 @@
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { agreementContent as defaultAgreementContent, privacyContent as defaultPrivacyContent, letter } from '$lib/constants/legal';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
+	import { signInTracking } from '$lib/posthog';
 
 	import { generateInitialsImage, canvasPixelTest } from '$lib/utils';
 
@@ -78,6 +79,7 @@
 				localStorage.token = sessionUser.token;
 			}
 			$socket.emit('user-join', { auth: { token: sessionUser.token } });
+			signInTracking(sessionUser);
 			await user.set(sessionUser);
 			await config.set(await getBackendConfig());
 

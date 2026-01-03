@@ -52,26 +52,28 @@
 >
 	{#if history.messages[messageId]}
 		{#if history.messages[messageId].role === 'user'}
-			<UserMessage
-				{user}
-				{chatId}
-				{history}
-				{messageId}
-				isFirstMessage={idx === 0}
-				siblings={history.messages[messageId].parentId !== null
-					? (history.messages[history.messages[messageId].parentId]?.childrenIds ?? [])
-					: (Object.values(history.messages)
-							.filter((message) => message.parentId === null)
-							.map((message) => message.id) ?? [])}
-				{gotoMessage}
-				{showPreviousMessage}
-				{showNextMessage}
-				{editMessage}
-				{deleteMessage}
-				{readOnly}
-				{editCodeBlock}
-				{topPadding}
-			/>
+			<div class='sensitive'>
+				<UserMessage
+					{user}
+					{chatId}
+					{history}
+					{messageId}
+					isFirstMessage={idx === 0}
+					siblings={history.messages[messageId].parentId !== null
+						? (history.messages[history.messages[messageId].parentId]?.childrenIds ?? [])
+						: (Object.values(history.messages)
+								.filter((message) => message.parentId === null)
+								.map((message) => message.id) ?? [])}
+					{gotoMessage}
+					{showPreviousMessage}
+					{showNextMessage}
+					{editMessage}
+					{deleteMessage}
+					{readOnly}
+					{editCodeBlock}
+					{topPadding}
+				/>
+			</div>
 		{:else if (history.messages[history.messages[messageId].parentId]?.models?.length ?? 1) === 1}
 			<ResponseMessage
 				{chatId}

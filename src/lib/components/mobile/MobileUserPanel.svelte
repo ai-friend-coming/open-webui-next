@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 
 	import { userSignOut } from '$lib/apis/auths';
+	import { logOutTracking } from '$lib/posthog';
 	import { getBalance } from '$lib/apis/billing';
 
 	import {
@@ -56,6 +57,7 @@
 
 	const handleSignOut = async () => {
 		const res = await userSignOut();
+		logOutTracking();
 		user.set(null);
 		localStorage.removeItem('token');
 		location.href = res?.redirect_url ?? '/auth';
