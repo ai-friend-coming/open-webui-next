@@ -24,6 +24,7 @@
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
 
 	import { generateInitialsImage, canvasPixelTest } from '$lib/utils';
+	import { initEncryptionKey } from '$lib/utils/crypto';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
@@ -80,6 +81,15 @@
 			$socket.emit('user-join', { auth: { token: sessionUser.token } });
 			await user.set(sessionUser);
 			await config.set(await getBackendConfig());
+
+			// 初始化端到端加密密钥
+			try {
+				await initEncryptionKey(sessionUser.id, sessionUser.token);
+				console.log('[Auth] Encryption key initialized for user:', sessionUser.id);
+			} catch (error) {
+				console.error('[Auth] Failed to initialize encryption key:', error);
+				// 不阻止登录流程
+			}
 
 			if (!redirectPath) {
 				redirectPath = $page.url.searchParams.get('redirect') || '/';

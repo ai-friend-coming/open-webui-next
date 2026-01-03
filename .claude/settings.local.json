@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(node test-crypto.mjs:*)",
+      "Bash(node test-key-diagnostic.mjs:*)",
+      "Bash(node test-cross-platform.mjs:*)",
+      "Bash(node test-backend-to-frontend.mjs:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

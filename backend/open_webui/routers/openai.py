@@ -34,6 +34,8 @@ from open_webui.env import (
     ENABLE_FORWARD_USER_INFO_HEADERS,
     BYPASS_MODEL_ACCESS_CONTROL,
     CHAT_DEBUG_FLAG,
+    ENABLE_E2E_ENCRYPTION,
+    ENCRYPTION_DEBUG,
 )
 from open_webui.models.users import UserModel
 from open_webui.memory.cross_window_memory import last_process_payload
@@ -54,6 +56,7 @@ from open_webui.utils.misc import (
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access
+from open_webui.utils.crypto import create_encryption_session, encrypt_streaming_response
 
 
 log = logging.getLogger(__name__)
@@ -1078,8 +1081,33 @@ async def generate_chat_completion(
             except Exception as stats_error:
                 log.error(f"统计交互次数失败: {stats_error}")
 
+            # === 端到端加密处理 ===
+            stream_content = r.content
+
+            if ENABLE_E2E_ENCRYPTION:
+                try:
+                    # 从请求头中提取 JWT token
+                    auth_header = request.headers.get("authorization", "")
+                    session_token = auth_header.replace("Bearer ", "") if auth_header else None
+
+                    if session_token:
+                        # 创建加密会话
+                        encryption_session = create_encryption_session(user.id, session_token)
+
+                        # 包装流式响应，添加加密
+                        stream_content = encrypt_streaming_response(r.content, encryption_session)
+
+                        if ENCRYPTION_DEBUG:
+                            log.info(f"[Crypto] Enabled encryption for user: {user.id}")
+                    else:
+                        log.warning("[Crypto] No session token found, encryption disabled for this request")
+                except Exception as e:
+                    log.error(f"[Crypto] Encryption initialization failed: {e}")
+                    # 加密失败时降级为不加密
+                    stream_content = r.content
+
             return StreamingResponse(
-                r.content,
+                stream_content,
                 status_code=r.status,
                 headers=dict(r.headers),
                 background=BackgroundTask(

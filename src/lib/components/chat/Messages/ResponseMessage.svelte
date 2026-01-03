@@ -3,7 +3,7 @@
 	import dayjs from 'dayjs';
 
 	import { createEventDispatcher } from 'svelte';
-	import { onMount, tick, getContext } from 'svelte';
+	import { onMount, onDestroy, tick, getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import type { i18n as i18nType, t } from 'i18next';
 
@@ -62,6 +62,10 @@
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
+
+	// 端到端加密相关导入
+	import { streamDecrypt, isEncryptionEnabled } from '$lib/utils/crypto';
+	import EncryptionIndicator from '$lib/components/common/EncryptionIndicator.svelte';
 
 	interface MessageType {
 		id: string;
@@ -155,6 +159,13 @@
 	let buttonsContainerElement: HTMLDivElement;
 	let showDeleteConfirm = false;
 
+	// 端到端加密状态
+	let decryptedContent = '';
+	let encryptedTail = '';
+	let isDecrypting = false;
+	let decryptError = false;
+	let decryptTimer: NodeJS.Timeout | null = null;
+
 	let model = null;
 	let userModel = null;
 	let modelName = '';
@@ -240,6 +251,68 @@
 	};
 
 	let preprocessedDetailsCache = [];
+
+	/**
+	 * 执行流式解密
+	 */
+	async function performStreamDecryption(content: string) {
+		if (!content || !isEncryptionEnabled()) {
+			// 未启用加密或内容为空，直接显示原文
+			decryptedContent = content;
+			encryptedTail = '';
+			isDecrypting = false;
+			decryptError = false;
+			return;
+		}
+
+		isDecrypting = true;
+		decryptError = false;
+
+		try {
+			const result = await streamDecrypt([content], 10);
+			decryptedContent = result.decrypted;
+			encryptedTail = result.encrypted;
+		} catch (error) {
+			console.error('[ResponseMessage] Stream decryption failed:', error);
+			decryptError = true;
+			// 失败时显示原文
+			decryptedContent = content;
+			encryptedTail = '';
+		} finally {
+			isDecrypting = false;
+		}
+	}
+
+	/**
+	 * 防抖解密：避免频繁调用
+	 */
+	function scheduleDecryption(content: string) {
+		if (decryptTimer) {
+			clearTimeout(decryptTimer);
+		}
+
+		decryptTimer = setTimeout(() => {
+			performStreamDecryption(content);
+		}, 100);
+	}
+
+	// 监听消息内容变化，触发解密
+	$: if (message?.content && isEncryptionEnabled()) {
+		scheduleDecryption(message.content);
+	} else {
+		// 未启用加密时，直接使用原文
+		decryptedContent = message?.content || '';
+		encryptedTail = '';
+		isDecrypting = false;
+	}
+
+	// 组件销毁时清理定时器
+	onDestroy(() => {
+		if (decryptTimer) {
+			clearTimeout(decryptTimer);
+			decryptTimer = null;
+		}
+	});
 
 	function preprocessForEditing(content: string): string {
 		// Replace <details>...</details> with unique ID placeholder
@@ -644,45 +717,99 @@
 								{:else if message.content && message.error !== true}
 									<!-- always show message contents even if there's an error -->
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
-									<ContentRenderer
-										id={`${chatId}-${message.id}`}
-										messageId={message.id}
-										{history}
-										{selectedModels}
-										content={message.content}
-										sources={message.sources}
-										floatingButtons={message?.done &&
-											!readOnly &&
-											($settings?.showFloatingActionButtons ?? true)}
-										save={!readOnly}
-										preview={!readOnly}
-										{editCodeBlock}
-										{topPadding}
-										done={($settings?.chatFadeStreamingText ?? true)
-											? (message?.done ?? false)
-											: true}
-										{model}
-										onTaskClick={async (e) => {
-											console.log(e);
-										}}
-										onSourceClick={async (id, idx) => {
-											console.log(id, idx);
 
-											if (citationsElement) {
-												citationsElement?.showSourceModal(idx - 1);
-											}
-										}}
-										onAddMessages={({ modelId, parentId, messages }) => {
-											addMessages({ modelId, parentId, messages });
-										}}
-										onSave={({ raw, oldContent, newContent }) => {
-											history.messages[message.id].content = history.messages[
-												message.id
-											].content.replace(raw, raw.replace(oldContent, newContent));
+									<!-- 端到端加密：显示解密进度 -->
+									{#if isEncryptionEnabled() && (isDecrypting || encryptedTail)}
+										<div class="flex items-center gap-2 mb-2">
+											<!-- 已解密的明文部分 -->
+											{#if decryptedContent}
+												<ContentRenderer
+													id={`${chatId}-${message.id}`}
+													messageId={message.id}
+													{history}
+													{selectedModels}
+													content={decryptedContent}
+													sources={message.sources}
+													floatingButtons={false}
+													save={false}
+													preview={!readOnly}
+													{editCodeBlock}
+													{topPadding}
+													done={true}
+													{model}
+													onTaskClick={async (e) => {
+														console.log(e);
+													}}
+													onSourceClick={async (id, idx) => {
+														console.log(id, idx);
+														if (citationsElement) {
+															citationsElement?.showSourceModal(idx - 1);
+														}
+													}}
+													onAddMessages={({ modelId, parentId, messages }) => {
+														addMessages({ modelId, parentId, messages });
+													}}
+													onSave={({ raw, oldContent, newContent }) => {
+														history.messages[message.id].content = history.messages[
+															message.id
+														].content.replace(raw, raw.replace(oldContent, newContent));
+														updateChat();
+													}}
+												/>
+											{/if}
 
-											updateChat();
-										}}
-									/>
+											<!-- 密文尾部 -->
+											{#if encryptedTail}
+												<span class="font-mono text-gray-400 dark:text-gray-500 text-sm tracking-wider">
+													{encryptedTail}
+												</span>
+											{/if}
+
+											<!-- 加密传输指示器 -->
+											<EncryptionIndicator show={true} variant="inline" />
+										</div>
+									{:else}
+										<!-- 未启用加密或已完全解密，正常显示 -->
+										<ContentRenderer
+											id={`${chatId}-${message.id}`}
+											messageId={message.id}
+											{history}
+											{selectedModels}
+											content={decryptedContent || message.content}
+											sources={message.sources}
+											floatingButtons={message?.done &&
+												!readOnly &&
+												($settings?.showFloatingActionButtons ?? true)}
+											save={!readOnly}
+											preview={!readOnly}
+											{editCodeBlock}
+											{topPadding}
+											done={($settings?.chatFadeStreamingText ?? true)
+												? (message?.done ?? false)
+												: true}
+											{model}
+											onTaskClick={async (e) => {
+												console.log(e);
+											}}
+											onSourceClick={async (id, idx) => {
+												console.log(id, idx);
+
+												if (citationsElement) {
+													citationsElement?.showSourceModal(idx - 1);
+												}
+											}}
+											onAddMessages={({ modelId, parentId, messages }) => {
+												addMessages({ modelId, parentId, messages });
+											}}
+											onSave={({ raw, oldContent, newContent }) => {
+												history.messages[message.id].content = history.messages[
+													message.id
+												].content.replace(raw, raw.replace(oldContent, newContent));
+
+												updateChat();
+											}}
+										/>
+									{/if}
 								{/if}
 
 								{#if message?.error}
