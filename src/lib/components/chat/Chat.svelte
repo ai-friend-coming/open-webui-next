@@ -148,7 +148,8 @@
 	};
 
 	let taskIds = null;
-	const requestStatus: Record<string, { failed: boolean }> = {};
+	let requestFailStatus: Record<string, { failed: boolean}> = {};
+	let request_stop_status: boolean = false;
 
 	// Chat Input
 	let prompt = '';
@@ -396,7 +397,7 @@
 					// 用户点击停止或后端异常时触发，清理生成状态
 				} else if (type === 'chat:tasks:cancel') {
 					if (event.message_id) {
-						requestStatus[event.message_id] = { failed: true };
+						requestFailStatus[event.message_id] = { failed: true };
 					}
 					taskIds = null;
 					const responseMessage = history.messages[history.currentId];
@@ -422,7 +423,7 @@
 					// 后端处理失败时触发，需要回滚消息并清理状态
 				} else if (type === 'chat:message:error') {
 					if (event.message_id) {
-						requestStatus[event.message_id] = { failed: true };
+						requestFailStatus[event.message_id] = { failed: true };
 					}
 					// 显示 Toast 通知用户错误
 					toast.error(data.error?.content || $i18n.t('An error occurred'));
@@ -1734,7 +1735,8 @@
 		// ========== 流式结束处理 ==========
 		// done=true 表示 LLM 响应完成，需要执行收尾逻辑
 		if (done) {
-			delete requestStatus[message.id];
+			delete requestFailStatus[message.id];
+			request_stop_status = false;
 			// 标记消息完成状态（UI 会根据此状态显示/隐藏加载指示器）
 			message.done = true;
 
@@ -2331,7 +2333,8 @@
 		responseMessageId,
 		_chatId
 	) => {
-		requestStatus[responseMessageId] = { failed: false };
+		requestFailStatus[responseMessageId] = { failed: false };
+		request_stop_status = false;
 		// 第一步: 从历史记录中获取消息引用
 		const responseMessage = _history.messages[responseMessageId]; // 预创建的空响应消息
 		const userMessage = _history.messages[responseMessage.parentId]; // 用户发送的消息
@@ -2594,10 +2597,9 @@
 				// API 返回了错误 (HTTP 200 但 body 包含 error)
 				await handleOpenAIError(res.error, responseMessage);
 			} 
-			else if (requestStatus[responseMessageId]?.failed) // 这里用于规避 ws 先于 http response 到达之前返回了错误
-			{ 
-				delete requestStatus[responseMessageId];
-			} 
+			// 这里用于规避，在 http response 还未到达之前
+			// 1. ws 就返回了错误
+			// 2. 用户就点击终止回复
 			else 
 			{
 				// 成功: 注册 task_id 到 taskIds 数组
@@ -2606,6 +2608,13 @@
 					taskIds.push(res.task_id);
 				} else {
 					taskIds = [res.task_id];
+				}
+
+				if (requestFailStatus[responseMessageId]?.failed || request_stop_status)
+				{
+					delete requestFailStatus[responseMessageId];
+					request_stop_status = false;
+					await stopResponse();
 				}
 			}
 		}
@@ -2675,6 +2684,25 @@
 
 	const stopResponse = async () => {
 		console.log("stopResponse");
+
+		let last_message = history.messages[history.currentId];
+		if (last_message.role === 'assistant' && last_message.content === '') {
+			request_stop_status = true;
+		}
+
+		// 发现当前一条 assistant message 还没有收到第一个 token, 因此该消息可以直接撤回！
+		if (last_message.role === 'assistant' && last_message.content === '') {
+			const parentID = last_message.parentId;
+			delete history.messages[history.currentId];
+			history.currentId = parentID;
+			history.messages[parentID].done = true;
+			history.messages[parentID].childrenIds = [];
+			console.log(history.messages[parentID]);
+		}
+		const _chatId = JSON.parse(JSON.stringify($chatId));
+		const _history = JSON.parse(JSON.stringify(history));
+		await saveChatHandler(_chatId, _history);
+
 		if (taskIds) {
 			for (const taskId of taskIds) {
 				const res = await stopTask(localStorage.token, taskId).catch((error) => {
@@ -2684,24 +2712,10 @@
 			}
 
 			taskIds = null;
-			
-			// 发现当前一条 assistant message 还没有收到第一个 token, 因此该消息可以直接撤回！
-			const last_message = history.messages[history.currentId];
-			if (last_message.role === 'assistant' && last_message.content === '') {
-				const parentID = last_message.parentId;
-				delete history.messages[history.currentId];
-				history.currentId = parentID;
-				history.messages[parentID].done = true;
-				history.messages[parentID].childrenIds = [];
-				console.log(history.messages[parentID]);
-			}
-			const _chatId = JSON.parse(JSON.stringify($chatId));
-			const _history = JSON.parse(JSON.stringify(history));
-			await saveChatHandler(_chatId, _history);
+		}
 
-			if (autoScroll) {
-				scrollToBottom();
-			}
+		if (autoScroll) {
+			scrollToBottom();
 		}
 
 		if (generating) {
@@ -3189,6 +3203,7 @@
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}
+									{request_stop_status}
 									{generating}
 									{stopResponse}
 									{createMessagePair}
