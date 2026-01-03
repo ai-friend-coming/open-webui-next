@@ -77,6 +77,29 @@
 		let _messages = [];
 
 		let message = history.messages[history.currentId];
+		if (
+			message &&
+			message.parentId === undefined &&
+			message.content === '' &&
+			!message.role &&
+			!message.id
+		) {
+			delete history.messages[history.currentId];
+			let latestId = null;
+			let latestTimestamp = -1;
+			for (const msg of Object.values(history.messages)) {
+					if (!msg?.id) {
+							continue;
+					}
+					const timestamp = msg.timestamp ?? 0;
+					if (timestamp >= latestTimestamp) {
+							latestTimestamp = timestamp;
+							latestId = msg.id;
+					}
+			}
+			history.currentId = latestId;
+			message = latestId ? history.messages[latestId] : null;
+		}
 		while (message && (messagesCount !== null ? _messages.length <= messagesCount : true)) {
 			_messages.unshift({ ...message });
 			message = message.parentId !== null ? history.messages[message.parentId] : null;
