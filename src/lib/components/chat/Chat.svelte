@@ -2859,61 +2859,6 @@
 		}
 	};
 
-	const mergeResponses = async (messageId, responses, _chatId) => {
-		console.log('mergeResponses', messageId, responses);
-		const message = history.messages[messageId];
-		const mergedResponse = {
-			status: true,
-			content: ''
-		};
-		message.merged = mergedResponse;
-		history.messages[messageId] = message;
-
-		try {
-			generating = true;
-			const [res, controller] = await generateMoACompletion(
-				localStorage.token,
-				message.model,
-				history.messages[message.parentId].content,
-				responses
-			);
-
-			if (res && res.ok && res.body && generating) {
-				generationController = controller;
-				const textStream = await createOpenAITextStream(res.body, $settings.splitLargeChunks);
-				for await (const update of textStream) {
-					const { value, done, sources, error, usage } = update;
-					if (error || done) {
-						generating = false;
-						generationController = null;
-						break;
-					}
-
-					if (mergedResponse.content == '' && value == '\n') {
-						continue;
-					} else {
-						mergedResponse.content += value;
-						history.messages[messageId] = message;
-					}
-
-					if (autoScroll) {
-						scrollToBottom();
-					}
-				}
-
-				await saveChatHandler(_chatId, history);
-			} else {
-				console.error(res);
-				// v3: API 调用失败，清理生成状态
-				cleanupGenerationState();
-			}
-		} catch (e) {
-			console.error(e);
-			// v3: 异常情况，清理生成状态
-			cleanupGenerationState();
-		}
-	};
-
 	const initChatHandler = async (history) => {
 		let _chatId = $chatId;
 
@@ -3171,7 +3116,6 @@
 										{submitMessage}
 										{continueResponse}
 										{regenerateResponse}
-										{mergeResponses}
 										{chatActionHandler}
 										{addMessages}
 										topPadding={true}
