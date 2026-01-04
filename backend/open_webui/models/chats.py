@@ -272,10 +272,15 @@ class ChatTable:
         last_timestamp: Optional[int],
         status: Literal["done", "generating"],
         summarize_task_id: str,
-        cold_start_messages: List[Dict]
+        cold_start_messages: List[Dict],
+        increase_summary_time: bool = False
     ) -> Optional[ChatModel]:
         """
         写入 chat.meta.summary，并更新更新时间。
+
+        参数：
+            increase_summary_time: 如果为 True，则 chat.meta["summary_time"] += 1
+                                   如果 chat.meta["summary_time"] 为空，默认从 0 开始
         """
         try:
             with get_db() as db:
@@ -285,6 +290,12 @@ class ChatTable:
                     return None
 
                 meta = chat.meta if isinstance(chat.meta, dict) else {}
+
+                # 处理 summary_time 增加逻辑
+                if increase_summary_time:
+                    current_summary_time = meta.get("summary_time", 0) or 0
+                    meta["summary_time"] = current_summary_time + 1
+
                 new_meta = {
                     **meta,
                     "summary": {
