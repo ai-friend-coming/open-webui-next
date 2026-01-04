@@ -1,7 +1,7 @@
 import posthog from 'posthog-js';
 
 // =====================================================
-// ==================== PostHog 初始化与基础埋点 ====================
+// ============== PostHog 初始化与基础埋点 ==============
 // =====================================================
 
 /**
@@ -288,6 +288,8 @@ export const trackImportChatsFileParsed = (chatCount: number) => {
  *       - messageLengths: number[] - 每条消息的字符长度
  *       - latestMessageTime: string|null - 最新消息的时间 (ISO 8601)
  *       - createdAt: string|null - 聊天创建时间 (ISO 8601)
+ *       - modelUsage: Record<string, number> - 模型使用次数统计
+ *           示例: {"gpt-4o": 23, "gpt-5.1": 10} 表示该 chat 中 gpt-4o 回复了 23 次，gpt-5.1 回复了 10 次
  *
  * @param origin 数据来源格式
  * @param importedChats 导入成功的聊天原始数据数组
@@ -315,6 +317,24 @@ export const trackImportChatsCompleted = (
 			return typeof content === 'string' ? content.length : JSON.stringify(content).length;
 		});
 
+		// 统计模型使用次数（仅统计 assistant 角色的消息）
+		const modelUsage: Record<string, number> = {};
+		messageArray.forEach((msg: any) => {
+			// 只统计 assistant/model 角色的回复
+			const role = msg?.role || '';
+			if (role !== 'assistant' && role !== 'model') return;
+
+			// 尝试从多个可能的字段获取模型名称
+			const model =
+				msg?.model ||
+				msg?.metadata?.model_slug ||
+				(Array.isArray(msg?.models) && msg.models.length > 0 ? msg.models[0] : null);
+
+			if (model && typeof model === 'string') {
+				modelUsage[model] = (modelUsage[model] || 0) + 1;
+			}
+		});
+
 		// 获取最新消息时间
 		let latestMessageTime: string | null = null;
 		if (messageArray.length > 0) {
@@ -337,7 +357,8 @@ export const trackImportChatsCompleted = (
 			latestMessageTime,
 			createdAt: importedChat.created_at
 				? new Date(importedChat.created_at * 1000).toISOString()
-				: null
+				: null,
+			modelUsage
 		};
 	});
 
