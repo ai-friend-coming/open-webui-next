@@ -77,6 +77,7 @@
 	import { getTools } from '$lib/apis/tools';
 	import { uploadFile } from '$lib/apis/files';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
+	import { SendingRequestManagement } from './SendingRequestManagement';
 
 	import { fade } from 'svelte/transition';
 
@@ -117,6 +118,10 @@
 	let eventCallback = null;
 
 	let chatIdUnsubscriber: Unsubscriber | undefined;
+	const sendingRequestManagement = new SendingRequestManagement();
+	let isWaitingForResponse = false;
+	const currentRequestId = sendingRequestManagement.currentRequestId;
+	$: isWaitingForResponse = $currentRequestId !== null;
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -133,9 +138,6 @@
 
 	let showCommands = false;
 
-	let generating = false;
-	let generationController = null;
-
 	let chat = null;
 	let tags = [];
 
@@ -143,10 +145,6 @@
 		messages: {},
 		currentId: null
 	};
-
-	let taskIds = null;
-	let requestFailStatus: Record<string, { failed: boolean}> = {};
-	let request_stop_status: boolean = false;
 
 	// Chat Input
 	let prompt = '';
@@ -367,7 +365,7 @@
 	 * @param cb - 可选回调，用于 confirmation/execute/input 等需要响应的事件
 	 */
 	const chatEventHandler = async (event, cb) => {
-		console.log(event);
+		// console.log(event);
 
 		// 只处理当前聊天的事件（通过 chat_id 过滤）
 		if (event.chat_id === $chatId) {
@@ -394,16 +392,16 @@
 					// 用户点击停止或后端异常时触发，清理生成状态
 				} else if (type === 'chat:tasks:cancel') {
 					if (event.message_id) {
-						requestFailStatus[event.message_id] = { failed: true };
+						sendingRequestManagement.handleWsChatTasksCancel(event.message_id);
 					}
-					taskIds = null;
-					const responseMessage = history.messages[history.currentId];
-					// Set all response messages to done
-					for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-						history.messages[messageId].done = true;
+
+					if (event.message_id === history.currentId) {
+						const responseMessage = history.messages[history.currentId];
+						// Set all response messages to done
+						for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
+							history.messages[messageId].done = true;
+						}
 					}
-					// ========== 消息内容增量更新 ==========
-					// 流式响应时逐块追加内容
 				} else if (type === 'chat:message:delta' || type === 'message') {
 					message.content += data.content;
 					// ========== 消息内容替换 ==========
@@ -420,8 +418,9 @@
 					// 后端处理失败时触发，需要回滚消息并清理状态
 				} else if (type === 'chat:message:error') {
 					if (event.message_id) {
-						requestFailStatus[event.message_id] = { failed: true };
+						sendingRequestManagement.handleWsChatMessageError(event.message_id);
 					}
+
 					// 显示 Toast 通知用户错误
 					toast.error(data.error?.content || $i18n.t('An error occurred'));
 
@@ -446,9 +445,6 @@
 					if (parentId && history.messages[parentId]) {
 						history.messages[parentId].done = true;
 					}
-
-					// v3: 清理生成状态（防御性，后端会发送 chat:tasks:cancel 但添加保险）
-					cleanupGenerationState();
 
 					// 保存更新后的 history 到数据库
 					await saveChatHandler($chatId, history);
@@ -1197,14 +1193,15 @@
 				}
 
 				memoryLocked = Object.keys(history?.messages ?? {}).length > 0;
+				
+				// NotTODO:
+				// const taskRes = await getTaskIdsByChatId(localStorage.token, $chatId).catch((error) => {
+				// 	return null;
+				// });
 
-				const taskRes = await getTaskIdsByChatId(localStorage.token, $chatId).catch((error) => {
-					return null;
-				});
-
-				if (taskRes) {
-					taskIds = taskRes.task_ids;
-				}
+				// if (taskRes) {
+				// 	taskIds = taskRes.task_ids;
+				// }
 
 				await tick();
 
@@ -1268,6 +1265,7 @@
 			// ========== 错误处理：回滚消息 ==========
 			toast.error(`${error}`);
 
+			await sendingRequestManagement.handleWsChatCompletionError(responseMessageId);
 			// v2: 删除错误消息而不是设置 error 字段
 			const errorMessage = history.messages[responseMessageId];
 			if (errorMessage) {
@@ -1292,9 +1290,6 @@
 				if (parentId && history.messages[parentId]) {
 					history.messages[parentId].done = true;
 				}
-
-				// v3: 清理生成状态（防御性，任务已在 1210 行清理但确保状态干净）
-				cleanupGenerationState();
 
 				// 保存更新后的 history 到数据库
 				await saveChatHandler($chatId, history);
@@ -1342,9 +1337,6 @@
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
 		}
-
-		// ========== 4. 清理生成状态 ==========
-		taskIds = null;
 	};
 
 	const chatActionHandler = async (chatId, actionId, modelId, responseMessageId, event = null) => {
@@ -1391,9 +1383,6 @@
 				if (parentId && history.messages[parentId]) {
 					history.messages[parentId].done = true;
 				}
-
-				// v3: 清理生成状态（防御性，确保状态干净）
-				cleanupGenerationState();
 
 				// 保存更新后的 history 到数据库
 				await saveChatHandler($chatId, history);
@@ -1732,8 +1721,7 @@
 		// ========== 流式结束处理 ==========
 		// done=true 表示 LLM 响应完成，需要执行收尾逻辑
 		if (done) {
-			delete requestFailStatus[message.id];
-			request_stop_status = false;
+			sendingRequestManagement.handleWsChatCompletion(message.id);
 			// 标记消息完成状态（UI 会根据此状态显示/隐藏加载指示器）
 			message.done = true;
 
@@ -2115,6 +2103,9 @@
 				// 4.4 记录响应消息 ID，用于后续查找
 				// key 格式：modelId-modelIdx，例如 "gpt-4-0"
 				responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
+
+				// 提前标记请求进行中，让输入区立即显示“停止”按钮
+				sendingRequestManagement.sendRequest(responseMessageId);
 			}
 		}
 		history = history;
@@ -2136,7 +2127,7 @@
 		// 使用 Promise.all 实现并行请求，提升多模型对话的性能
 		await Promise.all(
 			selectedModelIds.map(async (modelId, _modelIdx) => {
-				console.log('modelId', modelId);
+				// console.log('modelId', modelId);
 				const combined = getCombinedModelById(modelId);
 				const model = combined?.model ?? combined?.credential;
 
@@ -2330,8 +2321,6 @@
 		responseMessageId,
 		_chatId
 	) => {
-		requestFailStatus[responseMessageId] = { failed: false };
-		request_stop_status = false;
 		// 第一步: 从历史记录中获取消息引用
 		const responseMessage = _history.messages[responseMessageId]; // 预创建的空响应消息
 		const userMessage = _history.messages[responseMessage.parentId]; // 用户发送的消息
@@ -2579,9 +2568,6 @@
 				history.messages[parentId].done = true;
 			}
 
-			// 回滚步骤 5: 清理生成状态 (防御性)
-			cleanupGenerationState();
-
 			// 回滚步骤 6: 保存回滚后的 history 到数据库
 			await saveChatHandler($chatId, history);
 
@@ -2599,20 +2585,16 @@
 			// 2. 用户就点击终止回复
 			else 
 			{
-				// 成功: 注册 task_id 到 taskIds 数组
-				// 用于后续通过 chatEventHandler 匹配 Socket.IO 事件
-				if (taskIds) {
-					taskIds.push(res.task_id);
-				} else {
-					taskIds = [res.task_id];
+				if (res.task_id) {
+					await sendingRequestManagement.receiveHttpResponse(responseMessageId, res.task_id);
 				}
-
-				if (requestFailStatus[responseMessageId]?.failed || request_stop_status)
-				{
-					delete requestFailStatus[responseMessageId];
-					request_stop_status = false;
-					await stopResponse();
-				}
+				// // 成功: 注册 task_id 到 taskIds 数组
+				// // 用于后续通过 chatEventHandler 匹配 Socket.IO 事件
+				// if (taskIds) {
+				// 	taskIds.push(res.task_id);
+				// } else {
+				// 	taskIds = [res.task_id];
+				// }
 			}
 		}
 
@@ -2672,74 +2654,28 @@
 			history.messages[parentId].done = true;
 		}
 
-		// v3: 清理生成状态（防御性，任务未创建但确保状态干净）
-		cleanupGenerationState();
-
 		// 保存更新后的 history 到数据库
 		await saveChatHandler($chatId, history);
 	};
 
 	const stopResponse = async () => {
-		console.log("stopResponse");
+		await sendingRequestManagement.stopCurrentResponse();
 
-		let last_message = history.messages[history.currentId];
-		if (last_message.role === 'assistant' && last_message.content === '') {
-			request_stop_status = true;
-		}
-
-		// 发现当前一条 assistant message 还没有收到第一个 token, 因此该消息可以直接撤回！
-		if (last_message.role === 'assistant' && last_message.content === '') {
-			const parentID = last_message.parentId;
-			delete history.messages[history.currentId];
-			history.currentId = parentID;
-			history.messages[parentID].done = true;
-			history.messages[parentID].childrenIds = [];
-			console.log(history.messages[parentID]);
-		}
-		const _chatId = JSON.parse(JSON.stringify($chatId));
-		const _history = JSON.parse(JSON.stringify(history));
-		await saveChatHandler(_chatId, _history);
-
-		if (taskIds) {
-			for (const taskId of taskIds) {
-				const res = await stopTask(localStorage.token, taskId).catch((error) => {
-					toast.error(`${error}`);
-					return null;
-				});
+		if (history.currentId) {
+			let last_message = history.messages[history.currentId];
+			// 发现当前一条 assistant message 还没有收到第一个 token, 因此该消息可以直接撤回！
+			if (last_message.role === 'assistant' && last_message.content === '') {
+				const parentID = last_message.parentId;
+				delete history.messages[history.currentId];
+				history.currentId = parentID;
+				history.messages[parentID].done = true;
+				history.messages[parentID].childrenIds = [];
 			}
-
-			taskIds = null;
+			await saveChatHandler($chatId, history);
 		}
 
 		if (autoScroll) {
 			scrollToBottom();
-		}
-
-		if (generating) {
-			generating = false;
-			generationController?.abort();
-			generationController = null;
-		}
-	};
-
-	/**
-	 * 清理生成相关的状态变量
-	 * 用于错误处理场景，恢复 UI 到待发送状态
-	 * 注意：不调用后端 API，不修改消息状态
-	 */
-	const cleanupGenerationState = () => {
-		// 清理后端任务 ID（防御性）
-		if (taskIds) {
-			taskIds = null;
-		}
-
-		// 清理客户端生成状态（MoA）
-		if (generating) {
-			generating = false;
-			if (generationController) {
-				generationController.abort();
-				generationController = null;
-			}
 		}
 	};
 
@@ -3129,7 +3065,7 @@
 								<MessageInput
 									bind:this={messageInput}
 									{history}
-									{taskIds}
+									{isWaitingForResponse}
 									{selectedModels}
 									bind:files
 									bind:prompt
@@ -3144,8 +3080,6 @@
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}
-									{request_stop_status}
-									{generating}
 									{stopResponse}
 									{createMessagePair}
 									onChange={(data) => {

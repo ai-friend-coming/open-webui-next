@@ -90,8 +90,6 @@
 	export let stopResponse: Function;
 
 	export let autoScroll = false;
-	export let request_stop_status: null | boolean = null;
-	export let generating = false;
 
 	export let atSelectedModel: Model | undefined = undefined;
 	export let selectedModels: [''];
@@ -100,7 +98,7 @@
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
 
 	export let history;
-	export let taskIds = null;
+	export let isWaitingForResponse = false;
 
 	export let prompt = '';
 	export let files = [];
@@ -1771,7 +1769,7 @@
 											</Tooltip>
 										{/if}
 
-										{#if !request_stop_status && ((taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true) || generating)}
+										{#if isWaitingForResponse}
 											<div class=" flex items-center">
 												<Tooltip content={$i18n.t('Stop')}>
 													<button
