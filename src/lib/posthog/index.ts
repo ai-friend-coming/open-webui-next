@@ -9,6 +9,7 @@ export const initPosthog = () => {
 		api_host: 'https://us.i.posthog.com',
 		defaults: '2025-11-30',
 		person_profiles: 'identified_only',
+		autocapture: false, // 禁用点击、输入、表单提交等交互事件
 		session_recording: {
 			maskAllInputs: false,
 			maskTextSelector: '.sensitive, .private, [data-sensitive="true"]'
