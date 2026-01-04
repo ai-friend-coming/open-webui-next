@@ -1,5 +1,32 @@
 import posthog from 'posthog-js';
 
+// =====================================================
+// ==================== PostHog 初始化与基础埋点 ====================
+// =====================================================
+
+/**
+ * PostHog 基础追踪业务流程：
+ * PostHog 是本平台的用户行为分析工具，用于收集用户行为数据以优化产品体验。
+ * 基础追踪包括：SDK 初始化、用户身份识别（登录/登出）、标签页活跃状态监控。
+ *
+ * 初始化流程：
+ * 1. 应用启动 → 调用 initPosthog() 初始化 SDK
+ * 2. 用户登录 → 调用 signInTracking() 关联用户身份
+ * 3. 页面加载 → 调用 initTabTracking() 开始监控标签页状态
+ * 4. 用户登出 → 调用 logOutTracking() 重置用户身份
+ */
+
+/**
+ * 初始化：initPosthog
+ *
+ * 【调用时机】应用启动时，在根布局组件 (+layout.svelte) 中调用
+ * 【功能说明】初始化 PostHog JavaScript SDK，配置数据收集策略
+ * 【配置说明】
+ *   - api_host: PostHog 数据接收服务器地址（美国节点）
+ *   - person_profiles: 'identified_only' - 仅为已登录用户创建用户档案
+ *   - autocapture: false - 禁用自动捕获（点击、输入等），只收集手动埋点
+ *   - session_recording: 会话录制配置，支持敏感信息遮罩
+ */
 export const initPosthog = () => {
 	if (typeof window === 'undefined') {
 		return;
@@ -18,6 +45,22 @@ export const initPosthog = () => {
 	});
 };
 
+/**
+ * 埋点：user_logged_in
+ *
+ * 【埋点时机】用户登录成功后，获取到用户信息时调用
+ * 【UI 操作】登录页面 → 输入凭证 → 点击登录 → 登录成功
+ * 【业务环节】用户身份识别，将后续所有事件与该用户关联
+ * 【功能说明】
+ *   - posthog.identify(): 将匿名用户转为已识别用户，关联用户 ID 和属性
+ *   - posthog.capture('user_logged_in'): 记录登录事件
+ * 【埋点数据】
+ *   - 用户属性 (通过 identify 设置):
+ *       - email: string - 用户邮箱
+ *       - name: string - 用户名称
+ *
+ * @param sessionUser - 登录成功后的用户会话信息
+ */
 export const signInTracking = (sessionUser: {
 	id: string;
 	email: string;
@@ -34,6 +77,20 @@ export const signInTracking = (sessionUser: {
 	posthog.capture('user_logged_in');
 };
 
+/**
+ * 埋点：user_logged_out
+ *
+ * 【埋点时机】用户点击登出按钮，执行登出操作时调用
+ * 【UI 操作】用户菜单 → 点击"登出"按钮
+ * 【业务环节】用户会话结束，清除用户身份关联
+ * 【功能说明】
+ *   - posthog.capture('user_logged_out'): 记录登出事件
+ *   - posthog.reset(): 重置用户身份，后续事件将作为匿名用户记录
+ * 【埋点数据】
+ *   - reason?: string - 可选，登出原因（如 'manual'、'session_expired' 等）
+ *
+ * @param metadata - 登出元数据，包含可选的登出原因
+ */
 export const logOutTracking = (metadata: { reason?: string } = {}) => {
 	if (typeof window === 'undefined') {
 		return;
@@ -43,6 +100,45 @@ export const logOutTracking = (metadata: { reason?: string } = {}) => {
 	posthog.reset();
 };
 
+/**
+ * 标签页追踪初始化：initTabTracking
+ *
+ * 【调用时机】用户登录成功后，在根布局组件中初始化
+ * 【功能说明】监控用户标签页的活跃状态，用于分析用户使用模式和会话时长
+ * 【业务环节】用户活跃度监控，帮助理解用户如何与应用交互
+ *
+ * 【追踪的事件】
+ *   1. tab_heartbeat - 心跳事件，每 30 分钟发送一次
+ *      - page_url: string - 当前页面 URL
+ *      - visibility_state: string - 标签页可见状态
+ *
+ *   2. tab_hidden - 标签页被隐藏（用户切换到其他标签页）
+ *      - page_url: string - 当前页面 URL
+ *      - time_visible: number - 标签页可见的持续时间（毫秒）
+ *
+ *   3. tab_visible - 标签页变为可见（用户切换回本标签页）
+ *      - page_url: string - 当前页面 URL
+ *      - was_hidden_duration: number - 标签页隐藏的持续时间（毫秒）
+ *
+ *   4. window_blur - 窗口失去焦点（用户点击了其他应用）
+ *      - page_url: string - 当前页面 URL
+ *
+ *   5. window_focus - 窗口获得焦点（用户回到浏览器）
+ *      - page_url: string - 当前页面 URL
+ *
+ *   6. $pageleave - 页面卸载（用户关闭标签页或导航离开）
+ *      - $current_url: string - 当前页面 URL
+ *
+ *   7. page_hide - 页面隐藏（关闭标签页或导航离开的补充事件）
+ *      - page_url: string - 当前页面 URL
+ *      - persisted: boolean - 页面是否被缓存（bfcache）
+ *
+ * 【全局属性】通过 posthog.register() 注册，附加到所有后续事件：
+ *   - tab_id: string - 唯一标签页标识符，用于区分同一用户的多个标签页
+ *   - tab_opened_at: string - 标签页打开时间 (ISO 8601)
+ *
+ * @returns 清理函数，用于移除所有事件监听器和定时器；如果在服务端调用则返回 null
+ */
 export const initTabTracking = () => {
 	if (typeof window === 'undefined') {
 		return null;
