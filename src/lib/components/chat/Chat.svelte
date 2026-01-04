@@ -1431,129 +1431,6 @@
 		}, 1000);
 	};
 
-	const createMessagePair = async (userPrompt) => {
-		messageInput?.setText('');
-		if (selectedModels.length === 0) {
-			toast.error($i18n.t('Model not selected'));
-		} else {
-			const modelId = selectedModels[0];
-			const model = $models.filter((m) => m.id === modelId).at(0);
-
-			const messages = createMessagesList(history, history.currentId);
-			const parentMessage = messages.length !== 0 ? messages.at(-1) : null;
-
-			const userMessageId = uuidv4();
-			const responseMessageId = uuidv4();
-
-			const userMessage = {
-				id: userMessageId,
-				parentId: parentMessage ? parentMessage.id : null,
-				childrenIds: [responseMessageId],
-				role: 'user',
-				content: userPrompt ? userPrompt : `[PROMPT] ${userMessageId}`,
-				timestamp: Math.floor(Date.now() / 1000)
-			};
-
-			const responseMessage = {
-				id: responseMessageId,
-				parentId: userMessageId,
-				childrenIds: [],
-				role: 'assistant',
-				content: `[RESPONSE] ${responseMessageId}`,
-				done: true,
-
-				model: modelId,
-				modelName: model.name ?? model.id,
-				modelIdx: 0,
-				timestamp: Math.floor(Date.now() / 1000)
-			};
-
-			if (parentMessage) {
-				parentMessage.childrenIds.push(userMessageId);
-				history.messages[parentMessage.id] = parentMessage;
-			}
-			history.messages[userMessageId] = userMessage;
-			history.messages[responseMessageId] = responseMessage;
-
-			history.currentId = responseMessageId;
-
-			await tick();
-
-			if (autoScroll) {
-				scrollToBottom();
-			}
-
-			if (messages.length === 0) {
-				await initChatHandler(history);
-			} else {
-				await saveChatHandler($chatId, history);
-			}
-		}
-	};
-
-	const addMessages = async ({ modelId, parentId, messages }) => {
-		const model = $models.filter((m) => m.id === modelId).at(0);
-
-		let parentMessage = history.messages[parentId];
-		let currentParentId = parentMessage ? parentMessage.id : null;
-		for (const message of messages) {
-			let messageId = uuidv4();
-
-			if (message.role === 'user') {
-				const userMessage = {
-					id: messageId,
-					parentId: currentParentId,
-					childrenIds: [],
-					timestamp: Math.floor(Date.now() / 1000),
-					...message
-				};
-
-				if (parentMessage) {
-					parentMessage.childrenIds.push(messageId);
-					history.messages[parentMessage.id] = parentMessage;
-				}
-
-				history.messages[messageId] = userMessage;
-				parentMessage = userMessage;
-				currentParentId = messageId;
-			} else {
-				const responseMessage = {
-					id: messageId,
-					parentId: currentParentId,
-					childrenIds: [],
-					done: true,
-					model: model.id,
-					modelName: model.name ?? model.id,
-					modelIdx: 0,
-					timestamp: Math.floor(Date.now() / 1000),
-					...message
-				};
-
-				if (parentMessage) {
-					parentMessage.childrenIds.push(messageId);
-					history.messages[parentMessage.id] = parentMessage;
-				}
-
-				history.messages[messageId] = responseMessage;
-				parentMessage = responseMessage;
-				currentParentId = messageId;
-			}
-		}
-
-		history.currentId = currentParentId;
-		await tick();
-
-		if (autoScroll) {
-			scrollToBottom();
-		}
-
-		if (messages.length === 0) {
-			await initChatHandler(history);
-		} else {
-			await saveChatHandler($chatId, history);
-		}
-	};
-
 	/**
 	 * LLM 响应事件处理器（chat:completion）
 	 * ========================================
@@ -3053,7 +2930,6 @@
 										{continueResponse}
 										{regenerateResponse}
 										{chatActionHandler}
-										{addMessages}
 										topPadding={true}
 										bottomPadding={files.length > 0}
 										{onSelect}
@@ -3081,7 +2957,6 @@
 									bind:showCommands
 									toolServers={$toolServers}
 									{stopResponse}
-									{createMessagePair}
 									onChange={(data) => {
 										if (!$temporaryChatEnabled) {
 											saveDraft(data, $chatId);
@@ -3134,7 +3009,6 @@
 									bind:showCommands
 									toolServers={$toolServers}
 									{stopResponse}
-									{createMessagePair}
 									{onSelect}
 									onChange={(data) => {
 										if (!$temporaryChatEnabled) {

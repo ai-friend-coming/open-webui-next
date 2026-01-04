@@ -45,7 +45,6 @@
 	export let chatActionHandler: Function;
 	export let showMessage: Function = () => {};
 	export let submitMessage: Function = () => {};
-	export let addMessages: Function = () => {};
 
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -532,7 +531,6 @@
 								{submitMessage}
 								{regenerateResponse}
 								{continueResponse}
-								{addMessages}
 								{triggerScroll}
 								{readOnly}
 								{editCodeBlock}

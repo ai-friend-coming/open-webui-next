@@ -86,7 +86,6 @@
 	const i18n = getContext('i18n');
 
 	export let onChange: Function = () => {};
-	export let createMessagePair: Function;
 	export let stopResponse: Function;
 
 	export let autoScroll = false;
@@ -1295,12 +1294,6 @@
 
 															if (e.key === 'Escape') {
 																stopResponse();
-															}
-
-															// Command/Ctrl + Shift + Enter to submit a message pair
-															if (isCtrlPressed && e.key === 'Enter' && e.shiftKey) {
-																e.preventDefault();
-																createMessagePair(prompt);
 															}
 
 															// Check if Ctrl + R is pressed

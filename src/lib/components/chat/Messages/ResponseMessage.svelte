@@ -144,8 +144,6 @@
 	export let continueResponse: Function;
 	export let regenerateResponse: Function;
 
-	export let addMessages: Function;
-
 	export let isLastMessage = true;
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -671,9 +669,6 @@
 											if (citationsElement) {
 												citationsElement?.showSourceModal(idx - 1);
 											}
-										}}
-										onAddMessages={({ modelId, parentId, messages }) => {
-											addMessages({ modelId, parentId, messages });
 										}}
 										onSave={({ raw, oldContent, newContent }) => {
 											history.messages[message.id].content = history.messages[

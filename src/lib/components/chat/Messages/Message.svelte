@@ -36,7 +36,6 @@
 	export let regenerateResponse;
 	export let continueResponse;
 
-	export let addMessages;
 	export let triggerScroll;
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -93,7 +92,6 @@
 				{deleteMessage}
 				{continueResponse}
 				{regenerateResponse}
-				{addMessages}
 				{readOnly}
 				{editCodeBlock}
 				{topPadding}
