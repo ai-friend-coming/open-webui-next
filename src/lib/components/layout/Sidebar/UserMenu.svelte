@@ -143,7 +143,8 @@
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Settings')}</div>
 			</DropdownMenu.Item>
-
+			
+			{#if false}
 			<DropdownMenu.Item
 				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
 				on:click={async () => {
@@ -163,6 +164,7 @@
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Archived Chats')}</div>
 			</DropdownMenu.Item>
+			{/if}
 
 			{#if role === 'admin'}
 				<DropdownMenu.Item
