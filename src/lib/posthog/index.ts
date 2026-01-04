@@ -132,7 +132,10 @@ export const initTabTracking = () => {
 	};
 };
 
+// =====================================================
 // ==================== 导入聊天埋点 ====================
+// =====================================================
+
 /**
  * 导入聊天记录业务流程：
  * 用户可以从其他 AI 平台（DeepSeek、ChatGPT、Gemini、Grok、AI Studio、通义千问）导出聊天记录 JSON 文件，
@@ -263,5 +266,106 @@ export const trackImportChatsCompleted = (
 export const trackImportChatsModalClosed = (stage: 'before_upload' | 'after_upload') => {
 	if (typeof window === 'undefined') return;
 	posthog.capture('import_chats_modal_closed', { stage });
+};
+
+// =====================================================
+// ==================== 调整记忆埋点 ====================
+// =====================================================
+
+/**
+ * 调整记忆业务流程：
+ * 用户可以在平台中管理"记忆"，这些记忆是用户主动提供给 LLM 的个人信息，
+ * LLM 在对话时可以访问这些记忆，从而提供更个性化的回复。
+ *
+ * 完整流程：
+ * 1. 用户点击侧边栏"Memory"按钮 → 进入 /memories 页面
+ * 2. 用户可以添加新记忆 → 打开 AddMemoryModal → 输入内容 → 保存
+ * 3. 用户可以编辑已有记忆 → 打开 EditMemoryModal → 修改内容 → 保存
+ * 4. 用户可以删除已有记忆 → 点击删除按钮 → 记忆被删除
+ */
+
+/** 记忆对象类型（用于埋点函数参数） */
+interface MemoryForTracking {
+	id: string;
+	content?: string;
+}
+
+/** 提取记忆内容长度的工具函数 */
+const getContentLength = (content?: string): number => content?.length || 0;
+
+/**
+ * 埋点1：memory_page_open
+ *
+ * 【埋点时机】用户点击侧边栏"Memory"按钮，进入 /memories 页面时
+ * 【UI 操作】侧边栏 → 点击 Memory 按钮（Sparkles 图标）
+ * 【业务环节】记忆管理的入口，用户表达了管理记忆的意图
+ * 【埋点数据】无
+ */
+export const trackMemoryPageOpen = () => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('memory_page_open');
+};
+
+/**
+ * 埋点2：memory_added
+ *
+ * 【埋点时机】用户在 AddMemoryModal 中点击"Add"按钮，API 调用成功后
+ * 【UI 操作】/memories 页面 → 点击"Add Memory"按钮 → 填写内容 → 点击"Add"
+ * 【业务环节】新增记忆成功，用户完成了一条新记忆的创建
+ * 【埋点数据】
+ *   - memory_id: string - 新增记忆的 ID
+ *   - content_length: number - 记忆内容的字符数
+ *
+ * @param memory - API 返回的新增记忆对象
+ */
+export const trackMemoryAdded = (memory: MemoryForTracking) => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('memory_added', {
+		memory_id: memory.id,
+		content_length: getContentLength(memory.content)
+	});
+};
+
+/**
+ * 埋点3：memory_deleted
+ *
+ * 【埋点时机】用户点击记忆卡片上的删除按钮，API 调用成功后
+ * 【UI 操作】/memories 页面 → 悬停记忆卡片 → 点击删除按钮（垃圾桶图标）
+ * 【业务环节】删除记忆成功，用户移除了一条不再需要的记忆
+ * 【埋点数据】
+ *   - memory_id: string - 被删除记忆的 ID
+ *   - content_length: number - 被删除记忆的字符数
+ *
+ * @param memory - 被删除的记忆对象
+ */
+export const trackMemoryDeleted = (memory: MemoryForTracking) => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('memory_deleted', {
+		memory_id: memory.id,
+		content_length: getContentLength(memory.content)
+	});
+};
+
+/**
+ * 埋点4：memory_edited
+ *
+ * 【埋点时机】用户在 EditMemoryModal 中点击"Update"按钮，API 调用成功后
+ * 【UI 操作】/memories 页面 → 悬停记忆卡片 → 点击编辑按钮（铅笔图标） → 修改内容 → 点击"Update"
+ * 【业务环节】编辑记忆成功，用户修改了一条已有记忆的内容
+ * 【埋点数据】
+ *   - memory_id: string - 被编辑记忆的 ID
+ *   - content_length_before: number - 编辑前的字符数
+ *   - content_length_after: number - 编辑后的字符数
+ *
+ * @param originalMemory - 编辑前的原始记忆对象
+ * @param newContent - 编辑后的新内容字符串
+ */
+export const trackMemoryEdited = (originalMemory: MemoryForTracking, newContent: string) => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('memory_edited', {
+		memory_id: originalMemory.id,
+		content_length_before: getContentLength(originalMemory.content),
+		content_length_after: getContentLength(newContent)
+	});
 };
 

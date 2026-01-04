@@ -68,7 +68,7 @@
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
     import { convertDeepseekChats, convertGrokChats, convertAIStudioChats, convertQwenChats, getImportOrigin } from '$lib/utils';
-    import { trackImportChatsModalOpen, trackImportChatsCompleted } from '$lib/posthog';
+    import { trackImportChatsModalOpen, trackImportChatsCompleted, trackMemoryPageOpen } from '$lib/posthog';
     import { selectTopInformativeMessages, formatMessagesForMem0 } from '$lib/utils/message-quality';
 
     const BREAKPOINT = 768;
@@ -972,6 +972,7 @@
                                 e.stopImmediatePropagation();
                                 e.preventDefault();
 
+                                trackMemoryPageOpen();
                                 goto('/memories');
                                 itemClickHandler();
                             }}
@@ -1122,7 +1123,10 @@
                             id="sidebar-memory-button"
                             class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
                             href="/memories"
-                            on:click={itemClickHandler}
+                            on:click={() => {
+                                trackMemoryPageOpen();
+                                itemClickHandler();
+                            }}
                             draggable="false"
                             aria-label={$i18n.t('Memory')}
                         >

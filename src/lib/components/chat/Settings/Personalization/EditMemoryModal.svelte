@@ -7,6 +7,7 @@
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import Modal from '$lib/components/common/Modal.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
+	import { trackMemoryEdited } from '$lib/posthog';
 
 	const dispatch = createEventDispatcher();
 
@@ -37,6 +38,7 @@
 
 		if (res) {
 			console.log(res);
+			trackMemoryEdited(memory, content);
 			toast.success($i18n.t('Memory updated successfully'));
 			dispatch('save');
 			show = false;

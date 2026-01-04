@@ -6,6 +6,7 @@
 	import { toast } from 'svelte-sonner';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
+	import { trackMemoryAdded } from '$lib/posthog';
 
 	const dispatch = createEventDispatcher();
 
@@ -26,6 +27,7 @@
 
 		if (res) {
 			console.log(res);
+			trackMemoryAdded(res);
 			toast.success($i18n.t('Memory added successfully'));
 			content = '';
 			show = false;
