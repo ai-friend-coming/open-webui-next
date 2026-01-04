@@ -31,8 +31,16 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 router = APIRouter()
 
 
-def _strip_chat_meta(chat_dict) -> dict:
-    chat_dict.pop("meta", None)
+def _clean_chat_meta(chat_dict) -> dict:
+    """
+    清空 chat.meta，只保留 summary_time 字段。
+    """
+    meta = chat_dict.get("meta")
+    if isinstance(meta, dict):
+        summary_time = meta.get("summary_time", 0)
+        chat_dict["meta"] = {"summary_time": summary_time} if summary_time is not None else {}
+    else:
+        chat_dict["meta"] = {}
     return chat_dict
 
 
@@ -383,7 +391,7 @@ async def get_user_pinned_chats(user=Depends(get_verified_user)):
 @router.get("/all", response_model=list[ChatResponse])
 async def get_user_chats(user=Depends(get_verified_user)):
     return [
-        ChatResponse(**(_strip_chat_meta(chat.model_dump())))
+        ChatResponse(**(_clean_chat_meta(chat.model_dump())))
         for chat in Chats.get_chats_by_user_id(user.id)
     ]
 
@@ -396,7 +404,7 @@ async def get_user_chats(user=Depends(get_verified_user)):
 @router.get("/all/archived", response_model=list[ChatResponse])
 async def get_user_archived_chats(user=Depends(get_verified_user)):
     return [
-        ChatResponse(**(_strip_chat_meta(chat.model_dump())))
+        ChatResponse(**(_clean_chat_meta(chat.model_dump())))
         for chat in Chats.get_archived_chats_by_user_id(user.id)
     ]
 
@@ -556,7 +564,7 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
 
     if chat:
-        return ChatResponse(**(_strip_chat_meta(chat.model_dump())))
+        return ChatResponse(**(_clean_chat_meta(chat.model_dump())))
 
     else:
         raise HTTPException(
