@@ -5,7 +5,8 @@ export const initPosthog = () => {
 		return;
 	}
 
-	posthog.init('phc_Abmjxrycc5WX5tnegaHmQx5COrSTFmM72VmyDVv4xCa', {
+	// phc_Abmjxrycc5WX5tnegaHmQx5COrSTFmM72VmyDVv4xCa // 服务器 key
+	posthog.init('phc_vftTp8xZG24u0OSnwvD0hbJO8ngB51JVT3ZWxse0lsL', {
 		api_host: 'https://us.i.posthog.com',
 		defaults: '2025-11-30',
 		person_profiles: 'identified_only',
@@ -130,3 +131,137 @@ export const initTabTracking = () => {
 		window.removeEventListener('pagehide', handlePageHide);
 	};
 };
+
+// ==================== 导入聊天埋点 ====================
+/**
+ * 导入聊天记录业务流程：
+ * 用户可以从其他 AI 平台（DeepSeek、ChatGPT、Gemini、Grok、AI Studio、通义千问）导出聊天记录 JSON 文件，
+ * 然后通过本平台的"导入聊天记录"功能将历史对话迁移到本平台。
+ *
+ * 完整流程：
+ * 1. 用户点击侧边栏"导入聊天记录"按钮 → 打开 ImportChatsModal
+ * 2. 用户上传 JSON 文件 → 系统解析文件内容
+ * 3. 用户勾选要导入的聊天记录，选择是否导入记忆
+ * 4. 用户点击"确认导入" → 系统逐条调用 API 导入聊天
+ * 5. 用户可能中途关闭 Modal 放弃导入
+ */
+
+/**
+ * 埋点1：import_chats_modal_open
+ *
+ * 【埋点时机】用户点击"导入聊天记录"按钮，ImportChatsModal 弹窗打开时
+ * 【UI 操作】侧边栏底部 → 点击"导入聊天记录"按钮
+ * 【业务环节】导入流程的起点，用户表达了导入意图
+ * 【埋点数据】无
+ */
+export const trackImportChatsModalOpen = () => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('import_chats_modal_open');
+};
+
+/**
+ * 埋点2：import_chats_file_parsed
+ *
+ * 【埋点时机】用户上传的 JSON 文件解析成功后
+ * 【UI 操作】ImportChatsModal → 拖拽或点击上传 JSON 文件 → 文件解析成功
+ * 【业务环节】文件上传阶段完成，系统成功识别文件内容
+ * 【埋点数据】
+ *   - chatCount: number - 文件中包含的聊天记录数量
+ */
+export const trackImportChatsFileParsed = (chatCount: number) => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('import_chats_file_parsed', { chatCount });
+};
+
+/**
+ * 埋点3：import_chats_completed
+ *
+ * 【埋点时机】用户点击"确认导入"后，所有选中的聊天记录 API 调用完成时
+ * 【UI 操作】ImportChatsModal → 勾选聊天记录 → 点击"确认导入"按钮 → 导入完成
+ * 【业务环节】导入流程的终点（成功路径），用户完成了聊天数据迁移
+ * 【埋点数据】
+ *   - origin: string - 数据来源格式，用户从哪个平台导出的聊天数据 (deepseek/grok/aistudio/qwen/openai/webui)
+ *   - totalCount: number - 成功导入的聊天总数
+ *   - chats: Array - 每条聊天的详细信息数组：
+ *       - chat_id: string - 导入后的聊天 ID
+ *       - importMemory: boolean - 是否导入了记忆
+ *       - messageCount: number - 消息数量
+ *       - messageLengths: number[] - 每条消息的字符长度
+ *       - latestMessageTime: string|null - 最新消息的时间 (ISO 8601)
+ *       - createdAt: string|null - 聊天创建时间 (ISO 8601)
+ *
+ * @param origin 数据来源格式
+ * @param importedChats 导入成功的聊天原始数据数组
+ */
+export const trackImportChatsCompleted = (
+	origin: 'deepseek' | 'grok' | 'aistudio' | 'qwen' | 'openai' | 'webui',
+	importedChats: Array<{
+		importedChat: { id: string; created_at?: number };
+		chat: any;
+		importMemory: boolean;
+	}>
+) => {
+	if (typeof window === 'undefined') return;
+	if (importedChats.length === 0) return;
+
+	// 解析每个 chat 的详细信息
+	const chats = importedChats.map(({ importedChat, chat, importMemory }) => {
+		const chatData = chat.chat || chat;
+		const messages = chatData.messages || chatData.history?.messages || [];
+		const messageArray = Array.isArray(messages) ? messages : Object.values(messages);
+
+		// 计算每条消息的长度
+		const messageLengths = messageArray.map((msg: any) => {
+			const content = msg?.content || '';
+			return typeof content === 'string' ? content.length : JSON.stringify(content).length;
+		});
+
+		// 获取最新消息时间
+		let latestMessageTime: string | null = null;
+		if (messageArray.length > 0) {
+			const timestamps = messageArray
+				.map((msg: any) => msg?.timestamp || msg?.created_at || msg?.updatedAt)
+				.filter(Boolean);
+			if (timestamps.length > 0) {
+				const maxTs = Math.max(
+					...timestamps.map((t: any) => (typeof t === 'number' ? t : new Date(t).getTime()))
+				);
+				latestMessageTime = new Date(maxTs).toISOString();
+			}
+		}
+
+		return {
+			chat_id: importedChat.id,
+			importMemory,
+			messageCount: messageArray.length,
+			messageLengths,
+			latestMessageTime,
+			createdAt: importedChat.created_at
+				? new Date(importedChat.created_at * 1000).toISOString()
+				: null
+		};
+	});
+
+	posthog.capture('import_chats_completed', {
+		origin,
+		totalCount: chats.length,
+		chats
+	});
+};
+
+/**
+ * 埋点4：import_chats_modal_closed
+ *
+ * 【埋点时机】用户关闭 ImportChatsModal 且未完成导入时
+ * 【UI 操作】ImportChatsModal → 点击"取消"按钮 / 点击右上角 × / 点击遮罩层
+ * 【业务环节】导入流程的终点（放弃路径），用户中途退出未完成导入
+ * 【埋点数据】
+ *   - stage: 'before_upload' | 'after_upload' - 退出阶段
+ *       - 'before_upload': 用户未上传文件就关闭了弹窗
+ *       - 'after_upload': 用户已上传文件但未点击确认导入就关闭了弹窗
+ */
+export const trackImportChatsModalClosed = (stage: 'before_upload' | 'after_upload') => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('import_chats_modal_closed', { stage });
+};
+

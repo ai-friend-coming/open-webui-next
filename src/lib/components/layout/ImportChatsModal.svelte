@@ -7,6 +7,7 @@
     import ArchiveBox from '../icons/ArchiveBox.svelte';
     import DocumentText from '../icons/DocumentText.svelte';
     import MagnifyingGlass from '../icons/MagnifyingGlass.svelte';
+    import { trackImportChatsFileParsed, trackImportChatsModalClosed } from '$lib/posthog';
 
     export let show = false;
     export let onImport: (chats: any[]) => Promise<void>;
@@ -56,6 +57,7 @@
     let fileName = '';
     let searchQuery = '';
     let showExportGuide = false;
+    let importCompleted = false;  // 标记是否完成导入（用于埋点4判断）
 
     // 重置状态
     const resetState = () => {
@@ -69,6 +71,12 @@
     };
 
     $: if (!show) {
+        // 埋点4：用户中途关闭 Modal（未完成导入）
+        if (!importCompleted) {
+            const stage = rawChats.length > 0 ? 'after_upload' : 'before_upload';
+            trackImportChatsModalClosed(stage);
+        }
+        importCompleted = false;  // 重置状态
         resetState();
     }
 
@@ -104,6 +112,8 @@
 
             rawChats = parsed;
             chatConfigs = new Map();
+            // 埋点2：文件解析成功
+            trackImportChatsFileParsed(rawChats.length);
             toast.success(`解析成功，共 ${rawChats.length} 条记录`);
         } catch (error) {
             console.error(error);
@@ -232,6 +242,7 @@
         try {
             importing = true;
             await onImport(chatsToImport);
+            importCompleted = true;  // 标记导入成功，避免触发埋点4
             show = false;
             toast.success(`成功导入 ${chatsToImport.length} 条对话`);
         } catch (error) {

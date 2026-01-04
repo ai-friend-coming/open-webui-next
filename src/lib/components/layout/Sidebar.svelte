@@ -68,6 +68,7 @@
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
     import { convertDeepseekChats, convertGrokChats, convertAIStudioChats, convertQwenChats, getImportOrigin } from '$lib/utils';
+    import { trackImportChatsModalOpen, trackImportChatsCompleted } from '$lib/posthog';
     import { selectTopInformativeMessages, formatMessagesForMem0 } from '$lib/utils/message-quality';
 
     const BREAKPOINT = 768;
@@ -636,6 +637,9 @@
         // 反转数组顺序，这样第一个聊天最后导入，获得最新的时间戳，从而显示在侧边栏最上方
         const reversedChats = [...chatsWithFlags].reverse();
 
+        // 埋点3：收集导入成功的原始数据
+        const importedChatsForTracking: Array<{ importedChat: { id: string }; chat: any; importMemory: boolean }> = [];
+
         for (const { chat, importMemory } of reversedChats) {
             console.log(chat);
 
@@ -697,7 +701,18 @@
             } else if (importedChat?.id && !importMemory) {
                 console.log(`Skipping memory import for chat ${importedChat.id} (memory disabled by user)`);
             }
+
+            // 收集导入成功的原始数据用于埋点
+            if (importedChat?.id) {
+                importedChatsForTracking.push({ importedChat, chat, importMemory });
+            }
         }
+
+        // 埋点3：调用模块化的埋点函数（解析在 posthog 模块内部完成）
+        trackImportChatsCompleted(
+            origin as 'deepseek' | 'grok' | 'aistudio' | 'qwen' | 'openai' | 'webui',
+            importedChatsForTracking
+        );
 
         currentChatPage.set(1);
         await chats.set(await getChatList(localStorage.token, $currentChatPage));
@@ -1368,6 +1383,7 @@
                 <button
                     class="flex w-full items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100/50 dark:hover:bg-gray-900 transition outline-none"
                     on:click={() => {
+                        trackImportChatsModalOpen();
                         showImportChatsModal.set(true);
                     }}
                     draggable="false"
