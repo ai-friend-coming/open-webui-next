@@ -486,3 +486,130 @@ export const trackMemoryEdited = (originalMemory: MemoryForTracking, newContent:
 	});
 };
 
+// =====================================================
+// ==================== 进入聊天窗埋点 ====================
+// =====================================================
+
+/**
+ * 进入聊天窗业务流程：
+ * 用户通过侧边栏与聊天系统交互，主要有两种方式：
+ * 1. 开始新对话 - 点击"新对话"按钮、Logo 或标题，跳转到空白聊天界面
+ * 2. 进入已有聊天 - 点击侧边栏中的某个聊天项，加载历史消息
+ *
+ * 完整流程（进入已有聊天）：
+ * 1. 用户点击侧边栏中的聊天项 → ChatItem 组件触发导航
+ * 2. 路由跳转到 /c/{id} → Chat 组件接收 chatIdProp
+ * 3. Chat 组件调用 loadChat() → 通过 getChatById API 获取完整数据
+ * 4. 数据加载成功 → 触发埋点，记录聊天详情
+ * 5. Messages 组件渲染历史消息
+ */
+
+/**
+ * 埋点1：new_chat_started
+ *
+ * 【埋点时机】用户点击侧边栏元素开始新对话时
+ * 【UI 操作】侧边栏 → 点击"新对话"按钮 / Logo 图标 / 标题文字
+ * 【业务环节】新对话的起点，用户表达了开始新对话的意图
+ * 【埋点数据】
+ *   - source: string - 触发来源
+ *       - 'new_chat_button': 点击"新对话"按钮
+ *       - 'logo': 点击 Logo 图标
+ *       - 'title': 点击标题文字
+ *
+ * @param source - 触发来源
+ */
+export const trackNewChatStarted = (source: 'new_chat_button' | 'logo' | 'title') => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('new_chat_started', { source });
+};
+
+/**
+ * 埋点2：chat_opened
+ *
+ * 【埋点时机】用户点击侧边栏聊天项，Chat 组件 loadChat 函数成功获取完整数据后
+ * 【UI 操作】侧边栏 → 点击某个聊天项 → 聊天数据加载完成
+ * 【业务环节】进入已有聊天，用户查看/继续历史对话
+ * 【埋点数据】
+ *   - chat_id: string - 聊天 ID
+ *   - is_imported: boolean - 是否为用户导入的聊天记录 (chat.meta.loaded_by_user)
+ *   - memory_enabled: boolean | undefined - 是否开启了记忆选项 (chat.chat.memory_enabled)
+ *   - summary_time: number - summary 的次数 (chat.meta.summary_time)
+ *   - message_count: number - 消息个数
+ *   - message_lengths: number[] - 每条消息的内容字符数
+ *   - model_usage: Record<string, { count: number; is_user_model: boolean }> - 模型使用统计（仅统计 assistant 消息）
+ *       示例: {"gpt-4o": { count: 23, is_user_model: false }, "my-custom-model": { count: 10, is_user_model: true }}
+ *       - count: 该模型回复的次数
+ *       - is_user_model: 是否为用户私有 API 模型（true）还是系统内置模型（false）
+ *   - created_at: string | null - 聊天创建时间 (ISO 8601)
+ *   - latest_message_time: string | null - 最新消息时间 (ISO 8601)
+ *
+ * @param chat - 从 getChatById API 获取的完整聊天对象
+ * @param history - 解析后的消息历史对象 { messages: { [id]: Message }, currentId: string }
+ */
+export const trackChatOpened = (chat: any, history: any) => {
+	if (typeof window === 'undefined') return;
+	if (!chat) return;
+
+	// 解析数据（模块化，所有解析逻辑在此文件中）
+	const parsedData = parseChatForTracking(chat, history);
+	posthog.capture('chat_opened', parsedData);
+};
+
+/**
+ * 解析 chat 数据用于埋点（内部工具函数）
+ *
+ * @param chat - 聊天对象
+ * @param history - 消息历史对象
+ * @returns 解析后的埋点数据
+ */
+const parseChatForTracking = (chat: any, history: any) => {
+	const messages = history?.messages || {};
+	const messageArray = Object.values(messages);
+
+	// 计算每条消息的长度
+	const messageLengths = messageArray.map((msg: any) => {
+		const content = msg?.content || '';
+		return typeof content === 'string' ? content.length : JSON.stringify(content).length;
+	});
+
+	// 统计模型使用次数（仅 assistant 消息），包含是否为用户私有模型
+	const modelUsage: Record<string, { count: number; is_user_model: boolean }> = {};
+	messageArray.forEach((msg: any) => {
+		if (msg?.role !== 'assistant') return;
+		const model = msg?.model;
+		if (model && typeof model === 'string') {
+			if (!modelUsage[model]) {
+				modelUsage[model] = {
+					count: 0,
+					is_user_model: msg?.is_user_model ?? false
+				};
+			}
+			modelUsage[model].count += 1;
+		}
+	});
+
+	// 获取最新消息时间
+	let latestMessageTime: string | null = null;
+	if (messageArray.length > 0) {
+		const timestamps = messageArray.map((msg: any) => msg?.timestamp).filter(Boolean);
+		if (timestamps.length > 0) {
+			const maxTs = Math.max(
+				...timestamps.map((t: any) => (typeof t === 'number' ? t : new Date(t).getTime()))
+			);
+			// timestamp 是秒级时间戳，需要乘以 1000
+			latestMessageTime = new Date(maxTs * 1000).toISOString();
+		}
+	}
+
+	return {
+		chat_id: chat.id,
+		is_imported: chat.meta?.loaded_by_user ?? false,
+		memory_enabled: chat.chat?.memory_enabled,
+		summary_time: chat.meta?.summary_time ?? 0,
+		message_count: messageArray.length,
+		message_lengths: messageLengths,
+		model_usage: modelUsage,
+		created_at: chat.created_at ? new Date(chat.created_at * 1000).toISOString() : null,
+		latest_message_time: latestMessageTime
+	};
+};

@@ -68,7 +68,7 @@
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
     import { convertDeepseekChats, convertGrokChats, convertAIStudioChats, convertQwenChats, getImportOrigin } from '$lib/utils';
-    import { trackImportChatsModalOpen, trackImportChatsCompleted, trackMemoryPageOpen } from '$lib/posthog';
+    import { trackImportChatsModalOpen, trackImportChatsCompleted, trackMemoryPageOpen, trackNewChatStarted } from '$lib/posthog';
     import { selectTopInformativeMessages, formatMessagesForMem0 } from '$lib/utils/message-quality';
 
     const BREAKPOINT = 768;
@@ -1047,7 +1047,10 @@
                     class="flex items-center rounded-xl size-8.5 h-full justify-center hover:bg-gray-100/50 dark:hover:bg-gray-850/50 transition no-drag-region"
                     href="/"
                     draggable="false"
-                    on:click={newChatHandler}
+                    on:click={() => {
+                        trackNewChatStarted('logo');
+                        newChatHandler();
+                    }}
                 >
                     <img
                         crossorigin="anonymous"
@@ -1057,7 +1060,10 @@
                     />
                 </a>
 
-                <a href="/" class="flex flex-1 px-1.5" on:click={newChatHandler}>
+                <a href="/" class="flex flex-1 px-1.5" on:click={() => {
+                    trackNewChatStarted('title');
+                    newChatHandler();
+                }}>
                     <div class=" self-center font-medium text-gray-850 dark:text-white font-primary">
                         {$WEBUI_NAME}
                     </div>
@@ -1105,7 +1111,10 @@
                             class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
                             href="/"
                             draggable="false"
-                            on:click={newChatHandler}
+                            on:click={() => {
+                                trackNewChatStarted('new_chat_button');
+                                newChatHandler();
+                            }}
                             aria-label={$i18n.t('New Chat')}
                         >
                             <div class="self-center">

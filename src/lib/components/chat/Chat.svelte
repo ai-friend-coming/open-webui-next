@@ -92,6 +92,7 @@
 	import { getFunctions } from '$lib/apis/functions';
 	import Image from '../common/Image.svelte';
 	import { updateFolderById } from '$lib/apis/folders';
+	import { trackChatOpened } from '$lib/posthog';
 
 	export let chatIdProp = '';
 
@@ -1204,6 +1205,9 @@
 				// }
 
 				await tick();
+
+				// 埋点：进入聊天窗
+				trackChatOpened(chat, history);
 
 				return true;
 			} else {
