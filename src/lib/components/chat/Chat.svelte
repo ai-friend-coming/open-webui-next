@@ -1960,7 +1960,8 @@
 							? (combined.credential.name ?? combined.credential.model_id)
 							: (model.name ?? model.id),
 					modelIdx: modelIdx ? modelIdx : _modelIdx, // 多模型对话时，区分不同模型的响应
-					timestamp: Math.floor(Date.now() / 1000) // Unix epoch
+					timestamp: Math.floor(Date.now() / 1000), // Unix epoch
+					is_user_model: combined.source === 'user' // 是否为用户私有 API 模型
 				};
 
 				// 4.2 将响应消息添加到历史记录
