@@ -1140,3 +1140,287 @@ export const trackMessageRegenerated = (params: MessageRegeneratedParams) => {
 		model_idx: params.modelIdx
 	});
 };
+
+// =====================================================
+// ==================== 编辑消息埋点 ====================
+// =====================================================
+
+/**
+ * 编辑用户消息业务流程：
+ * 用户可以编辑已发送的用户消息，修改内容后重新发送。
+ * 与"重新生成"类似，编辑后重新发送会删除原有的 assistant 响应，然后调用 sendMessage 生成新响应。
+ *
+ * 完整数据流：
+ * 1. 用户点击用户消息的编辑按钮 → 进入编辑模式
+ * 2. 用户修改消息内容/文件 → 点击发送按钮
+ * 3. editMessage(messageId, { content, files }, submit=true)
+ * 4. 【埋点】trackMessageEdited() - 记录编辑动作
+ * 5. 删除所有子消息（assistant 响应）
+ * 6. 调用 sendMessage() → trackMessageSent() → sendMessageSocket()
+ * 7. WebSocket 流式响应 → trackMessageResponseCompleted/Error/Stopped
+ *
+ * 编辑消息 vs 重新生成的区别：
+ * - 编辑消息：修改用户消息内容，删除所有响应后重新发送
+ * - 重新生成：用户消息不变，只删除并重新生成 assistant 响应
+ */
+
+/** 被删除消息的埋点数据结构 */
+export interface DeletedMessageTrackingData {
+	messageId: string;
+	role: string;
+	modelId: string;
+	modelName: string;
+	isUserModel: boolean;
+	contentLength: number;
+}
+
+/**
+ * 递归收集消息子树中所有消息的埋点数据
+ *
+ * 用于编辑用户消息时，统计将要被剪枝删除的所有后续消息。
+ * 这些消息包括 assistant 响应以及后续的 user/assistant 消息对。
+ *
+ * @param messages - history.messages 对象（消息 ID 到消息对象的映射）
+ * @param rootIds - 要收集的根节点 ID 数组（通常是被编辑消息的 childrenIds）
+ * @returns 被删除消息的埋点数据数组
+ */
+export const collectDeletedMessagesForTracking = (
+	messages: Record<string, any>,
+	rootIds: string[]
+): DeletedMessageTrackingData[] => {
+	const result: DeletedMessageTrackingData[] = [];
+
+	const collectRecursive = (nodeId: string) => {
+		const node = messages[nodeId];
+		if (!node) return;
+
+		// 收集当前节点信息
+		result.push({
+			messageId: node.id,
+			role: node.role,
+			modelId: node.model ?? '',
+			modelName: node.modelName || node.model || '',
+			isUserModel: node.is_user_model ?? false,
+			contentLength: node.content?.length ?? 0
+		});
+
+		// 递归收集子节点
+		const children = node.childrenIds ?? [];
+		for (const childId of children) {
+			collectRecursive(childId);
+		}
+	};
+
+	// 从所有根节点开始收集
+	for (const rootId of rootIds) {
+		collectRecursive(rootId);
+	}
+
+	return result;
+};
+
+/** 编辑用户消息并重新发送埋点参数类型 */
+interface UserMessageEditAndResendParams {
+	chatId: string;
+	userMessageId: string;
+	originalContentLength: number;
+	newContentLength: number;
+	hasContentChanged: boolean;
+	deletedMessages: DeletedMessageTrackingData[];
+	hasFilesBefore: boolean;
+	hasFilesAfter: boolean;
+	fileCountBefore: number;
+	fileCountAfter: number;
+}
+
+/**
+ * 埋点6：user_message_edit_resend
+ *
+ * 【埋点时机】用户编辑用户消息并点击发送，删除旧响应之前
+ * 【UI 操作】点击用户消息编辑按钮 → 修改内容 → 点击发送
+ * 【业务环节】editMessage() submit=true → 【埋点】→ 删除子消息 → sendMessage()
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 被编辑的用户消息 ID
+ *
+ *   === 时间信息 ===
+ *   - edited_at: string - 编辑时间 (ISO 8601)
+ *
+ *   === 内容变化 ===
+ *   - original_content_length: number - 原始内容字符数
+ *   - new_content_length: number - 新内容字符数
+ *   - has_content_changed: boolean - 内容是否改变
+ *
+ *   === 被剪枝的消息（整个子树）===
+ *   - deleted_messages: array - 被删除的所有消息数组（包括 user 和 assistant）
+ *       - message_id: string - 消息 ID
+ *       - role: string - 消息角色 (user/assistant)
+ *       - model_id: string - 模型 ID（仅 assistant 有值）
+ *       - model_name: string - 模型名称（仅 assistant 有值）
+ *       - is_user_model: boolean - 是否为私有模型
+ *       - content_length: number - 消息内容字符数
+ *   - deleted_message_count: number - 被删除消息总数
+ *
+ *   === 文件变化 ===
+ *   - has_files_before: boolean - 编辑前是否有文件
+ *   - has_files_after: boolean - 编辑后是否有文件
+ *   - file_count_before: number - 编辑前文件数
+ *   - file_count_after: number - 编辑后文件数
+ *
+ * @param params - 埋点参数
+ */
+export const trackUserMessageEditAndResend = (params: UserMessageEditAndResendParams) => {
+	if (typeof window === 'undefined') return;
+	console.log('user_message_edit_resend')
+
+	posthog.capture('user_message_edit_resend', {
+		// 关联标识
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+
+		// 时间信息
+		edited_at: new Date().toISOString(),
+
+		// 内容变化
+		original_content_length: params.originalContentLength,
+		new_content_length: params.newContentLength,
+		has_content_changed: params.hasContentChanged,
+
+		// 被剪枝的消息（整个子树）
+		deleted_messages: params.deletedMessages,
+		deleted_message_count: params.deletedMessages.length,
+
+		// 文件变化
+		has_files_before: params.hasFilesBefore,
+		has_files_after: params.hasFilesAfter,
+		file_count_before: params.fileCountBefore,
+		file_count_after: params.fileCountAfter
+	});
+};
+
+/** 编辑用户消息并保存埋点参数类型（仅保存，不重新发送） */
+interface UserMessageEditAndSaveParams {
+	chatId: string;
+	userMessageId: string;
+	originalContentLength: number;
+	newContentLength: number;
+	hasContentChanged: boolean;
+	hasFilesBefore: boolean;
+	hasFilesAfter: boolean;
+	fileCountBefore: number;
+	fileCountAfter: number;
+}
+
+/**
+ * 埋点7：user_message_edit_save
+ *
+ * 【埋点时机】用户编辑用户消息后点击"保存"按钮（不重新发送）
+ * 【UI 操作】点击用户消息编辑按钮 → 修改内容 → 点击保存
+ * 【业务环节】editMessage() submit=false 分支 → 【埋点】→ updateChat()
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 被编辑的用户消息 ID
+ *
+ *   === 时间信息 ===
+ *   - saved_at: string - 保存时间 (ISO 8601)
+ *
+ *   === 内容变化 ===
+ *   - original_content_length: number - 原始内容字符数
+ *   - new_content_length: number - 新内容字符数
+ *   - has_content_changed: boolean - 内容是否改变
+ *
+ *   === 文件变化 ===
+ *   - has_files_before: boolean - 保存前是否有文件
+ *   - has_files_after: boolean - 保存后是否有文件
+ *   - file_count_before: number - 保存前文件数
+ *   - file_count_after: number - 保存后文件数
+ *
+ * @param params - 埋点参数
+ */
+export const trackUserMessageEditAndSave = (params: UserMessageEditAndSaveParams) => {
+	if (typeof window === 'undefined') return;
+
+	console.log('user_message_edit_save')
+	posthog.capture('user_message_edit_save', {
+		// 关联标识
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+
+		// 时间信息
+		saved_at: new Date().toISOString(),
+
+		// 内容变化
+		original_content_length: params.originalContentLength,
+		new_content_length: params.newContentLength,
+		has_content_changed: params.hasContentChanged,
+
+		// 文件变化
+		has_files_before: params.hasFilesBefore,
+		has_files_after: params.hasFilesAfter,
+		file_count_before: params.fileCountBefore,
+		file_count_after: params.fileCountAfter
+	});
+};
+
+/** 编辑助手消息并保存埋点参数类型 */
+interface AssistantMessageEditAndSaveParams {
+	chatId: string;
+	assistantMessageId: string;
+	userMessageId: string;
+	originalContentLength: number;
+	newContentLength: number;
+	modelId: string;
+	modelName: string;
+	isUserModel: boolean;
+}
+
+/**
+ * 埋点8：assistant_message_edit_save
+ *
+ * 【埋点时机】用户编辑助手消息内容并保存
+ * 【UI 操作】点击助手消息编辑按钮 → 修改内容 → 保存
+ * 【业务环节】editMessage() else 分支 → 【埋点】→ updateChat()
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - assistant_message_id: string - 被编辑的助手消息 ID
+ *   - user_message_id: string - 关联的用户消息 ID（父消息）
+ *
+ *   === 时间信息 ===
+ *   - saved_at: string - 保存时间 (ISO 8601)
+ *
+ *   === 内容变化 ===
+ *   - original_content_length: number - 原始内容字符数
+ *   - new_content_length: number - 新内容字符数
+ *
+ *   === 模型信息 ===
+ *   - model_id: string - 生成该响应的模型 ID
+ *   - model_name: string - 模型名称
+ *   - is_user_model: boolean - 是否为用户私有模型
+ *
+ * @param params - 埋点参数
+ */
+export const trackAssistantMessageEditAndSave = (params: AssistantMessageEditAndSaveParams) => {
+	if (typeof window === 'undefined') return;
+	console.log('assistant_message_edit_save')
+	posthog.capture('assistant_message_edit_save', {
+		// 关联标识
+		chat_id: params.chatId,
+		assistant_message_id: params.assistantMessageId,
+		user_message_id: params.userMessageId,
+
+		// 时间信息
+		saved_at: new Date().toISOString(),
+
+		// 内容变化
+		original_content_length: params.originalContentLength,
+		new_content_length: params.newContentLength,
+
+		// 模型信息
+		model_id: params.modelId,
+		model_name: params.modelName,
+		is_user_model: params.isUserModel
+	});
+};

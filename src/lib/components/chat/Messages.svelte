@@ -14,7 +14,12 @@
 
 	import { toast } from 'svelte-sonner';
 	import { getChatList, updateChatById, deleteMessageMemory } from '$lib/apis/chats';
-	import { copyToClipboard, extractCurlyBraceWords } from '$lib/utils';
+	import {
+		trackUserMessageEditAndResend,
+		trackUserMessageEditAndSave,
+		trackAssistantMessageEditAndSave,
+		collectDeletedMessagesForTracking
+	} from '$lib/posthog';
 
 	import Message from './Messages/Message.svelte';
 	import Loader from '../common/Loader.svelte';
@@ -385,12 +390,32 @@
 					return;
 				}
 
+				// === 埋点：编辑用户消息 ===
+				const originalContent = message.content ?? '';
+				const originalFiles = message.files ?? [];
+				const childIds = message.childrenIds ?? [];
+
+				// 使用模块化函数收集所有被剪枝的消息
+				const deletedMessages = collectDeletedMessagesForTracking(history.messages, childIds);
+
+				trackUserMessageEditAndResend({
+					chatId: chatId,
+					userMessageId: messageId,
+					originalContentLength: originalContent.length,
+					newContentLength: content?.length ?? 0,
+					hasContentChanged: originalContent !== content,
+					deletedMessages: deletedMessages,
+					hasFilesBefore: originalFiles.length > 0,
+					hasFilesAfter: (files ?? []).length > 0,
+					fileCountBefore: originalFiles.length,
+					fileCountAfter: (files ?? []).length
+				});
+
 				message.content = content;
 				if (files !== undefined) {
 					message.files = files;
 				}
 
-				const childIds = message.childrenIds ?? [];
 				for (const childId of childIds) {
 					removeMessageSubtree(childId);
 				}
@@ -402,6 +427,22 @@
 				await tick();
 				await sendMessage(history, messageId);
 			} else {
+				// === 埋点：保存用户消息（不重新发送）===
+				const originalContent = message.content ?? '';
+				const originalFiles = message.files ?? [];
+
+				trackUserMessageEditAndSave({
+					chatId: chatId,
+					userMessageId: messageId,
+					originalContentLength: originalContent.length,
+					newContentLength: content?.length ?? 0,
+					hasContentChanged: originalContent !== content,
+					hasFilesBefore: originalFiles.length > 0,
+					hasFilesAfter: (files ?? []).length > 0,
+					fileCountBefore: originalFiles.length,
+					fileCountAfter: (files ?? []).length
+				});
+
 				message.content = content;
 				if (files !== undefined) {
 					message.files = files;
@@ -410,6 +451,20 @@
 				await updateChat();
 			}
 		} else {
+			// === 埋点：编辑助手消息 ===
+			const originalContent = message.content ?? '';
+
+			trackAssistantMessageEditAndSave({
+				chatId: chatId,
+				assistantMessageId: messageId,
+				userMessageId: message.parentId ?? '',
+				originalContentLength: originalContent.length,
+				newContentLength: content?.length ?? 0,
+				modelId: message.model ?? '',
+				modelName: message.modelName || message.model || '',
+				isUserModel: message.is_user_model ?? false
+			});
+
 			message.originalContent = message.content;
 			message.content = content;
 			history.messages[messageId] = message;
