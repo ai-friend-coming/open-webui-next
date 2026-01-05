@@ -1181,6 +1181,7 @@
 										</Tooltip>
 									{/if} -->
 
+									{#if isLastMessage}
 									{#if $user?.role === 'admin' || ($user?.permissions?.chat?.regenerate_response ?? true)}
 										<!-- 注释这里，以点击重新生成后直接生成，而不再给出三个重新生成选项的菜单 -->
 										<!-- {#if $settings?.regenerateMenu ?? true}
@@ -1253,9 +1254,7 @@
 											<button
 												type="button"
 												aria-label={$i18n.t('Regenerate')}
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
+												class="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
 												on:click={() => {
 													showRateComment = false;
 													regenerateResponse(message);
@@ -1292,6 +1291,7 @@
 										</Tooltip>
 										<!-- {/if} -->
 									{/if}
+								{/if}
 
 									{#if $user?.role === 'admin' || ($user?.permissions?.chat?.delete_message ?? true)}
 										{#if siblings.length > 1}
