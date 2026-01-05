@@ -500,30 +500,57 @@
 			}
 		}
 
-		// Collect all grandchildren
-		const grandchildrenIds = childMessageIds.flatMap(
-			(childId) => history.messages[childId]?.childrenIds ?? []
+		// 检查子节点是否有 user message
+		const hasUserChild = childMessageIds.some(
+			(childId) => history.messages[childId]?.role === 'user'
 		);
 
-		// Update parent's children
-		if (parentMessageId && history.messages[parentMessageId]) {
-			history.messages[parentMessageId].childrenIds = [
-				...history.messages[parentMessageId].childrenIds.filter((id) => id !== messageId),
-				...grandchildrenIds
-			];
-		}
-
-		// Update grandchildren's parent
-		grandchildrenIds.forEach((grandchildId) => {
-			if (history.messages[grandchildId]) {
-				history.messages[grandchildId].parentId = parentMessageId;
+		if (hasUserChild) {
+			// 子节点包含 user message，只删除当前消息，保留子节点
+			// 将子节点直接连接到父节点
+			if (parentMessageId && history.messages[parentMessageId]) {
+				history.messages[parentMessageId].childrenIds = [
+					...history.messages[parentMessageId].childrenIds.filter((id) => id !== messageId),
+					...childMessageIds
+				];
 			}
-		});
 
-		// Delete the message and its children
-		[messageId, ...childMessageIds].forEach((id) => {
-			delete history.messages[id];
-		});
+			// 更新子节点的 parent 指向
+			childMessageIds.forEach((childId) => {
+				if (history.messages[childId]) {
+					history.messages[childId].parentId = parentMessageId;
+				}
+			});
+
+			// 只删除当前消息
+			delete history.messages[messageId];
+		} else {
+			// 子节点不包含 user message，按原逻辑删除子节点并连接孙子节点
+			// Collect all grandchildren
+			const grandchildrenIds = childMessageIds.flatMap(
+				(childId) => history.messages[childId]?.childrenIds ?? []
+			);
+
+			// Update parent's children
+			if (parentMessageId && history.messages[parentMessageId]) {
+				history.messages[parentMessageId].childrenIds = [
+					...history.messages[parentMessageId].childrenIds.filter((id) => id !== messageId),
+					...grandchildrenIds
+				];
+			}
+
+			// Update grandchildren's parent
+			grandchildrenIds.forEach((grandchildId) => {
+				if (history.messages[grandchildId]) {
+					history.messages[grandchildId].parentId = parentMessageId;
+				}
+			});
+
+			// Delete the message and its children
+			[messageId, ...childMessageIds].forEach((id) => {
+				delete history.messages[id];
+			});
+		}
 
 		await tick();
 
