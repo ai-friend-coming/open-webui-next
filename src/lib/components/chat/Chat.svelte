@@ -92,7 +92,15 @@
 	import { getFunctions } from '$lib/apis/functions';
 	import Image from '../common/Image.svelte';
 	import { updateFolderById } from '$lib/apis/folders';
-	import { trackChatOpened } from '$lib/posthog';
+	import {
+		trackChatOpened,
+		trackMessageSent,
+		trackMessageResponseCompleted,
+		trackMessageResponseError,
+		trackMessageResponseStopped,
+		trackMessageRegenerated,
+		parseChatForTracking
+	} from '$lib/posthog';
 
 	export let chatIdProp = '';
 
@@ -446,6 +454,17 @@
 					if (parentId && history.messages[parentId]) {
 						history.messages[parentId].done = true;
 					}
+
+					// --- 埋点：响应错误 ---
+					trackMessageResponseError({
+						chatId: $chatId,
+						userMessageId: parentId,
+						responseMessageId: message.id,
+						errorType: 'ws_error',
+						error: data.error,
+						modelId: message.model,
+						isUserModel: message.is_user_model ?? false
+					});
 
 					// 保存更新后的 history 到数据库
 					await saveChatHandler($chatId, history);
@@ -1493,6 +1512,17 @@
 
 		// ========== 错误处理 ==========
 		if (error) {
+			// --- 埋点：响应错误（completion_error 类型）---
+			trackMessageResponseError({
+				chatId: chatId,
+				userMessageId: message.parentId,
+				responseMessageId: message.id,
+				errorType: 'completion_error',
+				error: error,
+				modelId: message.model,
+				isUserModel: message.is_user_model ?? false
+			});
+
 			await handleOpenAIError(error, message);
 		}
 
@@ -1663,6 +1693,22 @@
 				message.id,
 				createMessagesList(history, message.id)
 			);
+
+			// --- 埋点：响应完成 ---
+			trackMessageResponseCompleted({
+				chatId: chatId,
+				userMessageId: message.parentId,
+				responseMessageId: message.id,
+				responseLength: message.content?.length ?? 0,
+				modelId: message.model,
+				modelName: message.modelName || message.model,
+				isUserModel: message.is_user_model ?? false,
+				usage: message.usage ?? null,
+				hasSources: (message.sources?.length ?? 0) > 0,
+				sourceCount: message.sources?.length ?? 0,
+				isArenaMode: message.arena ?? false,
+				selectedModelId: message.selectedModelId
+			});
 		}
 
 		await tick();
@@ -2004,6 +2050,30 @@
 		_history = JSON.parse(JSON.stringify(history));
 		// Save chat after all messages have been created
 		await saveChatHandler(_chatId, _history);
+
+		// === 6.1 埋点：发送消息 ===
+		// 获取用户消息和模型信息用于埋点
+		const userMessage = _history.messages[parentId];
+		const firstModelId = selectedModelIds[0];
+		const firstCombined = getCombinedModelById(firstModelId);
+		const firstModel = firstCombined?.model ?? firstCombined?.credential;
+		const firstResponseMessageId = responseMessageIds[`${firstModelId}-${modelIdx ? modelIdx : 0}`];
+
+		trackMessageSent({
+			isNewChat: newChat && userMessage?.parentId === null,
+			chatId: _chatId,
+			userMessageId: parentId,
+			messageLength: userMessage?.content?.length ?? 0,
+			modelId: firstModelId,
+			modelName: firstModel?.name || firstModel?.id || firstModelId,
+			isUserModel: firstCombined?.source === 'user',
+			responseMessageId: firstResponseMessageId,
+			chatContext: chat ? parseChatForTracking(chat) : null,
+			hasFiles: (userMessage?.files?.length ?? 0) > 0,
+			fileCount: userMessage?.files?.length ?? 0,
+			selectedTools: selectedToolIds,
+			features: getFeatures()
+		});
 
 		// === 7. 并发向所有选中的模型发送请求 ===
 		// 使用 Promise.all 实现并行请求，提升多模型对话的性能
@@ -2541,6 +2611,22 @@
 	};
 
 	const stopResponse = async () => {
+		// --- 埋点：用户停止响应 ---
+		// 在停止之前记录当前状态
+		if (history.currentId) {
+			const currentMessage = history.messages[history.currentId];
+			if (currentMessage && currentMessage.role === 'assistant') {
+				trackMessageResponseStopped({
+					chatId: $chatId,
+					userMessageId: currentMessage.parentId,
+					responseMessageId: history.currentId,
+					partialResponseLength: currentMessage.content?.length ?? 0,
+					modelId: currentMessage.model,
+					isUserModel: currentMessage.is_user_model ?? false
+				});
+			}
+		}
+
 		await sendingRequestManagement.stopCurrentResponse();
 
 		if (history.currentId) {
@@ -2612,6 +2698,24 @@
 			// 先删除旧的 response message，避免产生分支
 			const parentId = message.parentId;
 			const userMessage = history.messages[parentId];
+			const isMultiModel = (userMessage?.models ?? [...selectedModels]).length > 1;
+
+			// === 埋点：重新生成消息 ===
+			trackMessageRegenerated({
+				chatId: $chatId,
+				userMessageId: parentId,
+				oldResponseMessageId: message.id,
+				oldModelId: message.model,
+				oldModelName: message.modelName || message.model,
+				oldIsUserModel: message.is_user_model ?? false,
+				oldResponseLength: message.content?.length ?? 0,
+				suggestionPrompt: suggestionPrompt,
+				suggestionSource: suggestionPrompt
+					? (['Add Details', 'More Concise'].includes(suggestionPrompt) ? 'preset' : 'custom')
+					: null,
+				isMultiModel: isMultiModel,
+				modelIdx: isMultiModel ? message.modelIdx : null
+			});
 
 			if (parentId && history.messages[parentId]) {
 				history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
@@ -2641,7 +2745,7 @@
 							]
 						}
 					: {}),
-				...((userMessage?.models ?? [...selectedModels]).length > 1
+				...(isMultiModel
 					? {
 							// If multiple models are selected, use the model from the message
 							modelId: message.model,

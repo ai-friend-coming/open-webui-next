@@ -598,6 +598,7 @@ interface TokenUsage {
 
 /** 消息埋点数据类型 */
 interface MessageTrackingData {
+	message_id: string;
 	role: string;
 	content_length: number;
 	timestamp: string | null;
@@ -611,13 +612,13 @@ interface MessageTrackingData {
 }
 
 /**
- * 解析 chat 数据用于埋点（内部工具函数）
+ * 解析 chat 数据用于埋点
  * 忠实存储 chat 数据，对敏感内容进行脱敏处理
  *
  * @param chat - 聊天对象
  * @returns 解析后的埋点数据
  */
-const parseChatForTracking = (chat: any) => {
+export const parseChatForTracking = (chat: any) => {
 	const chatData = chat.chat || {};
 	// 使用 chat.chat.messages 数组（已按时间顺序）
 	const rawMessages: any[] = chatData.messages || [];
@@ -631,6 +632,7 @@ const parseChatForTracking = (chat: any) => {
 
 		if (msg?.role === 'user') {
 			return {
+				message_id: msg?.id || '',
 				role: 'user',
 				content_length: contentLength,
 				timestamp,
@@ -639,6 +641,7 @@ const parseChatForTracking = (chat: any) => {
 		} else {
 			// assistant 消息 - 直接保存原始 usage，不解析（兼容不同 API 格式）
 			return {
+				message_id: msg?.id || '',
 				role: msg?.role || 'assistant',
 				content_length: contentLength,
 				timestamp,
@@ -742,4 +745,398 @@ const parseChatForTracking = (chat: any) => {
 			total_token_usage: totalTokenUsage
 		}
 	};
+};
+
+// =====================================================
+// ==================== 发送消息埋点 ====================
+// =====================================================
+
+/**
+ * 聊天（发送消息并得到回复）业务流程：
+ * 聊天是 Cakumi 的核心功能，用户通过输入框发送消息，后端调用 LLM 生成回复，
+ * 前端通过 WebSocket 实时展示流式响应。
+ *
+ * 完整数据流：
+ * 1. 用户输入 → submitPrompt() 验证 → sendMessage() 创建占位符
+ * 2. sendMessageSocket() 发起 HTTP POST /api/chat/completions
+ * 3. 后端创建异步任务 → 返回 task_id
+ * 4. WebSocket 'events' 通道 → chatEventHandler() → chatCompletionEventHandler()
+ * 5. 流式内容增量更新 → done=true → chatCompletedHandler() → 持久化
+ *
+ * 两种发送场景：
+ * - 新 Chat：parentId === null，先调用 initChatHandler() 创建 chat 记录
+ * - 现有 Chat：parentId !== null，直接发送，chat 已存在
+ *
+ * 响应结束方式：
+ * - 正常完成：收到 done=true，触发 message_response_completed
+ * - 发生错误：收到 chat:message:error 或 error 字段，触发 message_response_error
+ * - 用户终止：点击停止按钮，触发 message_response_stopped
+ */
+
+/** 发送消息埋点参数类型 */
+interface MessageSentParams {
+	isNewChat: boolean;
+	chatId: string;
+	userMessageId: string;
+	messageLength: number;
+	modelId: string;
+	modelName: string;
+	isUserModel: boolean;
+	responseMessageId: string;
+	chatContext: any;
+	hasFiles: boolean;
+	fileCount: number;
+	selectedTools: string[];
+	features: {
+		web_search?: boolean;
+		image_generation?: boolean;
+		code_interpreter?: boolean;
+		memory?: boolean;
+	};
+}
+
+/**
+ * 埋点1：message_sent
+ *
+ * 【埋点时机】用户点击发送按钮后，消息请求即将发出时
+ * 【UI 操作】输入框输入 → 点击发送/按 Enter → 消息发送
+ * 【业务环节】submitPrompt() → sendMessage() → 【埋点】→ sendMessageSocket()
+ * 【埋点数据】
+ *   === 消息元数据 ===
+ *   - is_new_chat: boolean - 是否为新 chat 的第一条消息
+ *   - sent_at: string - 发送时间 (ISO 8601)
+ *   - message_length: number - 用户消息字符数（脱敏，不含实际内容）
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 用户消息 ID
+ *
+ *   === 模型信息 ===
+ *   - model_id: string - 模型 ID
+ *   - model_name: string - 模型名称
+ *   - is_user_model: boolean - 是否为私有模型
+ *   - response_message_id: string - 该模型对应的响应消息 ID
+ *
+ *   === Chat 上下文（发送前状态）===
+ *   - chat_context: object | null - parseChatForTracking 返回值
+ *
+ *   === 附加信息 ===
+ *   - has_files: boolean - 是否有文件附件
+ *   - file_count: number - 文件数量
+ *   - selected_tools: string[] - 选中的工具 ID
+ *   - features: object - 启用的功能
+ *
+ * @param params - 埋点参数
+ */
+export const trackMessageSent = (params: MessageSentParams) => {
+	if (typeof window === 'undefined') return;
+
+	posthog.capture('message_sent', {
+		// 消息元数据
+		is_new_chat: params.isNewChat,
+		sent_at: new Date().toISOString(),
+		message_length: params.messageLength,
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+
+		// 模型信息
+		model_id: params.modelId,
+		model_name: params.modelName,
+		is_user_model: params.isUserModel,
+		response_message_id: params.responseMessageId,
+
+		// Chat 上下文
+		chat_context: params.chatContext,
+
+		// 附加信息
+		has_files: params.hasFiles,
+		file_count: params.fileCount,
+		selected_tools: params.selectedTools,
+		features: params.features
+	});
+};
+
+/** 响应完成埋点参数类型 */
+interface MessageResponseCompletedParams {
+	chatId: string;
+	userMessageId: string;
+	responseMessageId: string;
+	responseLength: number;
+	modelId: string;
+	modelName: string;
+	isUserModel: boolean;
+	usage: any | null;
+	hasSources: boolean;
+	sourceCount: number;
+	isArenaMode: boolean;
+	selectedModelId?: string;
+}
+
+/**
+ * 埋点2：message_response_completed
+ *
+ * 【埋点时机】LLM 响应流式传输完成（done=true），且无错误时
+ * 【UI 操作】消息气泡内容停止更新，显示完成状态
+ * 【业务环节】chatCompletionEventHandler() 收到 done=true → 【埋点】
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 关联的用户消息 ID
+ *   - response_message_id: string - 响应消息 ID
+ *
+ *   === 时间信息 ===
+ *   - completed_at: string - 完成时间 (ISO 8601)
+ *
+ *   === 响应内容 ===
+ *   - response_length: number - 响应字符数
+ *   - model_id: string - 实际响应的模型 ID
+ *   - model_name: string - 模型名称
+ *   - is_user_model: boolean - 是否为私有模型
+ *
+ *   === Token 统计 ===
+ *   - usage: object | null - Token 使用量（原始格式）
+ *
+ *   === 附加信息 ===
+ *   - has_sources: boolean - 是否有 RAG 引用源
+ *   - source_count: number - 引用源数量
+ *   - is_arena_mode: boolean - 是否为 Arena 模式
+ *   - selected_model_id?: string - Arena 模式选中的模型
+ *
+ * @param params - 埋点参数
+ */
+export const trackMessageResponseCompleted = (params: MessageResponseCompletedParams) => {
+	if (typeof window === 'undefined') return;
+
+	posthog.capture('message_response_completed', {
+		// 关联标识
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+		response_message_id: params.responseMessageId,
+
+		// 时间信息
+		completed_at: new Date().toISOString(),
+
+		// 响应内容
+		response_length: params.responseLength,
+		model_id: params.modelId,
+		model_name: params.modelName,
+		is_user_model: params.isUserModel,
+
+		// Token 统计
+		usage: params.usage,
+
+		// 附加信息
+		has_sources: params.hasSources,
+		source_count: params.sourceCount,
+		is_arena_mode: params.isArenaMode,
+		...(params.selectedModelId && { selected_model_id: params.selectedModelId })
+	});
+};
+
+/** 响应错误埋点参数类型 */
+interface MessageResponseErrorParams {
+	chatId: string;
+	userMessageId: string;
+	responseMessageId: string;
+	errorType: 'ws_error' | 'completion_error';
+	error: any;
+	modelId: string;
+	isUserModel: boolean;
+}
+
+/**
+ * 埋点3：message_response_error
+ *
+ * 【埋点时机】收到后端错误事件（chat:message:error 或 chat:completion 的 error）
+ * 【UI 操作】消息气泡显示错误，或 Toast 提示错误
+ * 【业务环节】chatEventHandler/chatCompletionEventHandler 处理错误 → 【埋点】
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 关联的用户消息 ID
+ *   - response_message_id: string - 响应消息 ID
+ *
+ *   === 时间信息 ===
+ *   - error_at: string - 错误发生时间 (ISO 8601)
+ *
+ *   === 错误详情 ===
+ *   - error_type: 'ws_error' | 'completion_error' - 错误来源
+ *   - error: object - 错误信息（原始格式）
+ *
+ *   === 模型信息 ===
+ *   - model_id: string - 模型 ID
+ *   - is_user_model: boolean - 是否为私有模型
+ *
+ * @param params - 埋点参数
+ */
+export const trackMessageResponseError = (params: MessageResponseErrorParams) => {
+	if (typeof window === 'undefined') return;
+
+	posthog.capture('message_response_error', {
+		// 关联标识
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+		response_message_id: params.responseMessageId,
+
+		// 时间信息
+		error_at: new Date().toISOString(),
+
+		// 错误详情
+		error_type: params.errorType,
+		error: params.error,
+
+		// 模型信息
+		model_id: params.modelId,
+		is_user_model: params.isUserModel
+	});
+};
+
+/** 响应停止埋点参数类型 */
+interface MessageResponseStoppedParams {
+	chatId: string;
+	userMessageId: string;
+	responseMessageId: string;
+	partialResponseLength: number;
+	modelId: string;
+	isUserModel: boolean;
+}
+
+/**
+ * 埋点4：message_response_stopped
+ *
+ * 【埋点时机】用户点击停止按钮终止响应
+ * 【UI 操作】点击停止按钮 → 响应中断
+ * 【业务环节】stopResponse() → 【埋点】→ terminateTask()
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 关联的用户消息 ID
+ *   - response_message_id: string - 响应消息 ID
+ *
+ *   === 时间信息 ===
+ *   - stopped_at: string - 停止时间 (ISO 8601)
+ *
+ *   === 停止时状态 ===
+ *   - partial_response_length: number - 停止时已接收的响应字符数
+ *   - model_id: string - 模型 ID
+ *   - is_user_model: boolean - 是否为私有模型
+ *
+ * @param params - 埋点参数
+ */
+export const trackMessageResponseStopped = (params: MessageResponseStoppedParams) => {
+	if (typeof window === 'undefined') return;
+	posthog.capture('message_response_stopped', {
+		// 关联标识
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+		response_message_id: params.responseMessageId,
+
+		// 时间信息
+		stopped_at: new Date().toISOString(),
+
+		// 停止时状态
+		partial_response_length: params.partialResponseLength,
+		model_id: params.modelId,
+		is_user_model: params.isUserModel
+	});
+};
+
+// =====================================================
+// ==================== 重新生成埋点 ====================
+// =====================================================
+
+/**
+ * 重新生成消息业务流程：
+ * 用户对已有 AI 响应不满意时，可以点击"重新生成"按钮要求 LLM 重新回复。
+ * 与普通发送消息不同，重新生成会先删除旧的响应消息，然后调用 sendMessage 生成新响应。
+ *
+ * 完整数据流：
+ * 1. 用户点击"重新生成"按钮 → regenerateResponse(message, suggestionPrompt?)
+ * 2. 【埋点】trackMessageRegenerated() - 记录重新生成动作
+ * 3. 删除旧的 assistant 响应消息
+ * 4. 调用 sendMessage() → trackMessageSent() → sendMessageSocket()
+ * 5. WebSocket 流式响应 → trackMessageResponseCompleted/Error/Stopped
+ *
+ * 重新生成选项：
+ * - "Try Again" - 无提示词，直接重新生成
+ * - "Add Details" - 追加建议提示词
+ * - "More Concise" - 追加建议提示词
+ * - 自定义输入 - 用户输入任意提示词
+ */
+
+/** 重新生成消息埋点参数类型 */
+interface MessageRegeneratedParams {
+	chatId: string;
+	userMessageId: string;
+	oldResponseMessageId: string;
+	oldModelId: string;
+	oldModelName: string;
+	oldIsUserModel: boolean;
+	oldResponseLength: number;
+	suggestionPrompt: string | null;
+	suggestionSource: 'preset' | 'custom' | null;
+	isMultiModel: boolean;
+	modelIdx: number | null;
+}
+
+/**
+ * 埋点5：message_regenerated
+ *
+ * 【埋点时机】用户点击重新生成按钮，删除旧响应之前
+ * 【UI 操作】点击重新生成按钮/菜单选项 → 触发 regenerateResponse()
+ * 【业务环节】regenerateResponse() 开头 → 【埋点】→ 删除旧消息 → sendMessage()
+ * 【埋点数据】
+ *   === 关联标识 ===
+ *   - chat_id: string - 聊天 ID
+ *   - user_message_id: string - 关联的用户消息 ID
+ *
+ *   === 时间信息 ===
+ *   - regenerated_at: string - 重新生成时间 (ISO 8601)
+ *
+ *   === 被删除的旧响应信息 ===
+ *   - old_response: object - 旧响应详情
+ *       - message_id: string - 旧响应消息 ID
+ *       - model_id: string - 旧响应使用的模型
+ *       - model_name: string - 旧响应模型名称
+ *       - is_user_model: boolean - 是否为私有模型
+ *       - response_length: number - 旧响应字符数
+ *
+ *   === 重新生成选项 ===
+ *   - regenerate_type: 'simple_retry' | 'with_suggestion' - 重新生成类型
+ *   - suggestion_prompt: string | null - 建议提示词
+ *   - suggestion_source: 'preset' | 'custom' | null - 提示词来源
+ *
+ *   === 上下文信息 ===
+ *   - is_multi_model: boolean - 是否为多模型模式
+ *   - model_idx: number | null - 多模型时的模型索引
+ *
+ * @param params - 埋点参数
+ */
+export const trackMessageRegenerated = (params: MessageRegeneratedParams) => {
+	if (typeof window === 'undefined') return;
+
+	posthog.capture('message_regenerated', {
+		// 关联标识
+		chat_id: params.chatId,
+		user_message_id: params.userMessageId,
+
+		// 时间信息
+		regenerated_at: new Date().toISOString(),
+
+		// 被删除的旧响应信息
+		old_response: {
+			message_id: params.oldResponseMessageId,
+			model_id: params.oldModelId,
+			model_name: params.oldModelName,
+			is_user_model: params.oldIsUserModel,
+			response_length: params.oldResponseLength
+		},
+
+		// 重新生成选项
+		regenerate_type: params.suggestionPrompt ? 'with_suggestion' : 'simple_retry',
+		suggestion_prompt: params.suggestionPrompt,
+		suggestion_source: params.suggestionSource,
+
+		// 上下文信息
+		is_multi_model: params.isMultiModel,
+		model_idx: params.modelIdx
+	});
 };
