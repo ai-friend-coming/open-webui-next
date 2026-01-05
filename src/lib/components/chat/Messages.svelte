@@ -80,18 +80,20 @@
 		let _messages = [];
 
 		let message = history.messages[history.currentId];
+		// 检测不完整消息：缺少 role 或 id 或 parentId 为 undefined（而非 null）
+		// 这种情况通常发生在 HTTP 请求失败但 WebSocket 已部分写入数据时
 		if (
 			message &&
-			message.parentId === undefined &&
-			message.content === '' &&
-			!message.role &&
-			!message.id
+			(!message.role || !message.id || message.parentId === undefined)
 		) {
+			// 删除不完整消息
 			delete history.messages[history.currentId];
+			// 回退到最新的完整消息
 			let latestId = null;
 			let latestTimestamp = -1;
 			for (const msg of Object.values(history.messages)) {
-					if (!msg?.id) {
+					// 只考虑完整的消息（有 id 和 role）
+					if (!msg?.id || !msg?.role) {
 							continue;
 					}
 					const timestamp = msg.timestamp ?? 0;
@@ -105,7 +107,8 @@
 		}
 		while (message && (messagesCount !== null ? _messages.length <= messagesCount : true)) {
 			_messages.unshift({ ...message });
-			message = message.parentId !== null ? history.messages[message.parentId] : null;
+			// 使用 != null 同时处理 null 和 undefined
+			message = message.parentId != null ? history.messages[message.parentId] : null;
 		}
 
 		messages = _messages;
@@ -549,7 +552,7 @@
 			{#key chatId}
 				<section class="w-full" aria-labelledby="chat-conversation">
 					<h2 class="sr-only" id="chat-conversation">{$i18n.t('Chat Conversation')}</h2>
-					{#if messages.at(0)?.parentId !== null}
+					{#if messages.at(0)?.parentId != null}
 						<Loader
 							on:visible={(e) => {
 								console.log('visible');
