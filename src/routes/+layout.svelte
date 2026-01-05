@@ -25,7 +25,8 @@
 		isApp,
 		appInfo,
 		toolServers,
-		playingNotificationSound
+		playingNotificationSound,
+		stoppedMessageIds
 	} from '$lib/stores';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -301,6 +302,16 @@
 				const { done, content, title } = data;
 
 				if (done) {
+					// 检查消息是否已被用户停止（避免竞态条件导致的错误通知）
+					if ($stoppedMessageIds.has(event.message_id)) {
+						// 从 set 中移除，避免内存泄漏
+						stoppedMessageIds.update((ids) => {
+							ids.delete(event.message_id);
+							return ids;
+						});
+						return; // 跳过已停止消息的通知
+					}
+
 					// 播放通知音效
 					if ($settings?.notificationSoundAlways ?? false) {
 						playingNotificationSound.set(true);

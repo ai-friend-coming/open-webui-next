@@ -747,34 +747,15 @@ export const parseChatForTracking = (chat: any) => {
 	};
 };
 
+
 // =====================================================
-// ==================== 发送消息埋点 ====================
+// ==================== 消息生命周期埋点 ====================
 // =====================================================
 
-/**
- * 聊天（发送消息并得到回复）业务流程：
- * 聊天是 Cakumi 的核心功能，用户通过输入框发送消息，后端调用 LLM 生成回复，
- * 前端通过 WebSocket 实时展示流式响应。
- *
- * 完整数据流：
- * 1. 用户输入 → submitPrompt() 验证 → sendMessage() 创建占位符
- * 2. sendMessageSocket() 发起 HTTP POST /api/chat/completions
- * 3. 后端创建异步任务 → 返回 task_id
- * 4. WebSocket 'events' 通道 → chatEventHandler() → chatCompletionEventHandler()
- * 5. 流式内容增量更新 → done=true → chatCompletedHandler() → 持久化
- *
- * 两种发送场景：
- * - 新 Chat：parentId === null，先调用 initChatHandler() 创建 chat 记录
- * - 现有 Chat：parentId !== null，直接发送，chat 已存在
- *
- * 响应结束方式：
- * - 正常完成：收到 done=true，触发 message_response_completed
- * - 发生错误：收到 chat:message:error 或 error 字段，触发 message_response_error
- * - 用户终止：点击停止按钮，触发 message_response_stopped
- */
+// ==================== 原始数据接口（供业务层使用）====================
 
-/** 发送消息埋点参数类型 */
-interface MessageSentParams {
+/** 请求发送时的业务数据 */
+export interface MessageLifecycleSentData {
 	isNewChat: boolean;
 	chatId: string;
 	userMessageId: string;
@@ -787,256 +768,207 @@ interface MessageSentParams {
 	hasFiles: boolean;
 	fileCount: number;
 	selectedTools: string[];
-	features: {
-		web_search?: boolean;
-		image_generation?: boolean;
-		code_interpreter?: boolean;
-		memory?: boolean;
-	};
+	features: object;
 }
 
-/**
- * 埋点1：message_sent
- *
- * 【埋点时机】用户点击发送按钮后，消息请求即将发出时
- * 【UI 操作】输入框输入 → 点击发送/按 Enter → 消息发送
- * 【业务环节】submitPrompt() → sendMessage() → 【埋点】→ sendMessageSocket()
- * 【埋点数据】
- *   === 消息元数据 ===
- *   - is_new_chat: boolean - 是否为新 chat 的第一条消息
- *   - sent_at: string - 发送时间 (ISO 8601)
- *   - message_length: number - 用户消息字符数（脱敏，不含实际内容）
- *   - chat_id: string - 聊天 ID
- *   - user_message_id: string - 用户消息 ID
- *
- *   === 模型信息 ===
- *   - model_id: string - 模型 ID
- *   - model_name: string - 模型名称
- *   - is_user_model: boolean - 是否为私有模型
- *   - response_message_id: string - 该模型对应的响应消息 ID
- *
- *   === Chat 上下文（发送前状态）===
- *   - chat_context: object | null - parseChatForTracking 返回值
- *
- *   === 附加信息 ===
- *   - has_files: boolean - 是否有文件附件
- *   - file_count: number - 文件数量
- *   - selected_tools: string[] - 选中的工具 ID
- *   - features: object - 启用的功能
- *
- * @param params - 埋点参数
- */
-export const trackMessageSent = (params: MessageSentParams) => {
-	if (typeof window === 'undefined') return;
-
-	posthog.capture('message_sent', {
-		// 消息元数据
-		is_new_chat: params.isNewChat,
-		sent_at: new Date().toISOString(),
-		message_length: params.messageLength,
-		chat_id: params.chatId,
-		user_message_id: params.userMessageId,
-
-		// 模型信息
-		model_id: params.modelId,
-		model_name: params.modelName,
-		is_user_model: params.isUserModel,
-		response_message_id: params.responseMessageId,
-
-		// Chat 上下文
-		chat_context: params.chatContext,
-
-		// 附加信息
-		has_files: params.hasFiles,
-		file_count: params.fileCount,
-		selected_tools: params.selectedTools,
-		features: params.features
-	});
-};
-
-/** 响应完成埋点参数类型 */
-interface MessageResponseCompletedParams {
-	chatId: string;
-	userMessageId: string;
-	responseMessageId: string;
+/** 响应完成时的数据 */
+export interface MessageLifecycleResponseData {
 	responseLength: number;
-	modelId: string;
-	modelName: string;
-	isUserModel: boolean;
-	usage: any | null;
+	usage: any;
 	hasSources: boolean;
 	sourceCount: number;
 	isArenaMode: boolean;
 	selectedModelId?: string;
 }
 
-/**
- * 埋点2：message_response_completed
- *
- * 【埋点时机】LLM 响应流式传输完成（done=true），且无错误时
- * 【UI 操作】消息气泡内容停止更新，显示完成状态
- * 【业务环节】chatCompletionEventHandler() 收到 done=true → 【埋点】
- * 【埋点数据】
- *   === 关联标识 ===
- *   - chat_id: string - 聊天 ID
- *   - user_message_id: string - 关联的用户消息 ID
- *   - response_message_id: string - 响应消息 ID
- *
- *   === 时间信息 ===
- *   - completed_at: string - 完成时间 (ISO 8601)
- *
- *   === 响应内容 ===
- *   - response_length: number - 响应字符数
- *   - model_id: string - 实际响应的模型 ID
- *   - model_name: string - 模型名称
- *   - is_user_model: boolean - 是否为私有模型
- *
- *   === Token 统计 ===
- *   - usage: object | null - Token 使用量（原始格式）
- *
- *   === 附加信息 ===
- *   - has_sources: boolean - 是否有 RAG 引用源
- *   - source_count: number - 引用源数量
- *   - is_arena_mode: boolean - 是否为 Arena 模式
- *   - selected_model_id?: string - Arena 模式选中的模型
- *
- * @param params - 埋点参数
- */
-export const trackMessageResponseCompleted = (params: MessageResponseCompletedParams) => {
-	if (typeof window === 'undefined') return;
-
-	posthog.capture('message_response_completed', {
-		// 关联标识
-		chat_id: params.chatId,
-		user_message_id: params.userMessageId,
-		response_message_id: params.responseMessageId,
-
-		// 时间信息
-		completed_at: new Date().toISOString(),
-
-		// 响应内容
-		response_length: params.responseLength,
-		model_id: params.modelId,
-		model_name: params.modelName,
-		is_user_model: params.isUserModel,
-
-		// Token 统计
-		usage: params.usage,
-
-		// 附加信息
-		has_sources: params.hasSources,
-		source_count: params.sourceCount,
-		is_arena_mode: params.isArenaMode,
-		...(params.selectedModelId && { selected_model_id: params.selectedModelId })
-	});
-};
-
-/** 响应错误埋点参数类型 */
-interface MessageResponseErrorParams {
-	chatId: string;
-	userMessageId: string;
-	responseMessageId: string;
-	errorType: 'ws_error' | 'completion_error';
+/** 错误数据 */
+export interface MessageLifecycleErrorData {
+	errorType: 'ws_error' | 'completion_error' | 'api_error' | 'http_error';
 	error: any;
-	modelId: string;
-	isUserModel: boolean;
+}
+
+/** 请求生命周期的时间戳记录 */
+export interface MessageLifecycleTimestamps {
+	submitAt: number;
+	sendRequestAt: number;
+	httpResponseAt?: number;
+	firstTokenAt?: number;
+	endAt?: number;
+}
+
+/** 结果类型 */
+export type MessageLifecycleOutcome = 'completed' | 'stopped' | 'error' | 'cancelled';
+
+/** trackMessageLifecycle 的原始参数类型 */
+export interface MessageLifecycleRawParams {
+	outcome: MessageLifecycleOutcome;
+	timestamps: MessageLifecycleTimestamps;
+	sentData: MessageLifecycleSentData;
+	responseData?: MessageLifecycleResponseData;
+	errorData?: MessageLifecycleErrorData;
+	partialResponseLength?: number;
 }
 
 /**
- * 埋点3：message_response_error
+ * 消息生命周期埋点：message_lifecycle
  *
- * 【埋点时机】收到后端错误事件（chat:message:error 或 chat:completion 的 error）
- * 【UI 操作】消息气泡显示错误，或 Toast 提示错误
- * 【业务环节】chatEventHandler/chatCompletionEventHandler 处理错误 → 【埋点】
+ * 【埋点时机】请求结束时（成功、停止、错误、取消）
+ * 【业务环节】SendingRequestManagement 在以下时机调用：
+ *   - completeRequest(): 成功完成
+ *   - stopRequest(): 用户停止
+ *   - failRequest(): 错误或取消
  * 【埋点数据】
- *   === 关联标识 ===
- *   - chat_id: string - 聊天 ID
- *   - user_message_id: string - 关联的用户消息 ID
- *   - response_message_id: string - 响应消息 ID
+ *   === 结果类型 ===
+ *   - outcome: 'completed' | 'stopped' | 'error' | 'cancelled'
  *
- *   === 时间信息 ===
- *   - error_at: string - 错误发生时间 (ISO 8601)
+ *   === 时间戳 (ISO 8601) ===
+ *   - timestamps.submit_at: 用户点击发送时间
+ *   - timestamps.send_request_at: 创建占位消息时间
+ *   - timestamps.http_response_at: 收到 HTTP 响应时间
+ *   - timestamps.first_token_at: 收到第一个 token 时间
+ *   - timestamps.end_at: 结束时间
  *
- *   === 错误详情 ===
- *   - error_type: 'ws_error' | 'completion_error' - 错误来源
- *   - error: object - 错误信息（原始格式）
+ *   === 耗时 (毫秒) ===
+ *   - durations.total: 总耗时 (end - submit)
+ *   - durations.to_http_response: 到 HTTP 响应耗时
+ *   - durations.to_first_token: 到首 token 耗时
+ *   - durations.streaming: 流式传输耗时 (end - first_token)
  *
- *   === 模型信息 ===
- *   - model_id: string - 模型 ID
- *   - is_user_model: boolean - 是否为私有模型
+ *   === 请求数据 ===
+ *   - sent.*: 发送时的业务数据
  *
- * @param params - 埋点参数
+ *   === 响应数据（仅 completed）===
+ *   - response.*: 响应完成时的数据
+ *
+ *   === 错误数据（仅 error）===
+ *   - error.*: 错误信息
+ *
+ *   === 停止数据（仅 stopped）===
+ *   - stopped.partial_response_length: 停止时已收到的响应长度
+ *
+ * @param params - 原始埋点参数（业务层数据格式）
  */
-export const trackMessageResponseError = (params: MessageResponseErrorParams) => {
+export const trackMessageLifecycle = (params: MessageLifecycleRawParams) => {
 	if (typeof window === 'undefined') return;
 
-	posthog.capture('message_response_error', {
-		// 关联标识
-		chat_id: params.chatId,
-		user_message_id: params.userMessageId,
-		response_message_id: params.responseMessageId,
+	const { outcome, timestamps, sentData, responseData, errorData, partialResponseLength } = params;
 
-		// 时间信息
-		error_at: new Date().toISOString(),
+	// ========== 计算耗时 ==========
+	const durations: Record<string, number | undefined> = {
+		total: timestamps.endAt ? timestamps.endAt - timestamps.submitAt : undefined
+	};
 
-		// 错误详情
-		error_type: params.errorType,
-		error: params.error,
+	if (timestamps.httpResponseAt) {
+		durations.to_http_response = timestamps.httpResponseAt - timestamps.sendRequestAt;
+	}
 
-		// 模型信息
-		model_id: params.modelId,
-		is_user_model: params.isUserModel
-	});
-};
+	if (timestamps.firstTokenAt) {
+		durations.to_first_token = timestamps.firstTokenAt - timestamps.sendRequestAt;
+	}
 
-/** 响应停止埋点参数类型 */
-interface MessageResponseStoppedParams {
-	chatId: string;
-	userMessageId: string;
-	responseMessageId: string;
-	partialResponseLength: number;
-	modelId: string;
-	isUserModel: boolean;
-}
+	if (timestamps.firstTokenAt && timestamps.endAt) {
+		durations.streaming = timestamps.endAt - timestamps.firstTokenAt;
+	}
 
-/**
- * 埋点4：message_response_stopped
- *
- * 【埋点时机】用户点击停止按钮终止响应
- * 【UI 操作】点击停止按钮 → 响应中断
- * 【业务环节】stopResponse() → 【埋点】→ terminateTask()
- * 【埋点数据】
- *   === 关联标识 ===
- *   - chat_id: string - 聊天 ID
- *   - user_message_id: string - 关联的用户消息 ID
- *   - response_message_id: string - 响应消息 ID
- *
- *   === 时间信息 ===
- *   - stopped_at: string - 停止时间 (ISO 8601)
- *
- *   === 停止时状态 ===
- *   - partial_response_length: number - 停止时已接收的响应字符数
- *   - model_id: string - 模型 ID
- *   - is_user_model: boolean - 是否为私有模型
- *
- * @param params - 埋点参数
- */
-export const trackMessageResponseStopped = (params: MessageResponseStoppedParams) => {
-	if (typeof window === 'undefined') return;
-	posthog.capture('message_response_stopped', {
-		// 关联标识
-		chat_id: params.chatId,
-		user_message_id: params.userMessageId,
-		response_message_id: params.responseMessageId,
+	// ========== 构建埋点数据 ==========
+	const eventData: any = {
+		outcome,
+		timestamps: {
+			submit_at: new Date(timestamps.submitAt).toISOString(),
+			send_request_at: new Date(timestamps.sendRequestAt).toISOString(),
+			http_response_at: timestamps.httpResponseAt
+				? new Date(timestamps.httpResponseAt).toISOString()
+				: undefined,
+			first_token_at: timestamps.firstTokenAt
+				? new Date(timestamps.firstTokenAt).toISOString()
+				: undefined,
+			end_at: timestamps.endAt ? new Date(timestamps.endAt).toISOString() : undefined
+		},
+		durations,
+		sent: {
+			is_new_chat: sentData.isNewChat,
+			chat_id: sentData.chatId,
+			user_message_id: sentData.userMessageId,
+			message_length: sentData.messageLength,
+			model_id: sentData.modelId,
+			model_name: sentData.modelName,
+			is_user_model: sentData.isUserModel,
+			response_message_id: sentData.responseMessageId,
+			chat_context: sentData.chatContext,
+			has_files: sentData.hasFiles,
+			file_count: sentData.fileCount,
+			selected_tools: sentData.selectedTools,
+			features: sentData.features
+		}
+	};
 
-		// 时间信息
-		stopped_at: new Date().toISOString(),
+	// ========== 根据 outcome 添加额外数据 ==========
+	if (outcome === 'completed' && responseData) {
+		eventData.response = {
+			response_length: responseData.responseLength,
+			usage: responseData.usage,
+			has_sources: responseData.hasSources,
+			source_count: responseData.sourceCount,
+			is_arena_mode: responseData.isArenaMode,
+			selected_model_id: responseData.selectedModelId
+		};
+	}
 
-		// 停止时状态
-		partial_response_length: params.partialResponseLength,
-		model_id: params.modelId,
-		is_user_model: params.isUserModel
-	});
+	if ((outcome === 'error' || outcome === 'cancelled') && errorData) {
+		eventData.error = {
+			error_type: errorData.errorType,
+			error: errorData.error
+		};
+	}
+
+	if (outcome === 'stopped') {
+		eventData.stopped = {
+			partial_response_length: partialResponseLength ?? 0
+		};
+	}
+
+	// ========== 调试日志 ==========
+	console.log(
+		`%c📊 message_lifecycle [${outcome}]`,
+		'color: #6366f1; font-weight: bold;',
+		'\n',
+		{
+			'🎯 结果': outcome,
+			'⏱️ 耗时': {
+				'总耗时': durations.total ? `${durations.total}ms` : '-',
+				'到HTTP响应': durations.to_http_response ? `${durations.to_http_response}ms` : '-',
+				'到首Token': durations.to_first_token ? `${durations.to_first_token}ms` : '-',
+				'流式传输': durations.streaming ? `${durations.streaming}ms` : '-'
+			},
+			'📤 发送': {
+				'新对话': sentData.isNewChat,
+				'聊天ID': sentData.chatId,
+				'模型': `${sentData.modelName} (${sentData.modelId})`,
+				'私有模型': sentData.isUserModel,
+				'消息长度': sentData.messageLength,
+				'附件': sentData.hasFiles ? `${sentData.fileCount}个文件` : '无'
+			},
+			...(outcome === 'completed' && responseData
+				? {
+						'📥 响应': {
+							'响应长度': responseData.responseLength,
+							'Token用量': responseData.usage,
+							'引用源': responseData.hasSources ? `${responseData.sourceCount}个` : '无',
+							'Arena模式': responseData.isArenaMode
+						}
+					}
+				: {}),
+			...(outcome === 'stopped'
+				? { '⏹️ 停止时响应长度': partialResponseLength }
+				: {}),
+			...((outcome === 'error' || outcome === 'cancelled') && errorData
+				? { '❌ 错误': { 类型: errorData.errorType, 详情: errorData.error } }
+				: {}),
+			'📋 完整数据': eventData
+		}
+	);
+
+	posthog.capture('message_lifecycle', eventData);
 };
 
 // =====================================================
@@ -1052,8 +984,8 @@ export const trackMessageResponseStopped = (params: MessageResponseStoppedParams
  * 1. 用户点击"重新生成"按钮 → regenerateResponse(message, suggestionPrompt?)
  * 2. 【埋点】trackMessageRegenerated() - 记录重新生成动作
  * 3. 删除旧的 assistant 响应消息
- * 4. 调用 sendMessage() → trackMessageSent() → sendMessageSocket()
- * 5. WebSocket 流式响应 → trackMessageResponseCompleted/Error/Stopped
+ * 4. 调用 sendMessage() → startRequest() → sendMessageSocket()
+ * 5. WebSocket 流式响应 → completeRequest/failRequest/stopRequest → trackMessageLifecycle
  *
  * 重新生成选项：
  * - "Try Again" - 无提示词，直接重新生成
@@ -1156,8 +1088,8 @@ export const trackMessageRegenerated = (params: MessageRegeneratedParams) => {
  * 3. editMessage(messageId, { content, files }, submit=true)
  * 4. 【埋点】trackMessageEdited() - 记录编辑动作
  * 5. 删除所有子消息（assistant 响应）
- * 6. 调用 sendMessage() → trackMessageSent() → sendMessageSocket()
- * 7. WebSocket 流式响应 → trackMessageResponseCompleted/Error/Stopped
+ * 6. 调用 sendMessage() → startRequest() → sendMessageSocket()
+ * 7. WebSocket 流式响应 → completeRequest/failRequest/stopRequest → trackMessageLifecycle
  *
  * 编辑消息 vs 重新生成的区别：
  * - 编辑消息：修改用户消息内容，删除所有响应后重新发送

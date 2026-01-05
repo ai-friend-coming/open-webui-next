@@ -41,7 +41,8 @@
 		functions,
 		selectedFolder,
 		pinnedChats,
-		showEmbeds
+		showEmbeds,
+		stoppedMessageIds
 	} from '$lib/stores';
 	import {
 		convertMessagesToHistory,
@@ -94,10 +95,6 @@
 	import { updateFolderById } from '$lib/apis/folders';
 	import {
 		trackChatOpened,
-		trackMessageSent,
-		trackMessageResponseCompleted,
-		trackMessageResponseError,
-		trackMessageResponseStopped,
 		trackMessageRegenerated,
 		parseChatForTracking
 	} from '$lib/posthog';
@@ -426,8 +423,18 @@
 					// ========== 错误处理 ==========
 					// 后端处理失败时触发，需要回滚消息并清理状态
 				} else if (type === 'chat:message:error') {
+					// 检查消息是否已被用户停止
+					if ($stoppedMessageIds.has(event.message_id)) {
+						stoppedMessageIds.update((ids) => {
+							ids.delete(event.message_id);
+							return ids;
+						});
+						return; // 跳过错误处理
+					}
+
+					// --- 生命周期追踪：WS 错误 ---
 					if (event.message_id) {
-						sendingRequestManagement.handleWsChatMessageError(event.message_id);
+						sendingRequestManagement.handleWsChatMessageError(event.message_id, data.error);
 					}
 
 					// 显示 Toast 通知用户错误
@@ -454,17 +461,6 @@
 					if (parentId && history.messages[parentId]) {
 						history.messages[parentId].done = true;
 					}
-
-					// --- 埋点：响应错误 ---
-					trackMessageResponseError({
-						chatId: $chatId,
-						userMessageId: parentId,
-						responseMessageId: message.id,
-						errorType: 'ws_error',
-						error: data.error,
-						modelId: message.model,
-						isUserModel: message.is_user_model ?? false
-					});
 
 					// 保存更新后的 history 到数据库
 					await saveChatHandler($chatId, history);
@@ -1288,7 +1284,12 @@
 			// ========== 错误处理：回滚消息 ==========
 			toast.error(`${error}`);
 
-			await sendingRequestManagement.handleWsChatCompletionError(responseMessageId);
+			// 生命周期追踪：chatCompleted API 调用失败
+			sendingRequestManagement.failRequest(
+				responseMessageId,
+				{ errorType: 'completion_error', error: String(error) },
+				'error'
+			);
 			// v2: 删除错误消息而不是设置 error 字段
 			const errorMessage = history.messages[responseMessageId];
 			if (errorMessage) {
@@ -1512,16 +1513,12 @@
 
 		// ========== 错误处理 ==========
 		if (error) {
-			// --- 埋点：响应错误（completion_error 类型）---
-			trackMessageResponseError({
-				chatId: chatId,
-				userMessageId: message.parentId,
-				responseMessageId: message.id,
-				errorType: 'completion_error',
-				error: error,
-				modelId: message.model,
-				isUserModel: message.is_user_model ?? false
-			});
+			// --- 生命周期追踪：响应错误（completion_error 类型）---
+			sendingRequestManagement.failRequest(
+				message.id,
+				{ errorType: 'completion_error', error: error },
+				'error'
+			);
 
 			await handleOpenAIError(error, message);
 		}
@@ -1538,7 +1535,11 @@
 			if (choices[0]?.message?.content) {
 				// 非流式响应：choices[0].message.content 包含完整内容
 				// Non-stream response
+				const wasEmpty = message.content === '';
 				message.content += choices[0]?.message?.content;
+				if (wasEmpty && message.content !== '') {
+					sendingRequestManagement.receiveFirstToken(message.id);
+				}
 			} else {
 				// 流式响应：choices[0].delta.content 包含增量内容
 				// Stream response
@@ -1546,7 +1547,12 @@
 				if (message.content == '' && value == '\n') {
 					console.log('Empty response');
 				} else {
+					// 检测首个 token（用于生命周期追踪）
+					const wasEmpty = message.content === '';
 					message.content += value;
+					if (wasEmpty && message.content !== '') {
+						sendingRequestManagement.receiveFirstToken(message.id);
+					}
 
 					// 触觉反馈（移动端）
 					if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
@@ -1584,7 +1590,11 @@
 		// 当后端 REALTIME_CHAT_SAVE 关闭时，流结束后一次性返回完整内容
 		if (content) {
 			// REALTIME_CHAT_SAVE is disabled
+			const wasEmpty = message.content === '';
 			message.content = content;
+			if (wasEmpty && message.content !== '') {
+				sendingRequestManagement.receiveFirstToken(message.id);
+			}
 
 			if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
 				navigator.vibrate(5);
@@ -1632,7 +1642,6 @@
 		// ========== 流式结束处理 ==========
 		// done=true 表示 LLM 响应完成，需要执行收尾逻辑
 		if (done) {
-			sendingRequestManagement.handleWsChatCompletion(message.id);
 			// 标记消息完成状态（UI 会根据此状态显示/隐藏加载指示器）
 			message.done = true;
 
@@ -1694,15 +1703,9 @@
 				createMessagesList(history, message.id)
 			);
 
-			// --- 埋点：响应完成 ---
-			trackMessageResponseCompleted({
-				chatId: chatId,
-				userMessageId: message.parentId,
-				responseMessageId: message.id,
+			// --- 生命周期追踪：完成请求 ---
+			sendingRequestManagement.completeRequest(message.id, {
 				responseLength: message.content?.length ?? 0,
-				modelId: message.model,
-				modelName: message.modelName || message.model,
-				isUserModel: message.is_user_model ?? false,
 				usage: message.usage ?? null,
 				hasSources: (message.sources?.length ?? 0) > 0,
 				sourceCount: message.sources?.length ?? 0,
@@ -1907,7 +1910,9 @@
 
 		// === 9. 发送消息到后端 ===
 		// newChat: true 表示如果是新对话的第一条消息，需要先创建聊天记录
-		await sendMessage(history, userMessageId, { newChat: true });
+		// submitAt: 记录用户点击发送的时间，用于生命周期埋点
+		const submitAt = Date.now();
+		await sendMessage(history, userMessageId, { newChat: true, submitAt });
 	};
 
 	/**
@@ -1961,12 +1966,14 @@
 			messages = null,
 			modelId = null,
 			modelIdx = null,
-			newChat = false
+			newChat = false,
+			submitAt = Date.now()
 		}: {
 			messages?: any[] | null;
 			modelId?: string | null;
 			modelIdx?: number | null;
 			newChat?: boolean;
+			submitAt?: number;
 		} = {}
 	) => {
 		// === 1. UI 自动滚动 ===
@@ -1987,13 +1994,18 @@
 				? [atSelectedModel.id]
 				: selectedModels;
 
-		// === 4. 为每个选中的模型创建响应消息占位符 ===
+		// === 4. 准备用户消息数据（用于生命周期追踪）===
+		const userMessage = _history.messages[parentId];
+		const chatContextForTracking = chat ? parseChatForTracking(chat) : null;
+		const featuresForTracking = getFeatures();
+
+		// === 5. 为每个选中的模型创建响应消息占位符 ===
 		// 这样 UI 可以立即显示"正在输入..."状态
 		for (const [_modelIdx, modelId] of selectedModelIds.entries()) {
 			const combined = getCombinedModelById(modelId);
 			if (combined) {
 				const model = combined.model ?? combined.credential;
-				// 4.1 生成响应消息 ID 和空消息对象
+				// 5.1 生成响应消息 ID 和空消息对象
 				let responseMessageId = uuidv4();
 				let responseMessage = {
 					parentId: parentId,
@@ -2014,11 +2026,11 @@
 					is_user_model: combined.source === 'user' // 是否为用户私有 API 模型
 				};
 
-				// 4.2 将响应消息添加到历史记录
+				// 5.2 将响应消息添加到历史记录
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;
 
-				// 4.3 更新父消息（用户消息）的子消息列表
+				// 5.3 更新父消息（用户消息）的子消息列表
 				// 构建消息树：user message -> [assistant message 1, assistant message 2, ...]
 				if (parentId !== null && history.messages[parentId]) {
 					// Add null check before accessing childrenIds
@@ -2028,12 +2040,26 @@
 					];
 				}
 
-				// 4.4 记录响应消息 ID，用于后续查找
+				// 5.4 记录响应消息 ID，用于后续查找
 				// key 格式：modelId-modelIdx，例如 "gpt-4-0"
 				responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
 
-				// 提前标记请求进行中，让输入区立即显示“停止”按钮
-				sendingRequestManagement.sendRequest(responseMessageId);
+				// 5.5 启动请求生命周期追踪（在创建响应消息后立即调用，确保时间戳准确）
+				sendingRequestManagement.startRequest(responseMessageId, {
+					isNewChat: newChat && userMessage?.parentId === null,
+					chatId: _chatId,
+					userMessageId: parentId,
+					messageLength: userMessage?.content?.length ?? 0,
+					modelId: modelId,
+					modelName: model.name ?? model.id ?? modelId,
+					isUserModel: combined.source === 'user',
+					responseMessageId: responseMessageId,
+					chatContext: chatContextForTracking,
+					hasFiles: (userMessage?.files?.length ?? 0) > 0,
+					fileCount: userMessage?.files?.length ?? 0,
+					selectedTools: selectedToolIds,
+					features: featuresForTracking
+				}, submitAt);
 			}
 		}
 		history = history;
@@ -2050,30 +2076,6 @@
 		_history = JSON.parse(JSON.stringify(history));
 		// Save chat after all messages have been created
 		await saveChatHandler(_chatId, _history);
-
-		// === 6.1 埋点：发送消息 ===
-		// 获取用户消息和模型信息用于埋点
-		const userMessage = _history.messages[parentId];
-		const firstModelId = selectedModelIds[0];
-		const firstCombined = getCombinedModelById(firstModelId);
-		const firstModel = firstCombined?.model ?? firstCombined?.credential;
-		const firstResponseMessageId = responseMessageIds[`${firstModelId}-${modelIdx ? modelIdx : 0}`];
-
-		trackMessageSent({
-			isNewChat: newChat && userMessage?.parentId === null,
-			chatId: _chatId,
-			userMessageId: parentId,
-			messageLength: userMessage?.content?.length ?? 0,
-			modelId: firstModelId,
-			modelName: firstModel?.name || firstModel?.id || firstModelId,
-			isUserModel: firstCombined?.source === 'user',
-			responseMessageId: firstResponseMessageId,
-			chatContext: chat ? parseChatForTracking(chat) : null,
-			hasFiles: (userMessage?.files?.length ?? 0) > 0,
-			fileCount: userMessage?.files?.length ?? 0,
-			selectedTools: selectedToolIds,
-			features: getFeatures()
-		});
 
 		// === 7. 并发向所有选中的模型发送请求 ===
 		// 使用 Promise.all 实现并行请求，提升多模型对话的性能
@@ -2481,8 +2483,26 @@
 			},
 			`${WEBUI_BASE_URL}/api`
 		).catch(async (error) => {
+			// 检查消息是否已被用户停止
+			// 如果已停止，跳过错误处理（消息已在 stopResponse 中撤销，错误对用户不重要）
+			if ($stoppedMessageIds.has(responseMessageId)) {
+				// 从 set 中移除，避免内存泄漏
+				stoppedMessageIds.update((ids) => {
+					ids.delete(responseMessageId);
+					return ids;
+				});
+				return null;
+			}
+
 			// 错误处理: API 请求失败时的回滚逻辑
 			console.log(error);
+
+			// 埋点：记录 HTTP 请求错误
+			sendingRequestManagement.failRequest(
+				responseMessageId,
+				{ errorType: 'http_error', error: error },
+				'error'
+			);
 
 			// 提取错误信息 (支持多种错误格式)
 			let errorMessage = error;
@@ -2530,6 +2550,12 @@
 		if (res) {
 			if (res.error) {
 				// API 返回了错误 (HTTP 200 但 body 包含 error)
+				// 埋点：记录 API 错误
+				sendingRequestManagement.failRequest(
+					responseMessage.id,
+					{ errorType: 'api_error', error: res.error },
+					'error'
+				);
 				await handleOpenAIError(res.error, responseMessage);
 			} 
 			// 这里用于规避，在 http response 还未到达之前
@@ -2611,23 +2637,17 @@
 	};
 
 	const stopResponse = async () => {
-		// --- 埋点：用户停止响应 ---
-		// 在停止之前记录当前状态
+		// --- 生命周期追踪：用户停止响应 ---
+		// 在停止之前���录当前状态并调用 stopRequest
 		if (history.currentId) {
 			const currentMessage = history.messages[history.currentId];
 			if (currentMessage && currentMessage.role === 'assistant') {
-				trackMessageResponseStopped({
-					chatId: $chatId,
-					userMessageId: currentMessage.parentId,
-					responseMessageId: history.currentId,
-					partialResponseLength: currentMessage.content?.length ?? 0,
-					modelId: currentMessage.model,
-					isUserModel: currentMessage.is_user_model ?? false
-				});
+				await sendingRequestManagement.stopRequest(
+					history.currentId,
+					currentMessage.content?.length ?? 0
+				);
 			}
 		}
-
-		await sendingRequestManagement.stopCurrentResponse();
 
 		if (history.currentId) {
 			let last_message = history.messages[history.currentId];
@@ -2689,10 +2709,13 @@
 			scrollToBottom();
 		}
 
-		await sendMessage(history, userMessageId);
+		const submitAt = Date.now();
+		await sendMessage(history, userMessageId, { submitAt });
 	};
 
 	const regenerateResponse = async (message, suggestionPrompt = null) => {
+		// 记录用户点击重新生成的时间
+		const submitAt = Date.now();
 
 		if (history.currentId) {
 			// 先删除旧的 response message，避免产生分支
@@ -2734,6 +2757,7 @@
 			}
 
 			await sendMessage(history, userMessage.id, {
+				submitAt,
 				...(suggestionPrompt
 					? {
 							messages: [
