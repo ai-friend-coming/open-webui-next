@@ -1207,7 +1207,7 @@
 				await tick();
 
 				// 埋点：进入聊天窗
-				trackChatOpened(chat, history);
+				trackChatOpened(chat);
 
 				return true;
 			} else {

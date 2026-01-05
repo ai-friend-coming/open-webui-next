@@ -528,87 +528,218 @@ export const trackNewChatStarted = (source: 'new_chat_button' | 'logo' | 'title'
  * 【埋点时机】用户点击侧边栏聊天项，Chat 组件 loadChat 函数成功获取完整数据后
  * 【UI 操作】侧边栏 → 点击某个聊天项 → 聊天数据加载完成
  * 【业务环节】进入已有聊天，用户查看/继续历史对话
- * 【埋点数据】
+ * 【埋点数据】完整保存 chat 数据（脱敏处理）+ 消息数组 + 汇总统计
+ *
+ *   === 聊天元数据 ===
  *   - chat_id: string - 聊天 ID
- *   - is_imported: boolean - 是否为用户导入的聊天记录 (chat.meta.loaded_by_user)
- *   - memory_enabled: boolean | undefined - 是否开启了记忆选项 (chat.chat.memory_enabled)
- *   - summary_time: number - summary 的次数 (chat.meta.summary_time)
- *   - message_count: number - 消息个数
- *   - message_lengths: number[] - 每条消息的内容字符数
- *   - model_usage: Record<string, { count: number; is_user_model: boolean }> - 模型使用统计（仅统计 assistant 消息）
- *       示例: {"gpt-4o": { count: 23, is_user_model: false }, "my-custom-model": { count: 10, is_user_model: true }}
- *       - count: 该模型回复的次数
- *       - is_user_model: 是否为用户私有 API 模型（true）还是系统内置模型（false）
+ *   - title_length: number - 标题字符数（脱敏）
+ *   - selected_models: string[] - 聊天选中的模型列表
+ *   - params: object - 聊天参数设置
+ *   - memory_enabled: boolean - 是否开启记忆
+ *   - tags: string[] - 标签列表
+ *   - files_count: number - 上传文件数量
  *   - created_at: string | null - 聊天创建时间 (ISO 8601)
- *   - latest_message_time: string | null - 最新消息时间 (ISO 8601)
+ *   - updated_at: string | null - 最后更新时间 (ISO 8601)
+ *   - meta: { summary_time: number, is_imported: boolean } - 元信息
+ *
+ *   === 消息数组（按时间顺序，脱敏处理）===
+ *   - messages: Array<MessageData> - 每条消息的详细信息
+ *
+ *       [通用字段]
+ *       - role: 'user' | 'assistant' - 消息角色
+ *       - content_length: number - 内容字符数（脱敏）
+ *       - timestamp: string | null - 消息时间 (ISO 8601)
+ *
+ *       [user 消息特有]
+ *       - models?: string[] - 用户选择的模型列表
+ *
+ *       [assistant 消息特有]
+ *       - model?: string - 使用的模型 ID
+ *       - model_name?: string - 模型显示名称
+ *       - model_idx?: number - 多模型对话索引
+ *       - is_user_model?: boolean - 是否为用户私有 API 模型
+ *       - done?: boolean - 是否完成生成
+ *       - usage?: TokenUsage - token 使用详情 (原始 token 使用数据，直接保存)
+ *           - prompt_tokens: number - 输入 tokens
+ *           - completion_tokens: number - 输出 tokens
+ *           - total_tokens: number - 总 tokens
+ *           - cached_tokens: number - 缓存命中 tokens
+ *           - reasoning_tokens: number - 推理 tokens（o1 等模型）
+ *
+ *   === 汇总统计 ===
+ *   - stats: object - 统计汇总
+ *       - message_count: number - 总消息数
+ *       - user_message_count: number - 用户消息数
+ *       - assistant_message_count: number - AI 回复数
+ *       - conversation_turns: number - 对话轮数
+ *       - total_content_length: number - 总内容字符数
+ *       - latest_message_time: string | null - 最新消息时间
+ *       - model_usage: Record<string, { count, is_user_model }> - 模型使用统计
+ *       - total_token_usage: TokenUsage - token 使用汇总
  *
  * @param chat - 从 getChatById API 获取的完整聊天对象
- * @param history - 解析的消息历史对象 { messages: { [id]: Message }, currentId: string }
  */
-export const trackChatOpened = (chat: any, history: any) => {
+export const trackChatOpened = (chat: any) => {
 	if (typeof window === 'undefined') return;
 	if (!chat) return;
 
-	// 解析数据（模块化，所有解析逻辑在此文件中）
-	const parsedData = parseChatForTracking(chat, history);
+	const parsedData = parseChatForTracking(chat);
 	posthog.capture('chat_opened', parsedData);
 };
 
+/** Token 使用详情类型 */
+interface TokenUsage {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	cached_tokens: number;
+	reasoning_tokens: number;
+}
+
+/** 消息埋点数据类型 */
+interface MessageTrackingData {
+	role: string;
+	content_length: number;
+	timestamp: string | null;
+	models?: string[];
+	model?: string;
+	model_name?: string;
+	model_idx?: number;
+	is_user_model?: boolean;
+	done?: boolean;
+	usage?: any; // 直接保存原始 usage，兼容不同 API 格式
+}
+
 /**
  * 解析 chat 数据用于埋点（内部工具函数）
+ * 忠实存储 chat 数据，对敏感内容进行脱敏处理
  *
  * @param chat - 聊天对象
- * @param history - 消息历史对象
  * @returns 解析后的埋点数据
  */
-const parseChatForTracking = (chat: any, history: any) => {
-	const messages = history?.messages || {};
-	const messageArray = Object.values(messages);
+const parseChatForTracking = (chat: any) => {
+	const chatData = chat.chat || {};
+	// 使用 chat.chat.messages 数组（已按时间顺序）
+	const rawMessages: any[] = chatData.messages || [];
 
-	// 计算每条消息的长度
-	const messageLengths = messageArray.map((msg: any) => {
-		const content = msg?.content || '';
-		return typeof content === 'string' ? content.length : JSON.stringify(content).length;
-	});
+	// ==================== 解析每条消息 ====================
+	const messages: MessageTrackingData[] = rawMessages.map((msg: any) => {
+		const contentLength = getContentLength(msg?.content);
+		const timestamp = msg?.timestamp
+			? new Date(msg.timestamp * 1000).toISOString()
+			: null;
 
-	// 统计模型使用次数（仅 assistant 消息），包含是否为用户私有模型
-	const modelUsage: Record<string, { count: number; is_user_model: boolean }> = {};
-	messageArray.forEach((msg: any) => {
-		if (msg?.role !== 'assistant') return;
-		const model = msg?.model;
-		if (model && typeof model === 'string') {
-			if (!modelUsage[model]) {
-				modelUsage[model] = {
-					count: 0,
-					is_user_model: msg?.is_user_model ?? false
-				};
-			}
-			modelUsage[model].count += 1;
+		if (msg?.role === 'user') {
+			return {
+				role: 'user',
+				content_length: contentLength,
+				timestamp,
+				...(msg?.models && { models: msg.models })
+			};
+		} else {
+			// assistant 消息 - 直接保存原始 usage，不解析（兼容不同 API 格式）
+			return {
+				role: msg?.role || 'assistant',
+				content_length: contentLength,
+				timestamp,
+				...(msg?.model && { model: msg.model }),
+				...(msg?.modelName && { model_name: msg.modelName }),
+				...(msg?.modelIdx !== undefined && { model_idx: msg.modelIdx }),
+				...(msg?.is_user_model !== undefined && { is_user_model: msg.is_user_model }),
+				...(msg?.done !== undefined && { done: msg.done }),
+				...(msg?.usage && { usage: msg.usage })
+			};
 		}
 	});
 
-	// 获取最新消息时间
+	// ==================== 汇总统计 ====================
+	let userMessageCount = 0;
+	let assistantMessageCount = 0;
+	let totalContentLength = 0;
 	let latestMessageTime: string | null = null;
-	if (messageArray.length > 0) {
-		const timestamps = messageArray.map((msg: any) => msg?.timestamp).filter(Boolean);
-		if (timestamps.length > 0) {
-			const maxTs = Math.max(
-				...timestamps.map((t: any) => (typeof t === 'number' ? t : new Date(t).getTime()))
-			);
-			// timestamp 是秒级时间戳，需要乘以 1000
-			latestMessageTime = new Date(maxTs * 1000).toISOString();
-		}
-	}
+	const modelUsage: Record<string, { count: number; is_user_model: boolean }> = {};
+	const totalTokenUsage: TokenUsage = {
+		prompt_tokens: 0,
+		completion_tokens: 0,
+		total_tokens: 0,
+		cached_tokens: 0,
+		reasoning_tokens: 0
+	};
 
+	messages.forEach((msg) => {
+		// 角色计数
+		if (msg.role === 'user') {
+			userMessageCount++;
+		} else if (msg.role === 'assistant') {
+			assistantMessageCount++;
+
+			// 模型使用统计
+			if (msg.model) {
+				if (!modelUsage[msg.model]) {
+					modelUsage[msg.model] = {
+						count: 0,
+						is_user_model: msg.is_user_model ?? false
+					};
+				}
+				modelUsage[msg.model].count++;
+			}
+
+			// Token 累加（兼容不同 API 的 usage 格式）
+			if (msg.usage) {
+				const usage = msg.usage;
+				totalTokenUsage.prompt_tokens += usage.prompt_tokens || 0;
+				totalTokenUsage.completion_tokens += usage.completion_tokens || 0;
+				totalTokenUsage.total_tokens += usage.total_tokens || 0;
+				totalTokenUsage.cached_tokens += usage.prompt_tokens_details?.cached_tokens || 0;
+				totalTokenUsage.reasoning_tokens += usage.completion_tokens_details?.reasoning_tokens || 0;
+			}
+		}
+
+		// 内容长度累加
+		totalContentLength += msg.content_length;
+
+		// 最新消息时间
+		if (msg.timestamp) {
+			if (!latestMessageTime || msg.timestamp > latestMessageTime) {
+				latestMessageTime = msg.timestamp;
+			}
+		}
+	});
+
+	// ==================== 返回完整数据 ====================
 	return {
+		// 聊天元数据
 		chat_id: chat.id,
-		is_imported: chat.meta?.loaded_by_user ?? false,
-		memory_enabled: chat.chat?.memory_enabled,
-		summary_time: chat.meta?.summary_time ?? 0,
-		message_count: messageArray.length,
-		message_lengths: messageLengths,
-		model_usage: modelUsage,
+		title_length: getContentLength(chat.title),
+		selected_models: chatData.models || [],
+		params: chatData.params || {},
+		memory_enabled: chatData.memory_enabled ?? false,
+		tags: chatData.tags || [],
+		files_count: (chatData.files || []).length,
 		created_at: chat.created_at ? new Date(chat.created_at * 1000).toISOString() : null,
-		latest_message_time: latestMessageTime
+		updated_at: chat.updated_at ? new Date(chat.updated_at * 1000).toISOString() : null,
+		is_shared: chat.share_id !== null && chat.share_id !== undefined,
+		is_archived: chat.archived ?? false,
+		is_pinned: chat.pinned ?? false,
+		has_folder: chat.folder_id !== null && chat.folder_id !== undefined,
+		meta: {
+			summary_time: chat.meta?.summary_time ?? 0,
+			is_imported: chat.meta?.loaded_by_user ?? false
+		},
+
+		// 消息数组（按时间顺序）
+		messages,
+
+		// 汇总统计
+		stats: {
+			message_count: messages.length,
+			user_message_count: userMessageCount,
+			assistant_message_count: assistantMessageCount,
+			conversation_turns: userMessageCount, // 对话轮数 = 用户消息数
+			total_content_length: totalContentLength,
+			latest_message_time: latestMessageTime,
+			model_usage: modelUsage,
+			total_token_usage: totalTokenUsage
+		}
 	};
 };
