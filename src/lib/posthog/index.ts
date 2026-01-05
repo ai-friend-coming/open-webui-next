@@ -32,8 +32,7 @@ export const initPosthog = () => {
 		return;
 	}
 
-	// phc_Abmjxrycc5WX5tnegaHmQx5COrSTFmM72VmyDVv4xCa // 服务器 key
-	posthog.init('phc_vftTp8xZG24u0OSnwvD0hbJO8ngB51JVT3ZWxse0lsL', {
+	posthog.init('phc_Abmjxrycc5WX5tnegaHmQx5COrSTFmM72VmyDVv4xCa', {
 		api_host: 'https://us.i.posthog.com',
 		defaults: '2025-11-30',
 		person_profiles: 'identified_only',
@@ -544,7 +543,7 @@ export const trackNewChatStarted = (source: 'new_chat_button' | 'logo' | 'title'
  *   - latest_message_time: string | null - 最新消息时间 (ISO 8601)
  *
  * @param chat - 从 getChatById API 获取的完整聊天对象
- * @param history - 解析后的消息历史对象 { messages: { [id]: Message }, currentId: string }
+ * @param history - 解析的消息历史对象 { messages: { [id]: Message }, currentId: string }
  */
 export const trackChatOpened = (chat: any, history: any) => {
 	if (typeof window === 'undefined') return;
