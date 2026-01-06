@@ -817,34 +817,89 @@ export interface MessageLifecycleRawParams {
  *   - completeRequest(): 成功完成
  *   - stopRequest(): 用户停止
  *   - failRequest(): 错误或取消
- * 【埋点数据】
- *   === 结果类型 ===
- *   - outcome: 'completed' | 'stopped' | 'error' | 'cancelled'
  *
- *   === 时间戳 (ISO 8601) ===
- *   - timestamps.submit_at: 用户点击发送时间
- *   - timestamps.send_request_at: 创建占位消息时间
- *   - timestamps.http_response_at: 收到 HTTP 响应时间
- *   - timestamps.first_token_at: 收到第一个 token 时间
- *   - timestamps.end_at: 结束时间
+ * 【埋点数据结构】
  *
- *   === 耗时 (毫秒) ===
- *   - durations.total: 总耗时 (end - submit)
- *   - durations.to_http_response: 到 HTTP 响应耗时
- *   - durations.to_first_token: 到首 token 耗时
- *   - durations.streaming: 流式传输耗时 (end - first_token)
+ * === 结果类型 ===
+ * - outcome: 'completed' | 'stopped' | 'error' | 'cancelled'
  *
- *   === 请求数据 ===
- *   - sent.*: 发送时的业务数据
+ * === 时间戳 (ISO 8601 格式) ===
+ * - timestamps.submit_at: 用户点击发送时间
+ * - timestamps.send_request_at: 创建占位消息时间
+ * - timestamps.http_response_at?: 收到 HTTP 响应时间
+ * - timestamps.first_token_at?: 收到第一个 token 时间
+ * - timestamps.end_at?: 结束时间
  *
- *   === 响应数据（仅 completed）===
- *   - response.*: 响应完成时的数据
+ * === 耗时 (毫秒) ===
+ * - durations.total?: 总耗时 (end - submit)
+ * - durations.to_http_response?: 到 HTTP 响应耗时 (http_response - send_request)
+ * - durations.to_first_token?: 到首 token 耗时 (first_token - send_request)
+ * - durations.streaming?: 流式传输耗时 (end - first_token)
  *
- *   === 错误数据（仅 error）===
- *   - error.*: 错误信息
+ * === 发送数据 (sent) ===
+ * - sent.is_new_chat: boolean - 是否新对话
+ * - sent.chat_id: string - 聊天 ID
+ * - sent.user_message_id: string - 用户消息 ID
+ * - sent.message_length: number - 用户消息长度
+ * - sent.model_id: string - 模型 ID
+ * - sent.model_name: string - 模型名称
+ * - sent.is_user_model: boolean - 是否用户私有模型
+ * - sent.response_message_id: string - 响应消息 ID
+ * - sent.has_files: boolean - 是否有附件
+ * - sent.file_count: number - 附件数量
+ * - sent.selected_tools: string[] - 选中的工具 ID 列表
+ * - sent.features: object - 启用的功能开关
+ *   - features.image_generation: boolean - 图像生成
+ *   - features.code_interpreter: boolean - 代码解释器
+ *   - features.web_search: boolean - 网页搜索
+ *   - features.memory: boolean - 记忆功能
+ * - sent.chat_context: object - 聊天上下文 (parseChatForTracking 返回)
+ *   - chat_context.chat_id: string - 聊天 ID
+ *   - chat_context.title_length: number - 标题长度
+ *   - chat_context.selected_models: string[] - 选中的模型列表
+ *   - chat_context.params: object - 模型参数
+ *   - chat_context.memory_enabled: boolean - 是否启用记忆
+ *   - chat_context.tags: string[] - 标签列表
+ *   - chat_context.files_count: number - 附件数量
+ *   - chat_context.created_at: string - 创建时间 (ISO 8601)
+ *   - chat_context.updated_at: string - 更新时间 (ISO 8601)
+ *   - chat_context.is_shared: boolean - 是否已分享
+ *   - chat_context.is_archived: boolean - 是否已归档
+ *   - chat_context.is_pinned: boolean - 是否已置顶
+ *   - chat_context.has_folder: boolean - 是否在文件夹中
+ *   - chat_context.meta: { summary_time: number, is_imported: boolean }
+ *   - chat_context.messages: array - 消息历史
+ *     - message_id, role, content_length, timestamp
+ *     - models (user) / model, model_name, model_idx, is_user_model, done, usage (assistant)
+ *   - chat_context.stats: object - 统计信息
+ *     - message_count, user_message_count, assistant_message_count
+ *     - conversation_turns, total_content_length, latest_message_time
+ *     - model_usage: { [model_id]: { count, is_user_model } }
+ *     - total_token_usage: { prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens }
  *
- *   === 停止数据（仅 stopped）===
- *   - stopped.partial_response_length: 停止时已收到的响应长度
+ * === 响应数据 (response) - 仅 outcome='completed' ===
+ * - response.response_length: number - 响应内容长度
+ * - response.has_sources: boolean - 是否有引用源
+ * - response.source_count: number - 引用源数量
+ * - response.is_arena_mode: boolean - 是否 Arena 模式
+ * - response.selected_model_id?: string - Arena 模式下选中的模型 ID
+ * - response.usage: object - Token 用量统计
+ *   - usage.prompt_tokens: number - 输入 token 数
+ *   - usage.completion_tokens: number - 输出 token 数
+ *   - usage.total_tokens: number - 总 token 数
+ *   - usage.prompt_tokens_details?: { cached_tokens, audio_tokens }
+ *   - usage.completion_tokens_details?: { reasoning_tokens, audio_tokens, accepted_prediction_tokens, rejected_prediction_tokens }
+ *
+ * === 错误数据 (error) - 仅 outcome='error' | 'cancelled' ===
+ * - error.error_type: 'ws_error' | 'completion_error' | 'api_error' | 'http_error'
+ *   - ws_error: WebSocket chat:message:error 事件
+ *   - completion_error: Completion 流中的 error 字段
+ *   - api_error: HTTP 200 但响应体包含 error
+ *   - http_error: HTTP 请求失败 (网络错误、超时等)
+ * - error.error: any - 原始错误对象
+ *
+ * === 停止数据 (stopped) - 仅 outcome='stopped' ===
+ * - stopped.partial_response_length: number - 停止时已收到的响应长度
  *
  * @param params - 原始埋点参数（业务层数据格式）
  */
