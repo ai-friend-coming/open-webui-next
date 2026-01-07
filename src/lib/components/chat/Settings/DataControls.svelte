@@ -8,7 +8,9 @@
 		settings,
 		scrollPaginationEnabled,
 		currentChatPage,
-		pinnedChats
+		pinnedChats,
+		showImportChatsModal,
+		showSettings
 	} from '$lib/stores';
 
 	import {
@@ -37,7 +39,6 @@
 	let showDeleteConfirm = false;
 	let showArchivedChatsModal = false;
 
-	let chatImportInputElement: HTMLInputElement;
 
 	$: if (importFiles) {
 		console.log(importFiles);
@@ -135,7 +136,6 @@
 		<div class="flex flex-col">
 			<input
 				id="chat-import-input"
-				bind:this={chatImportInputElement}
 				bind:files={importFiles}
 				type="file"
 				accept=".json,.zip"
@@ -144,7 +144,8 @@
 			<button
 				class=" flex rounded-md py-2 px-3.5 w-full hover:bg-gray-200 dark:hover:bg-gray-800 transition"
 				on:click={() => {
-					chatImportInputElement.click();
+					showSettings.set(false);
+					showImportChatsModal.set(true);
 				}}
 			>
 				<div class=" self-center mr-3">
