@@ -22,6 +22,7 @@ from open_webui.env import (
     SUMMARY_TOKEN_THRESHOLD_DEFAULT,
     INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT,
     COLD_START_TOKEN_WINDOW_DEFAULT,
+    ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT,
 )
 
 from open_webui.utils.misc import merge_consecutive_messages
@@ -475,6 +476,37 @@ def select_recent_messages_by_tokens(
     return list(reversed(selected)), total_tokens
 
 
+# === 4. 滚动摘要辅助函数 ===
+def split_messages_by_tokens(
+    messages: List[Dict],
+    max_tokens: int
+) -> Tuple[List[Dict], List[Dict]]:
+    """
+    从消息列表头部取出不超过 max_tokens 的消息
+
+    参数：
+        messages: 消息列表（按时间从旧到新排序）
+        max_tokens: token 上限
+
+    返回：
+        (chunk, remaining): chunk 是取出的消息，remaining 是剩余的消息
+    """
+    chunk = []
+    chunk_tokens = 0
+
+    for i, msg in enumerate(messages):
+        msg_tokens = compute_token_count([msg])
+        if chunk_tokens + msg_tokens <= max_tokens:
+            chunk.append(msg)
+            chunk_tokens += msg_tokens
+        else:
+            # 返回已取出的 chunk 和剩余的消息
+            return chunk, messages[i:]
+
+    # 所有消息都在 chunk 内
+    return chunk, []
+
+
 async def summarize(
     messages: List[Dict],
     model_id: str,
@@ -528,7 +560,7 @@ async def summarize(
         "model": model_id or "gpt-4o-mini",  # 默认使用 gpt-4o-mini
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,  # 摘要不使用流式
-        "max_tokens": 2000,  # 安全值，防止截断
+        "max_tokens": 3000,  # 安全值，防止截断
         "temperature": 0.1,  # 低温度保证稳定性
     }
 
@@ -598,6 +630,158 @@ async def summarize(
             cause = RuntimeError(error_body)
         )
 
+
+async def summarize_rolling(
+    messages: List[Dict],
+    model_id: str,
+    user: Any,
+    request: Request,
+    is_user_model: bool,
+    model_config: Optional[Dict],
+    token_threshold: int = ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT,
+    old_summary: Optional[str] = None,
+    return_details: bool = False,
+    perf_logger: Optional["ChatPerfLogger"] = None,
+) -> Union[str, Tuple[str, Dict[str, Any]]]:
+    """
+    滚动摘要生成器 - 处理超大消息列表的分段摘要
+
+    当消息总 token 数超过单次 LLM 调用上限时，将消息分段处理：
+    1. 第一段：取从旧到新不超过 threshold 的消息 → 生成 summary_1
+    2. 第二段：summary_1 + 下一段消息 → 生成 summary_2
+    3. 重复直到所有消息处理完毕
+
+    参数：
+        messages: 完整的消息列表（按时间从旧到新排序）
+        model_id: 模型 ID
+        user: 用户对象
+        request: FastAPI Request 对象
+        is_user_model: 是否为用户私有模型
+        model_config: 模型配置
+        token_threshold: 单次 LLM 调用的 token 上限
+        old_summary: 已有的旧摘要（可选，用于增量更新）
+        return_details: 是否返回详细信息
+
+    返回：
+        摘要字符串，或 (摘要字符串, 详细信息字典)
+    """
+    # 0. 空消息检查
+    if not messages:
+        log.warning("滚动摘要跳过：无消息")
+        if return_details:
+            return "", {"usage": {"prompt_tokens": 0, "completion_tokens": 0}, "iterations": 0}
+        return ""
+
+    # 1. 预检查：如果消息 token 总数不超过阈值，直接调用 summarize
+    total_tokens = compute_token_count(messages)
+    if total_tokens <= token_threshold:
+        log.info(f"消息 token ({total_tokens}) <= 阈值 ({token_threshold})，直接调用 summarize")
+        return await summarize(
+            messages=messages,
+            model_id=model_id,
+            user=user,
+            request=request,
+            is_user_model=is_user_model,
+            model_config=model_config,
+            old_summary=old_summary,
+            return_details=return_details,
+        )
+
+    log.info(
+        f"开始滚动摘要: total_tokens={total_tokens}, threshold={token_threshold}, "
+        f"messages_count={len(messages)}, is_user_model={is_user_model}"
+    )
+
+    # 2. 初始化滚动状态
+    current_summary = old_summary
+    remaining_messages = messages.copy()
+    iteration = 0
+    all_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+    all_prompts = []
+    all_responses = []
+
+    # 3. 滚动循环
+    while remaining_messages:
+        iteration += 1
+
+        # 3.1 从 remaining_messages 头部取出不超过 token_threshold 的消息
+        chunk, remaining_messages = split_messages_by_tokens(remaining_messages, token_threshold)
+
+        # 3.2 边界情况：chunk 为空但还有剩余消息（单条消息超过阈值）
+        if not chunk and remaining_messages:
+            log.warning(f"滚动摘要第 {iteration} 轮：单条消息超过阈值，强制取出")
+            chunk = [remaining_messages.pop(0)]
+
+        if not chunk:
+            break
+
+        log.info(
+            f"滚动摘要第 {iteration} 轮: chunk_size={len(chunk)}, "
+            f"remaining={len(remaining_messages)}"
+        )
+
+        # 3.5 调用 summarize 生成本轮摘要
+        try:
+            current_summary, details = await summarize(
+                messages=chunk,
+                model_id=model_id,
+                user=user,
+                request=request,
+                is_user_model=is_user_model,
+                model_config=model_config,
+                old_summary=current_summary,
+                return_details=True,
+            )
+
+            # 3.6 累计 usage
+            usage = details.get("usage", {})
+            all_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+            all_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+            all_prompts.append(details.get("prompt", ""))
+            all_responses.append(details.get("response", ""))
+
+            # 3.7 记录本轮迭代到 perf_logger
+            if perf_logger:
+                # 本轮输入的 old_summary（第一轮是传入的 old_summary，后续轮是上一轮的结果）
+                iteration_old_summary = old_summary if iteration == 1 else all_responses[-2] if len(all_responses) > 1 else None
+                perf_logger.record_rolling_summary_iteration(
+                    iteration=iteration,
+                    old_summary=iteration_old_summary,
+                    messages=chunk,
+                    response=current_summary,
+                    usage=usage,
+                    remaining_messages_count=len(remaining_messages),
+                )
+
+            log.info(
+                f"滚动摘要第 {iteration} 轮完成: "
+                f"prompt_tokens={usage.get('prompt_tokens', 0)}, "
+                f"completion_tokens={usage.get('completion_tokens', 0)}, "
+                f"summary_length={len(current_summary) if current_summary else 0}"
+            )
+
+        except Exception as e:
+            log.error(f"滚动摘要第 {iteration} 轮失败: {e}")
+            raise
+
+    log.info(
+        f"滚动摘要完成: iterations={iteration}, "
+        f"total_prompt_tokens={all_usage['prompt_tokens']}, "
+        f"total_completion_tokens={all_usage['completion_tokens']}"
+    )
+
+    # 4. 返回最终摘要
+    if return_details:
+        return current_summary, {
+            "usage": all_usage,
+            "iterations": iteration,
+            "prompts": all_prompts,
+            "responses": all_responses,
+            "model": model_id,
+        }
+    return current_summary
+
+
 async def ensure_initial_summary(
     request: Request,
     metadata,
@@ -610,6 +794,12 @@ async def ensure_initial_summary(
 ):
     """
     初始摘要生成器 - 为新聊天会话生成首次上下文摘要和冷启动消息
+
+    根据 loaded_by_user 和 memory_enabled 的组合，分为四种情况：
+    1. loaded_by_user=True,  memory_enabled=True:  导入聊天 + 开启记忆
+    2. loaded_by_user=True,  memory_enabled=False: 导入聊天 + 关闭记忆
+    3. loaded_by_user=False, memory_enabled=True:  新建聊天 + 开启记忆
+    4. loaded_by_user=False, memory_enabled=False: 新建聊天 + 关闭记忆
     """
     if not chat_id:
         return
@@ -617,154 +807,229 @@ async def ensure_initial_summary(
     # === 1. 基础信息提取 ===
     chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
     old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
-    memory_enabled = chat_item.chat['memory_enabled']
-
-    if not memory_enabled:
-        current_message_id = metadata.get("message_id")
-        Chats.set_summary_by_user_id_and_chat_id(
-            user_id=user.id,
-            chat_id=chat_id,
-            summary="",
-            last_summary_id=current_message_id,
-            last_timestamp=int(time.time()),
-            status="done",
-            summarize_task_id='',
-            cold_start_messages=[]
-        )
-        return 
+    memory_enabled = chat_item.chat.get('memory_enabled', True)
 
     # === 2. 已有摘要则跳过 ===
     if old_summary:
         return
 
-    # === 4. 判断聊天来源并准备用于 summary 的 message ===
+    # === 3. 判断聊天来源 ===
     loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
     token_target = INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT
 
-    # 如果是用户导入的聊天
-    if loaded_by_user:
+    # === 4. 定义四种内部处理函数 ===
 
-        # 从该对话框中读取不超过 token_target 数目最大条数的 message
-        recent_conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
-            user.id,
-            chat_id,
-            0,
+    def _handle_loaded_with_memory():
+        """
+        情况1: 导入的聊天且开启记忆
+        - 从当前聊天取出所有消息
+        - 如果不足 token_target，从全局补充
+        - 如果超出 token_target，全部装入
+        - 从冷启动消息中取出 设置 last_summary_id 为最后一条消息
+        - 
+        """
+        # 取出当前聊天的所有消息
+        chat_messages = get_recent_messages_by_user_id_and_chat_id(
+            user.id, chat_id, 0
         )
-        chat_messages, total_tokens = select_recent_messages_by_tokens(
-            recent_conversation_in_this_chat,
-            token_target,
-        )
+        chat_tokens = compute_token_count(chat_messages)
 
-        # 如果该对话框中的 message 不足以填满 token_target，则继续从全局 message 中寻找
-        if total_tokens < token_target:
+        # 如果当前聊天消息不足 token_target，从全局补充
+        if chat_tokens < token_target:
             recent_conversation = get_recent_messages_by_user_id(
-                user.id,
-                0,
+                user.id, 0,
                 exclude_loaded_by_user=False,
                 exclude_by_chat_id=chat_id,
             )
-            global_messages, total_tokens = select_recent_messages_by_tokens(
-                recent_conversation,
-                token_target,
+            global_messages, _ = select_recent_messages_by_tokens(
+                recent_conversation, token_target,
                 max_messages=100,
-                starting_tokens=total_tokens,
+                starting_tokens=chat_tokens,
             )
             messages_for_summary = global_messages + chat_messages
         else:
+            # 超出 token_target 则全部装入
             messages_for_summary = chat_messages
-    
-    # 如果不是用户导入的聊天，直接从 global message 读取最多不超过 token_target token 的最大条数的 message
-    else:
+
+        # 构建冷启动消息
+        cold_start_messages = _build_cold_start_messages(messages_for_summary)
+
+        # last_summary_id 指向最后一条消息
+        last_summary_id = cold_start_messages[-1].get("id") if cold_start_messages else None
+
+        return messages_for_summary, last_summary_id, cold_start_messages, True  # need_summary=True
+
+    def _handle_loaded_without_memory():
+        """
+        情况2: 导入聊天 + 关闭记忆
+        - 从当前聊天获取消息作为冷启动
+        - 生成摘要
+        """
+        conversation_in_this_chat = get_recent_messages_by_user_id_and_chat_id(
+            user.id, chat_id, 0
+        )
+        messages_for_summary = conversation_in_this_chat
+
+        # 使用 cold_start_messages 来用 last_summary_id 在该 chat 内取到一个窗口
+        cold_start_messages = _build_cold_start_messages(messages_for_summary)
+        last_summary_id = cold_start_messages[0].get("id") if cold_start_messages else None
+
+        return messages_for_summary, last_summary_id, [], True  # need_summary=True
+
+    def _handle_new_with_memory():
+        """
+        情况3: 新建聊天 + 开启记忆
+        - 从全局获取消息
+        - 生成摘要
+        - 设置 last_summary_id 为该 chat 最新一条消息
+        - 构建冷启动消息
+        """
         recent_conversation = get_recent_messages_by_user_id(
-            user_id=user.id,
-            num=0,
+            user_id=user.id, num=0,
             exclude_loaded_by_user=False,
         )
         messages_for_summary, _ = select_recent_messages_by_tokens(
-            recent_conversation,
-            token_target,
-            max_messages=100,
+            recent_conversation, token_target, max_messages=100
         )
 
-    # === 5. 性能监控：标记摘要生成开始 ===
-    if perf_logger:
+        # last_summary_id 指向该 chat 最新一条消息
+        last_summary_id = metadata.get("message_id")
+
+        # 构建冷启动消息
+        cold_start_messages = _build_cold_start_messages(messages_for_summary)
+
+        return messages_for_summary, last_summary_id, cold_start_messages, True  # need_summary=True
+
+    def _handle_new_without_memory():
+        """
+        情况4: 新建聊天 + 关闭记忆
+        - 不需要任何历史消息
+        - 不生成摘要
+        - last_summary_id 指向该 chat 的第一条消息
+        - 无冷启动消息
+        """
+        # 获取该 chat 的第一条消息作为 last_summary_id
+        messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
+        current_message_id = metadata.get("message_id")
+        ordered_messages = build_ordered_messages(messages_map, current_message_id)
+        first_message_id = ordered_messages[0].get("id") if ordered_messages else None
+
+        return [], first_message_id, [], False  # need_summary=False
+
+    def _build_cold_start_messages(messages_for_summary):
+        """构建冷启动消息：从消息列表中选取最多 COLD_START_TOKEN_WINDOW_DEFAULT token, 不超过 80 条"""
+        if not messages_for_summary:
+            return []
+
+        cold_start, _ = select_recent_messages_by_tokens(
+            messages_for_summary,
+            token_target=COLD_START_TOKEN_WINDOW_DEFAULT,
+            max_messages=80
+        )
+        return [
+            {
+                "id": m.get("id"),
+                "role": m.get("role"),
+                "content": m.get("content"),
+                "timestamp": m.get("timestamp"),
+            }
+            for m in cold_start
+            if m.get("id") and m.get("content")
+        ]
+
+    # === 5. 根据条件选择处理函数 ===
+    if loaded_by_user:
+        if memory_enabled:
+            # 情况1: 导入聊天 + 开启记忆
+            log.info(f"[ensure_initial_summary] 情况1: 导入聊天 + 开启记忆, chat_id={chat_id}")
+            messages_for_summary, last_summary_id, cold_start_messages, need_summary = _handle_loaded_with_memory()
+        else:
+            # 情况2: 导入聊天 + 关闭记忆
+            log.info(f"[ensure_initial_summary] 情况2: 导入聊天 + 关闭记忆, chat_id={chat_id}")
+            messages_for_summary, last_summary_id, cold_start_messages, need_summary = _handle_loaded_without_memory()
+    else:
+        if memory_enabled:
+            # 情况3: 新建聊天 + 开启记忆
+            log.info(f"[ensure_initial_summary] 情况3: 新建聊天 + 开启记忆, chat_id={chat_id}")
+            messages_for_summary, last_summary_id, cold_start_messages, need_summary = _handle_new_with_memory()
+        else:
+            # 情况4: 新建聊天 + 关闭记忆
+            log.info(f"[ensure_initial_summary] 情况4: 新建聊天 + 关闭记忆, chat_id={chat_id}")
+            messages_for_summary, last_summary_id, cold_start_messages, need_summary = _handle_new_without_memory()
+
+    # === 6. 性能监控：标记摘要生成开始 ===
+    if perf_logger and messages_for_summary:
         prompt = build_summary_prompt(messages_for_summary, None)
         perf_logger.ensure_initial_summary_start(messages_for_summary, prompt)
 
-    # === 6. 确定摘要截止点 ===
-    last_summary_id = messages_for_summary[-1].get("id") if messages_for_summary else None
-
-    # === 7. 构建冷启动消息 ===
-    # 从要摘要的 messages_for_summary 中取最多 15000 token, 不超过 80 条 message 作为冷启动 message
-    cold_start_messages, _ = select_recent_messages_by_tokens(
-        messages_for_summary,
-        token_target=COLD_START_TOKEN_WINDOW_DEFAULT,
-        max_messages=80
-    )
-    cold_start_messages = [
-        {
-            "id": m.get("id"),
-            "role": m.get("role"),
-            "content": m.get("content"),
-            "timestamp": m.get("timestamp"),
-        }
-        for m in cold_start_messages
-        if m.get("id") and m.get("content")
-    ]
-
-    # === 8. LLM 生成摘要 协程 ===
-    async def summarize_and_save():
-        async with chat_error_boundary(metadata, user):
-            summary_text, summary_llm_details = await summarize(
-                messages=messages_for_summary,
-                model_id=model_id,
-                user=user,
-                request=request,
-                is_user_model=is_user_model,
-                model_config=model_config,
-                old_summary=None,
-                return_details=True,
-            )
-            Chats.set_summary_by_user_id_and_chat_id(
-                user_id=user.id,
-                chat_id=chat_id,
-                summary=summary_text,
-                last_summary_id=last_summary_id,
-                last_timestamp=int(time.time()),
-                status="done",
-                summarize_task_id="",
-                cold_start_messages=cold_start_messages,
-                increase_summary_time=True,
-            )
-
-            if perf_logger:
-                perf_logger.ensure_initial_summary_end(
-                    response={
-                        "summary_text": summary_text,
-                        "llm_response": summary_llm_details.get("response"),
-                    },
-                    prompt=summary_llm_details.get("prompt"),
-                    usage=summary_llm_details.get("usage"),
+    # === 7. 根据 need_summary 决定是否生成摘要 ===
+    if need_summary and messages_for_summary:
+        # 需要生成摘要：创建后台任务
+        async def summarize_and_save():
+            async with chat_error_boundary(metadata, user):
+                summary_text, summary_llm_details = await summarize_rolling(
+                    messages=messages_for_summary,
+                    model_id=model_id,
+                    user=user,
+                    request=request,
+                    is_user_model=is_user_model,
+                    model_config=model_config,
+                    old_summary=None,
+                    return_details=True,
+                    perf_logger=perf_logger,
                 )
-                await perf_logger.save_to_file()
+                Chats.set_summary_by_user_id_and_chat_id(
+                    user_id=user.id,
+                    chat_id=chat_id,
+                    summary=summary_text,
+                    last_summary_id=last_summary_id,
+                    last_timestamp=int(time.time()),
+                    status="done",
+                    summarize_task_id="",
+                    cold_start_messages=cold_start_messages,
+                    increase_summary_time=True,
+                )
 
-    summarize_task_id, _ = await create_task(
-        request.app.state.redis,
-        summarize_and_save(),
-        id=chat_id,
-    )
+                if perf_logger:
+                    perf_logger.ensure_initial_summary_end(
+                        response={
+                            "summary_text": summary_text,
+                            "llm_response": summary_llm_details.get("response"),
+                        },
+                        prompt=summary_llm_details.get("prompt"),
+                        usage=summary_llm_details.get("usage"),
+                    )
+                    await perf_logger.save_to_file()
 
-    # === 9. 持久化待完成的 summarize 到数据库 ===
-    Chats.set_summary_by_user_id_and_chat_id(
-        user_id=user.id,
-        chat_id=chat_id,
-        summary="",
-        last_summary_id=last_summary_id,
-        last_timestamp=int(time.time()),
-        status="generating",
-        summarize_task_id=summarize_task_id,
-        cold_start_messages=cold_start_messages,
-    )
+        summarize_task_id, _ = await create_task(
+            request.app.state.redis,
+            summarize_and_save(),
+            id=chat_id,
+        )
+
+        # 持久化待完成的 summarize 到数据库
+        Chats.set_summary_by_user_id_and_chat_id(
+            user_id=user.id,
+            chat_id=chat_id,
+            summary="",
+            last_summary_id=last_summary_id,
+            last_timestamp=int(time.time()),
+            status="generating",
+            summarize_task_id=summarize_task_id,
+            cold_start_messages=cold_start_messages,
+        )
+    else:
+        # 不需要生成摘要：直接写入空摘要记录
+        Chats.set_summary_by_user_id_and_chat_id(
+            user_id=user.id,
+            chat_id=chat_id,
+            summary="",
+            last_summary_id=last_summary_id,
+            last_timestamp=int(time.time()),
+            status="done",
+            summarize_task_id='',
+            cold_start_messages=cold_start_messages
+        )
 
 def messages_loaded(metadata, user, memory_enabled:bool, perf_logger: Optional[ChatPerfLogger] = None):
     chat_id = metadata.get("chat_id", None)
@@ -781,12 +1046,8 @@ def messages_loaded(metadata, user, memory_enabled:bool, perf_logger: Optional[C
         ),
     }
 
-    # 2 准备冷启动消息（直接读取消息内容）
-    # 获取冷启动消息（用于注入关键历史消息）
-    if memory_enabled:
-        cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
-    else:
-        cold_start_messages = []
+    # 2 获取冷启动消息（用于注入关键历史消息）
+    cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
 
     # 获取 last_summary_id 往后的所有消息
     messages_map = Chats.get_messages_map_by_chat_id(chat_id) or {}
@@ -803,7 +1064,7 @@ def messages_loaded(metadata, user, memory_enabled:bool, perf_logger: Optional[C
                 for idx, msg in enumerate(ordered_messages_in_chat)
                 if msg.get("id") == last_summary_id
             )
-            recent_conversation_in_this_chat = ordered_messages_in_chat[boundary_idx + 1 :]
+            recent_conversation_in_this_chat = ordered_messages_in_chat[boundary_idx:]
         except StopIteration:
             recent_conversation_in_this_chat = []
 
@@ -851,7 +1112,7 @@ async def update_summary(request, metadata, user, model, is_user_model):
     if last_summary_id is None: # 兼容旧版本, last_summary_id 之前 被命名为 last_message_id
         last_summary_id = existing_summary.get("last_message_id")
 
-    # 已有摘要：只计算新增部分的 token
+    # 截取 last_summary_id（上次 summary 时的 message） 和 current_message_id 之间的所有 message
     current_message_id = metadata.get("message_id")
     cold_start_messages = chat_item.meta.get("cold_start_messages", []) or []
     new_messages = slice_messages_with_summary(
@@ -905,6 +1166,7 @@ async def update_summary(request, metadata, user, model, is_user_model):
             return_details=True,
         )
 
+        # 在 to_be_summarized_summary_messages 找到最远 5000 个token 或 16条 message， 作为 last_summary_id 点位，以保证 summary 后的连贯性
         recent_messages_in_summary_window ,_ = select_recent_messages_by_tokens(
             to_be_summarized_summary_messages,
             token_target=5000,

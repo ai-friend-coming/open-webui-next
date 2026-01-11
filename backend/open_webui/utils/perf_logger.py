@@ -69,6 +69,9 @@ class ChatPerfLogger:
         self.llm_payload: Optional[Dict[str, Any]] = None  # LLM 调用的完整 payload
         self.llm_response_content: Optional[Any] = None  # LLM 回复内容（最终响应）
 
+        # 滚动摘要迭代记录
+        self.rolling_summary_iterations: List[Dict[str, Any]] = []
+
         self.model_id: Optional[str] = None
         self._filepath: Optional[Path] = None
 
@@ -189,7 +192,6 @@ class ChatPerfLogger:
         """2. ensure_initial_summary 开始"""
         self.t_ensure_initial_summary_start = time.time()
         self.ensure_initial_summary_info = {
-            "messages": self._sanitize_messages(messages),
             "prompt": prompt,
             "messages_count": len(messages),
             "prompt_length": len(prompt) if prompt else 0,
@@ -207,6 +209,8 @@ class ChatPerfLogger:
         self.ensure_initial_summary_info["usage"] = usage
         self.ensure_initial_summary_info["prompt"] = prompt
         self.ensure_initial_summary_info["response"] = response
+        # 将滚动摘要迭代记录放入 ensure_initial_summary_info
+        self.ensure_initial_summary_info["rolling_summary_iterations"] = self.rolling_summary_iterations
         print(
             f"[PERF] ensure_initial_summary 结束: {self.t_ensure_initial_summary_end:.6f}"
         )
@@ -252,7 +256,7 @@ class ChatPerfLogger:
         )
 
     def update_summary_end(
-        self, response: Optional[Any], prompt:str, usage: Optional[Dict[str, Any]], 
+        self, response: Optional[Any], prompt:str, usage: Optional[Dict[str, Any]],
     ) -> None:
         """8. update_summary 结束"""
         self.t_update_summary_end = time.time()
@@ -260,6 +264,43 @@ class ChatPerfLogger:
         self.update_summary_info["prompt"] = prompt
         self.update_summary_info["usage"] = usage
         print(f"[PERF] update_summary 结束: {self.t_update_summary_end:.6f}")
+
+    def record_rolling_summary_iteration(
+        self,
+        iteration: int,
+        old_summary: Optional[str],
+        messages: List[Dict[str, Any]],
+        response: Optional[str],
+        usage: Optional[Dict[str, Any]],
+        remaining_messages_count: int,
+    ) -> None:
+        """
+        记录滚动摘要的一次迭代
+
+        Args:
+            iteration: 迭代轮次（从 1 开始）
+            old_summary: 本轮输入的旧摘要
+            messages: 本轮输入的消息列表
+            response: 本轮 LLM 返回的摘要
+            usage: 本轮 LLM 的 token 使用情况
+            remaining_messages_count: 剩余待处理的消息数
+        """
+        iteration_info = {
+            "iteration": iteration,
+            "time": time.time(),
+            "old_summary": old_summary,
+            "messages": self._sanitize_messages(messages),
+            "messages_count": len(messages),
+            "response": response,
+            "usage": usage,
+            "remaining_messages_count": remaining_messages_count,
+        }
+        self.rolling_summary_iterations.append(iteration_info)
+        print(
+            f"[PERF] 滚动摘要第 {iteration} 轮: "
+            f"输入消息={len(messages)}, 剩余消息={remaining_messages_count}, "
+            f"usage={usage}"
+        )
 
     def record_llm_payload(self, payload: Dict[str, Any]) -> None:
         """
