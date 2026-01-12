@@ -542,15 +542,24 @@ async def chat_memory_handler(
     # 用户自有模型跳过 Mem0 调用
     is_user_model = form_data.get("is_user_model", False)
 
-    # 同时检查用户设置和模型类型
-    if not memory_enabled:
-        log.info(f"[mem0] Skipped: User memory setting disabled for user {user.id}")
-        mem0_results = []
-    elif is_user_model:
+    # 根据记忆模式调用 Mem0
+    if is_user_model:
         log.info(f"[mem0] Skipped: User-owned model")
         mem0_results = []
     else:
-        mem0_results = await mem0_search_and_add(user.id, metadata.get("chat_id"), user_message)
+        # 无记忆模式：限制在当前会话（session_scope=True）
+        # 有记忆模式：跨会话搜索（session_scope=False）
+        session_scope = not memory_enabled
+        mem0_results = await mem0_search_and_add(
+            user.id,
+            metadata.get("chat_id"),
+            user_message,
+            session_scope=session_scope
+        )
+        if session_scope:
+            log.info(f"[mem0] Session-scoped mode (memory disabled) for user {user.id}")
+        else:
+            log.info(f"[mem0] Cross-session mode (memory enabled) for user {user.id}")
 
     # === 3. 格式化记忆条目 ===
     entries = []

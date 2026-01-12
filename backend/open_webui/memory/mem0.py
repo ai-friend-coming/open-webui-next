@@ -183,9 +183,15 @@ async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str
         log.debug(f"Mem0 search failed: {e}")
         return []
 
-async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> list[Dict]:
+async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str, session_scope: bool = False) -> list[Dict]:
     """
     检索并添加记忆。
+
+    Args:
+        user_id: 用户ID
+        chat_id: 聊天会话ID
+        last_message: 最后一条消息
+        session_scope: 是否限制搜索范围在当前会话内（True=仅当前会话，False=所有会话）
     """
     # [修改] 级联过滤：越便宜的检查越靠前
     # 1. 规则/停用词 (几乎0成本)
@@ -207,10 +213,17 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str) -> 
     try:
         # 先对检索计费
         _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID, type="search")
-        log.info(f"[mem: search]mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
-        
+
+        # 根据 session_scope 参数决定搜索范围
+        search_filters = {"user_id": user_id}
+        if session_scope:
+            search_filters["session_id"] = chat_id
+            log.info(f"[mem: search]mem0_search (session-scoped) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
+        else:
+            log.info(f"[mem: search]mem0_search (all sessions) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
+
         serach_rst = memory_client.search(
-            query=last_message, filters={"user_id": user_id}
+            query=last_message, filters=search_filters
         )
         
         if "results" not in serach_rst:
