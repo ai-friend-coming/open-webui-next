@@ -113,6 +113,13 @@ export const currentChatPage = writable(1);
 export const isLastActiveTab = writable(true);
 export const playingNotificationSound = writable(false);
 
+/**
+ * 已停止的消息 ID 集合
+ * 用于在全局通知处理中过滤已被用户停止的消息
+ * 避免用户停止响应后仍收到完成通知的竞态条件问题
+ */
+export const stoppedMessageIds: Writable<Set<string>> = writable(new Set());
+
 // Billing
 export { balance, billingLogs, billingStats, isLowBalance, isFrozen, formatCurrency, formatDate } from './billing';
 

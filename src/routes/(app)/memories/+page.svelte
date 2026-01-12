@@ -8,6 +8,7 @@
 		deleteMemoryById,
 		getMemories
 	} from '$lib/apis/memories';
+	import { trackMemoryDeleted } from '$lib/posthog';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import AddMemoryModal from '$lib/components/chat/Settings/Personalization/AddMemoryModal.svelte';
 	import EditMemoryModal from '$lib/components/chat/Settings/Personalization/EditMemoryModal.svelte';
@@ -53,12 +54,16 @@
 	};
 
 	const handleDeleteMemory = async (memoryId: string) => {
+		// 获取要删除的记忆对象（用于埋点）
+		const memoryToDelete = $memories.find((m) => m.id === memoryId);
+
 		const res = await deleteMemoryById(localStorage.token, memoryId).catch((error) => {
 			toast.error(`${error}`);
 			return null;
 		});
 
-		if (res) {
+		if (res && memoryToDelete) {
+			trackMemoryDeleted(memoryToDelete);
 			toast.success($i18n.t('Memory deleted successfully'));
 			await loadMemories();
 		}

@@ -88,7 +88,7 @@
 		<img src="{WEBUI_BASE_URL}/static/favicon.png" alt="favicon" class="size-6 rounded-full" />
 	</div>
 
-	<div>
+	<div class="sensitive">
 		{#if title}
 			<div class=" text-[13px] font-medium mb-0.5 line-clamp-1">{title}</div>
 		{/if}

@@ -68,6 +68,7 @@
     import Note from '../icons/Note.svelte';
     import { slide } from 'svelte/transition';
     import { convertDeepseekChats, convertGrokChats, convertAIStudioChats, convertQwenChats, getImportOrigin } from '$lib/utils';
+    import { trackImportChatsModalOpen, trackImportChatsCompleted, trackMemoryPageOpen, trackNewChatStarted } from '$lib/posthog';
     import { selectTopInformativeMessages, formatMessagesForMem0 } from '$lib/utils/message-quality';
 
     const BREAKPOINT = 768;
@@ -636,6 +637,9 @@
         // 反转数组顺序，这样第一个聊天最后导入，获得最新的时间戳，从而显示在侧边栏最上方
         const reversedChats = [...chatsWithFlags].reverse();
 
+        // 埋点3：收集导入成功的原始数据
+        const importedChatsForTracking: Array<{ importedChat: { id: string }; chat: any; importMemory: boolean }> = [];
+
         for (const { chat, importMemory } of reversedChats) {
             console.log(chat);
 
@@ -697,7 +701,18 @@
             } else if (importedChat?.id && !importMemory) {
                 console.log(`Skipping memory import for chat ${importedChat.id} (memory disabled by user)`);
             }
+
+            // 收集导入成功的原始数据用于埋点
+            if (importedChat?.id) {
+                importedChatsForTracking.push({ importedChat, chat, importMemory });
+            }
         }
+
+        // 埋点3：调用模块化的埋点函数（解析在 posthog 模块内部完成）
+        trackImportChatsCompleted(
+            origin as 'deepseek' | 'grok' | 'aistudio' | 'qwen' | 'openai' | 'webui',
+            importedChatsForTracking
+        );
 
         currentChatPage.set(1);
         await chats.set(await getChatList(localStorage.token, $currentChatPage));
@@ -957,6 +972,7 @@
                                 e.stopImmediatePropagation();
                                 e.preventDefault();
 
+                                trackMemoryPageOpen();
                                 goto('/memories');
                                 itemClickHandler();
                             }}
@@ -1031,7 +1047,10 @@
                     class="flex items-center rounded-xl size-8.5 h-full justify-center hover:bg-gray-100/50 dark:hover:bg-gray-850/50 transition no-drag-region"
                     href="/"
                     draggable="false"
-                    on:click={newChatHandler}
+                    on:click={() => {
+                        trackNewChatStarted('logo');
+                        newChatHandler();
+                    }}
                 >
                     <img
                         crossorigin="anonymous"
@@ -1041,7 +1060,10 @@
                     />
                 </a>
 
-                <a href="/" class="flex flex-1 px-1.5" on:click={newChatHandler}>
+                <a href="/" class="flex flex-1 px-1.5" on:click={() => {
+                    trackNewChatStarted('title');
+                    newChatHandler();
+                }}>
                     <div class=" self-center font-medium text-gray-850 dark:text-white font-primary">
                         {$WEBUI_NAME}
                     </div>
@@ -1089,7 +1111,10 @@
                             class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
                             href="/"
                             draggable="false"
-                            on:click={newChatHandler}
+                            on:click={() => {
+                                trackNewChatStarted('new_chat_button');
+                                newChatHandler();
+                            }}
                             aria-label={$i18n.t('New Chat')}
                         >
                             <div class="self-center">
@@ -1107,7 +1132,10 @@
                             id="sidebar-memory-button"
                             class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
                             href="/memories"
-                            on:click={itemClickHandler}
+                            on:click={() => {
+                                trackMemoryPageOpen();
+                                itemClickHandler();
+                            }}
                             draggable="false"
                             aria-label={$i18n.t('Memory')}
                         >
@@ -1251,6 +1279,7 @@
                                         class="ml-3 pl-1 mt-[1px] flex flex-col overflow-y-auto scrollbar-hidden border-s border-gray-100 dark:border-gray-900 text-gray-900 dark:text-gray-200"
                                     >
                                         {#each $pinnedChats as chat, idx (`pinned-chat-${chat?.id ?? idx}`)}
+                                        <div class="sensitive"> 
                                             <ChatItem
                                                 className=""
                                                 id={chat.id}
@@ -1271,6 +1300,7 @@
                                                     tagEventHandler(type, name, chat.id);
                                                 }}
                                             />
+                                        </div>
                                         {/each}
                                     </div>
                                 </Folder>
@@ -1310,27 +1340,28 @@
                                             {$i18n.t(chat.time_range)}
                                             </div>
                                     {/if}
-
-                                    <ChatItem
-                                        className=""
-                                        id={chat.id}
-                                        title={chat.title}
-                                        {shiftKey}
-                                        selected={selectedChatId === chat.id}
-                                        on:select={() => {
-                                            selectedChatId = chat.id;
-                                        }}
-                                        on:unselect={() => {
-                                            selectedChatId = null;
-                                        }}
-                                        on:change={async () => {
-                                            await initChatList();
-                                        }}
-                                        on:tag={(e) => {
-                                            const { type, name } = e.detail;
-                                            tagEventHandler(type, name, chat.id);
-                                        }}
-                                    />
+                                    <div class="sensitive"> 
+                                        <ChatItem
+                                            className=""
+                                            id={chat.id}
+                                            title={chat.title}
+                                            {shiftKey}
+                                            selected={selectedChatId === chat.id}
+                                            on:select={() => {
+                                                selectedChatId = chat.id;
+                                            }}
+                                            on:unselect={() => {
+                                                selectedChatId = null;
+                                            }}
+                                            on:change={async () => {
+                                                await initChatList();
+                                            }}
+                                            on:tag={(e) => {
+                                                const { type, name } = e.detail;
+                                                tagEventHandler(type, name, chat.id);
+                                            }}
+                                        />
+                                    </div>
                                 {/each}
 
                                 {#if $scrollPaginationEnabled && !allChatsLoaded}
@@ -1365,6 +1396,7 @@
                 <button
                     class="flex w-full items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100/50 dark:hover:bg-gray-900 transition outline-none"
                     on:click={() => {
+                        trackImportChatsModalOpen();
                         showImportChatsModal.set(true);
                     }}
                     draggable="false"

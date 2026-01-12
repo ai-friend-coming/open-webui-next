@@ -38,7 +38,6 @@
 	export let onSave = (e) => {};
 	export let onSourceClick = (e) => {};
 	export let onTaskClick = (e) => {};
-	export let onAddMessages = (e) => {};
 
 	let contentContainerElement;
 	let floatingButtonsElement;
@@ -200,22 +199,3 @@
 	/>
 </div>
 
-{#if floatingButtons && model}
-	<FloatingButtons
-		bind:this={floatingButtonsElement}
-		{id}
-		{messageId}
-		actions={$settings?.floatingActionButtons ?? []}
-		model={(selectedModels ?? []).includes(model?.id)
-			? model?.id
-			: (selectedModels ?? []).length > 0
-				? selectedModels.at(0)
-				: model?.id}
-		messages={createMessagesList(history, messageId)}
-		onAdd={({ modelId, parentId, messages }) => {
-			console.log(modelId, parentId, messages);
-			onAddMessages({ modelId, parentId, messages });
-			closeFloatingButtons();
-		}}
-	/>
-{/if}

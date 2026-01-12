@@ -25,7 +25,8 @@
 		isApp,
 		appInfo,
 		toolServers,
-		playingNotificationSound
+		playingNotificationSound,
+		stoppedMessageIds
 	} from '$lib/stores';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -46,6 +47,7 @@
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
 	import { chatCompletion } from '$lib/apis/openai';
+	import { logOutTracking, signInTracking, initTabTracking } from '$lib/posthog';
 
 	import { beforeNavigate } from '$app/navigation';
 	import { updated } from '$app/state';
@@ -300,6 +302,16 @@
 				const { done, content, title } = data;
 
 				if (done) {
+					// 检查消息是否已被用户停止（避免竞态条件导致的错误通知）
+					if ($stoppedMessageIds.has(event.message_id)) {
+						// 从 set 中移除，避免内存泄漏
+						stoppedMessageIds.update((ids) => {
+							ids.delete(event.message_id);
+							return ids;
+						});
+						return; // 跳过已停止消息的通知
+					}
+
 					// 播放通知音效
 					if ($settings?.notificationSoundAlways ?? false) {
 						playingNotificationSound.set(true);
@@ -519,10 +531,11 @@
 			return;
 		}
 
-		if (now >= exp - TOKEN_EXPIRY_BUFFER) {
-			const res = await userSignOut();
-			user.set(null);
-			localStorage.removeItem('token');
+			if (now >= exp - TOKEN_EXPIRY_BUFFER) {
+				const res = await userSignOut();
+				logOutTracking({ reason: 'token_expired' });
+				user.set(null);
+				localStorage.removeItem('token');
 
 			location.href = res?.redirect_url ?? '/auth';
 		}
@@ -619,6 +632,8 @@
 		};
 		window.addEventListener('resize', onResize);
 
+		const cleanupTabTracking = initTabTracking();
+
 		user.subscribe((value) => {
 			if (value) {
 				$socket?.off('events', chatEventHandler);
@@ -679,6 +694,7 @@
 					});
 
 					if (sessionUser) {
+						signInTracking(sessionUser);
 						await user.set(sessionUser);
 						await config.set(await getBackendConfig());
 					} else {
@@ -733,6 +749,7 @@
 
 		return () => {
 			window.removeEventListener('resize', onResize);
+			if (cleanupTabTracking) cleanupTabTracking();
 		};
 	});
 </script>

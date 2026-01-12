@@ -42,6 +42,7 @@
 	export let topPadding = false;
 
 	let showDeleteConfirm = false;
+	let showResendConfirm = false;
 
 	let messageIndexEdit = false;
 
@@ -111,8 +112,19 @@
 <DeleteConfirmDialog
 	bind:show={showDeleteConfirm}
 	title={$i18n.t('Delete message?')}
+	message='这将删除这条消息及其对应的模型回复。该操作无法撤销。您确认要继续吗？'
 	on:confirm={() => {
 		deleteMessageHandler();
+	}}
+/>
+
+<DeleteConfirmDialog
+	bind:show={showResendConfirm}
+	title={$i18n.t('重新发送?')}
+	message="这将删除此消息之后的所有回复并重新生成新的响应。您确定要继续吗？"
+	confirmLabel='确定'
+	on:confirm={() => {
+		editMessageConfirmHandler();
 	}}
 />
 
@@ -279,7 +291,7 @@
 						<textarea
 							id="message-edit-{message.id}"
 							bind:this={messageEditTextAreaElement}
-							class=" bg-transparent outline-hidden w-full resize-none"
+							class=" sensitive bg-transparent outline-hidden w-full resize-none"
 							bind:value={editedContent}
 							on:input={(e) => {
 								e.target.style.height = '';
@@ -328,7 +340,7 @@
 								id="confirm-edit-message-button"
 								class="px-3.5 py-1.5 bg-gray-900 dark:bg-white hover:bg-gray-850 text-gray-100 dark:text-gray-800 transition rounded-3xl"
 								on:click={() => {
-									editMessageConfirmHandler();
+									showResendConfirm = true;
 								}}
 							>
 								{$i18n.t('Send')}

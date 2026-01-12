@@ -8,6 +8,7 @@
 
 	import { getUsage } from '$lib/apis';
 	import { userSignOut } from '$lib/apis/auths';
+	import { logOutTracking } from '$lib/posthog';
 	import { getBalance } from '$lib/apis/billing';
 
 	import { showSettings, mobile, showSidebar, showShortcuts, user, balance } from '$lib/stores';
@@ -142,7 +143,8 @@
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Settings')}</div>
 			</DropdownMenu.Item>
-
+			
+			{#if false}
 			<DropdownMenu.Item
 				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
 				on:click={async () => {
@@ -162,6 +164,7 @@
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Archived Chats')}</div>
 			</DropdownMenu.Item>
+			{/if}
 
 			{#if role === 'admin'}
 				<DropdownMenu.Item
@@ -345,10 +348,11 @@
 
 			<DropdownMenu.Item
 				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-				on:click={async () => {
-					const res = await userSignOut();
-					user.set(null);
-					localStorage.removeItem('token');
+					on:click={async () => {
+						const res = await userSignOut();
+						logOutTracking();
+						user.set(null);
+						localStorage.removeItem('token');
 
 					location.href = res?.redirect_url ?? '/auth';
 					show = false;

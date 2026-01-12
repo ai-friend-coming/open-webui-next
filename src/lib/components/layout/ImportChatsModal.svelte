@@ -7,6 +7,7 @@
     import ArchiveBox from '../icons/ArchiveBox.svelte';
     import DocumentText from '../icons/DocumentText.svelte';
     import MagnifyingGlass from '../icons/MagnifyingGlass.svelte';
+    import { trackImportChatsFileParsed, trackImportChatsModalClosed } from '$lib/posthog';
 
     export let show = false;
     export let onImport: (chats: any[]) => Promise<void>;
@@ -56,6 +57,7 @@
     let fileName = '';
     let searchQuery = '';
     let showExportGuide = false;
+    let importCompleted = false;  // 标记是否完成导入（用于埋点4判断）
 
     // 重置状态
     const resetState = () => {
@@ -69,6 +71,12 @@
     };
 
     $: if (!show) {
+        // 埋点4：用户中途关闭 Modal（未完成导入）
+        if (!importCompleted) {
+            const stage = rawChats.length > 0 ? 'after_upload' : 'before_upload';
+            trackImportChatsModalClosed(stage);
+        }
+        importCompleted = false;  // 重置状态
         resetState();
     }
 
@@ -104,6 +112,8 @@
 
             rawChats = parsed;
             chatConfigs = new Map();
+            // 埋点2：文件解析成功
+            trackImportChatsFileParsed(rawChats.length);
             toast.success(`解析成功，共 ${rawChats.length} 条记录`);
         } catch (error) {
             console.error(error);
@@ -232,6 +242,7 @@
         try {
             importing = true;
             await onImport(chatsToImport);
+            importCompleted = true;  // 标记导入成功，避免触发埋点4
             show = false;
             toast.success(`成功导入 ${chatsToImport.length} 条对话`);
         } catch (error) {
@@ -355,7 +366,7 @@
                             <DocumentText className="size-6" />
                         </div>
                         <div class="min-w-0">
-                            <div class="font-medium text-gray-900 dark:text-white truncate" title={fileName}>{fileName}</div>
+                            <div class="sensitive font-medium text-gray-900 dark:text-white truncate" title={fileName}>{fileName}</div>
                             <div class="text-xs text-gray-500">包含 {rawChats.length} 条记录</div>
                         </div>
                     </div>
@@ -402,12 +413,14 @@
                             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
                                 <MagnifyingGlass className="size-4" />
                             </div>
-                            <input 
-                                type="text"
-                                bind:value={searchQuery}
-                                placeholder="搜索标题..."
-                                class="w-full pl-9 pr-4 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border-none rounded-lg focus:ring-2 focus:ring-blue-500/50 text-gray-900 dark:text-white"
-                            />
+                            <div class='sensitive'>
+                                <input 
+                                    type="text"
+                                    bind:value={searchQuery}
+                                    placeholder="搜索标题..."
+                                    class="w-full pl-9 pr-4 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border-none rounded-lg focus:ring-2 focus:ring-blue-500/50 text-gray-900 dark:text-white"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -436,7 +449,7 @@
                                         
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center justify-between gap-2">
-                                                <div class="font-medium text-gray-900 dark:text-gray-100 truncate text-sm">
+                                                <div class="sensitive font-medium text-gray-900 dark:text-gray-100 truncate text-sm">
                                                     {item.title || '无标题对话'}
                                                 </div>
 

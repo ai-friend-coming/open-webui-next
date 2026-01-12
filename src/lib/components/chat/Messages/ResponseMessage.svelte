@@ -148,8 +148,6 @@
 	export let continueResponse: Function;
 	export let regenerateResponse: Function;
 
-	export let addMessages: Function;
-
 	export let isLastMessage = true;
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -602,7 +600,7 @@
 				{/if}
 			</Name>
 
-			<div>
+			<div class='sensitive'>
 				<div class="chat-{message.role} w-full min-w-full markdown-prose">
 					<div>
 						{#if model?.info?.meta?.capabilities?.status_updates ?? true}
@@ -654,7 +652,7 @@
 								<textarea
 									id="message-edit-{message.id}"
 									bind:this={editTextAreaElement}
-									class=" bg-transparent outline-hidden w-full resize-none"
+									class="sensitive bg-transparent outline-hidden w-full resize-none"
 									bind:value={editedContent}
 									on:input={(e) => {
 										e.target.style.height = '';
@@ -794,6 +792,14 @@
 											onSourceClick={async (id, idx) => {
 												console.log(id, idx);
 
+											if (citationsElement) {
+												citationsElement?.showSourceModal(idx - 1);
+											}
+										}}
+										onSave={({ raw, oldContent, newContent }) => {
+											history.messages[message.id].content = history.messages[
+												message.id
+											].content.replace(raw, raw.replace(oldContent, newContent));
 												if (citationsElement) {
 													citationsElement?.showSourceModal(idx - 1);
 												}
@@ -1313,6 +1319,7 @@
 										</Tooltip>
 									{/if} -->
 
+									{#if isLastMessage}
 									{#if $user?.role === 'admin' || ($user?.permissions?.chat?.regenerate_response ?? true)}
 										<!-- 注释这里，以点击重新生成后直接生成，而不再给出三个重新生成选项的菜单 -->
 										<!-- {#if $settings?.regenerateMenu ?? true}
@@ -1385,9 +1392,7 @@
 											<button
 												type="button"
 												aria-label={$i18n.t('Regenerate')}
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
+												class="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
 												on:click={() => {
 													showRateComment = false;
 													regenerateResponse(message);
@@ -1424,6 +1429,7 @@
 										</Tooltip>
 										<!-- {/if} -->
 									{/if}
+								{/if}
 
 									{#if $user?.role === 'admin' || ($user?.permissions?.chat?.delete_message ?? true)}
 										{#if siblings.length > 1}

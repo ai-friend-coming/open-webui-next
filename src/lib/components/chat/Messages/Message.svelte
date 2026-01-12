@@ -8,7 +8,6 @@
 	import { settings } from '$lib/stores';
 	import { copyToClipboard } from '$lib/utils';
 
-	import MultiResponseMessages from './MultiResponseMessages.svelte';
 	import ResponseMessage from './ResponseMessage.svelte';
 	import UserMessage from './UserMessage.svelte';
 
@@ -36,9 +35,7 @@
 
 	export let regenerateResponse;
 	export let continueResponse;
-	export let mergeResponses;
 
-	export let addMessages;
 	export let triggerScroll;
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -52,26 +49,28 @@
 >
 	{#if history.messages[messageId]}
 		{#if history.messages[messageId].role === 'user'}
-			<UserMessage
-				{user}
-				{chatId}
-				{history}
-				{messageId}
-				isFirstMessage={idx === 0}
-				siblings={history.messages[messageId].parentId !== null
-					? (history.messages[history.messages[messageId].parentId]?.childrenIds ?? [])
-					: (Object.values(history.messages)
-							.filter((message) => message.parentId === null)
-							.map((message) => message.id) ?? [])}
-				{gotoMessage}
-				{showPreviousMessage}
-				{showNextMessage}
-				{editMessage}
-				{deleteMessage}
-				{readOnly}
-				{editCodeBlock}
-				{topPadding}
-			/>
+			<div class='sensitive'>
+				<UserMessage
+					{user}
+					{chatId}
+					{history}
+					{messageId}
+					isFirstMessage={idx === 0}
+					siblings={history.messages[messageId].parentId !== null
+						? (history.messages[history.messages[messageId].parentId]?.childrenIds ?? [])
+						: (Object.values(history.messages)
+								.filter((message) => message.parentId === null)
+								.map((message) => message.id) ?? [])}
+					{gotoMessage}
+					{showPreviousMessage}
+					{showNextMessage}
+					{editMessage}
+					{deleteMessage}
+					{readOnly}
+					{editCodeBlock}
+					{topPadding}
+				/>
+			</div>
 		{:else if (history.messages[history.messages[messageId].parentId]?.models?.length ?? 1) === 1}
 			<ResponseMessage
 				{chatId}
@@ -93,31 +92,6 @@
 				{deleteMessage}
 				{continueResponse}
 				{regenerateResponse}
-				{addMessages}
-				{readOnly}
-				{editCodeBlock}
-				{topPadding}
-			/>
-		{:else}
-			<MultiResponseMessages
-				bind:history
-				{chatId}
-				{messageId}
-				{selectedModels}
-				isLastMessage={messageId === history?.currentId}
-				{setInputText}
-				{updateChat}
-				{editMessage}
-				{saveMessage}
-				{rateMessage}
-				{actionMessage}
-				{submitMessage}
-				{deleteMessage}
-				{continueResponse}
-				{regenerateResponse}
-				{mergeResponses}
-				{triggerScroll}
-				{addMessages}
 				{readOnly}
 				{editCodeBlock}
 				{topPadding}

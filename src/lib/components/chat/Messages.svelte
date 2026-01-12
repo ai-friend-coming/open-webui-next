@@ -14,7 +14,12 @@
 
 	import { toast } from 'svelte-sonner';
 	import { getChatList, updateChatById, deleteMessageMemory } from '$lib/apis/chats';
-	import { copyToClipboard, extractCurlyBraceWords } from '$lib/utils';
+	import {
+		trackUserMessageEditAndResend,
+		trackUserMessageEditAndSave,
+		trackAssistantMessageEditAndSave,
+		collectDeletedMessagesForTracking
+	} from '$lib/posthog';
 
 	import Message from './Messages/Message.svelte';
 	import Loader from '../common/Loader.svelte';
@@ -41,12 +46,10 @@
 	export let sendMessage: Function;
 	export let continueResponse: Function;
 	export let regenerateResponse: Function;
-	export let mergeResponses: Function;
 
 	export let chatActionHandler: Function;
 	export let showMessage: Function = () => {};
 	export let submitMessage: Function = () => {};
-	export let addMessages: Function = () => {};
 
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -77,9 +80,35 @@
 		let _messages = [];
 
 		let message = history.messages[history.currentId];
+		// 检测不完整消息：缺少 role 或 id 或 parentId 为 undefined（而非 null）
+		// 这种情况通常发生在 HTTP 请求失败但 WebSocket 已部分写入数据时
+		if (
+			message &&
+			(!message.role || !message.id || message.parentId === undefined)
+		) {
+			// 删除不完整消息
+			delete history.messages[history.currentId];
+			// 回退到最新的完整消息
+			let latestId = null;
+			let latestTimestamp = -1;
+			for (const msg of Object.values(history.messages)) {
+					// 只考虑完整的消息（有 id 和 role）
+					if (!msg?.id || !msg?.role) {
+							continue;
+					}
+					const timestamp = msg.timestamp ?? 0;
+					if (timestamp >= latestTimestamp) {
+							latestTimestamp = timestamp;
+							latestId = msg.id;
+					}
+			}
+			history.currentId = latestId;
+			message = latestId ? history.messages[latestId] : null;
+		}
 		while (message && (messagesCount !== null ? _messages.length <= messagesCount : true)) {
 			_messages.unshift({ ...message });
-			message = message.parentId !== null ? history.messages[message.parentId] : null;
+			// 使用 != null 同时处理 null 和 undefined
+			message = message.parentId != null ? history.messages[message.parentId] : null;
 		}
 
 		messages = _messages;
@@ -364,12 +393,32 @@
 					return;
 				}
 
+				// === 埋点：编辑用户消息 ===
+				const originalContent = message.content ?? '';
+				const originalFiles = message.files ?? [];
+				const childIds = message.childrenIds ?? [];
+
+				// 使用模块化函数收集所有被剪枝的消息
+				const deletedMessages = collectDeletedMessagesForTracking(history.messages, childIds);
+
+				trackUserMessageEditAndResend({
+					chatId: chatId,
+					userMessageId: messageId,
+					originalContentLength: originalContent.length,
+					newContentLength: content?.length ?? 0,
+					hasContentChanged: originalContent !== content,
+					deletedMessages: deletedMessages,
+					hasFilesBefore: originalFiles.length > 0,
+					hasFilesAfter: (files ?? []).length > 0,
+					fileCountBefore: originalFiles.length,
+					fileCountAfter: (files ?? []).length
+				});
+
 				message.content = content;
 				if (files !== undefined) {
 					message.files = files;
 				}
 
-				const childIds = message.childrenIds ?? [];
 				for (const childId of childIds) {
 					removeMessageSubtree(childId);
 				}
@@ -381,6 +430,22 @@
 				await tick();
 				await sendMessage(history, messageId);
 			} else {
+				// === 埋点：保存用户消息（不重新发送）===
+				const originalContent = message.content ?? '';
+				const originalFiles = message.files ?? [];
+
+				trackUserMessageEditAndSave({
+					chatId: chatId,
+					userMessageId: messageId,
+					originalContentLength: originalContent.length,
+					newContentLength: content?.length ?? 0,
+					hasContentChanged: originalContent !== content,
+					hasFilesBefore: originalFiles.length > 0,
+					hasFilesAfter: (files ?? []).length > 0,
+					fileCountBefore: originalFiles.length,
+					fileCountAfter: (files ?? []).length
+				});
+
 				message.content = content;
 				if (files !== undefined) {
 					message.files = files;
@@ -389,6 +454,20 @@
 				await updateChat();
 			}
 		} else {
+			// === 埋点：编辑助手消息 ===
+			const originalContent = message.content ?? '';
+
+			trackAssistantMessageEditAndSave({
+				chatId: chatId,
+				assistantMessageId: messageId,
+				userMessageId: message.parentId ?? '',
+				originalContentLength: originalContent.length,
+				newContentLength: content?.length ?? 0,
+				modelId: message.model ?? '',
+				modelName: message.modelName || message.model || '',
+				isUserModel: message.is_user_model ?? false
+			});
+
 			message.originalContent = message.content;
 			message.content = content;
 			history.messages[messageId] = message;
@@ -421,30 +500,57 @@
 			}
 		}
 
-		// Collect all grandchildren
-		const grandchildrenIds = childMessageIds.flatMap(
-			(childId) => history.messages[childId]?.childrenIds ?? []
+		// 检查子节点是否有 user message
+		const hasUserChild = childMessageIds.some(
+			(childId) => history.messages[childId]?.role === 'user'
 		);
 
-		// Update parent's children
-		if (parentMessageId && history.messages[parentMessageId]) {
-			history.messages[parentMessageId].childrenIds = [
-				...history.messages[parentMessageId].childrenIds.filter((id) => id !== messageId),
-				...grandchildrenIds
-			];
-		}
-
-		// Update grandchildren's parent
-		grandchildrenIds.forEach((grandchildId) => {
-			if (history.messages[grandchildId]) {
-				history.messages[grandchildId].parentId = parentMessageId;
+		if (hasUserChild) {
+			// 子节点包含 user message，只删除当前消息，保留子节点
+			// 将子节点直接连接到父节点
+			if (parentMessageId && history.messages[parentMessageId]) {
+				history.messages[parentMessageId].childrenIds = [
+					...history.messages[parentMessageId].childrenIds.filter((id) => id !== messageId),
+					...childMessageIds
+				];
 			}
-		});
 
-		// Delete the message and its children
-		[messageId, ...childMessageIds].forEach((id) => {
-			delete history.messages[id];
-		});
+			// 更新子节点的 parent 指向
+			childMessageIds.forEach((childId) => {
+				if (history.messages[childId]) {
+					history.messages[childId].parentId = parentMessageId;
+				}
+			});
+
+			// 只删除当前消息
+			delete history.messages[messageId];
+		} else {
+			// 子节点不包含 user message，按原逻辑删除子节点并连接孙子节点
+			// Collect all grandchildren
+			const grandchildrenIds = childMessageIds.flatMap(
+				(childId) => history.messages[childId]?.childrenIds ?? []
+			);
+
+			// Update parent's children
+			if (parentMessageId && history.messages[parentMessageId]) {
+				history.messages[parentMessageId].childrenIds = [
+					...history.messages[parentMessageId].childrenIds.filter((id) => id !== messageId),
+					...grandchildrenIds
+				];
+			}
+
+			// Update grandchildren's parent
+			grandchildrenIds.forEach((grandchildId) => {
+				if (history.messages[grandchildId]) {
+					history.messages[grandchildId].parentId = parentMessageId;
+				}
+			});
+
+			// Delete the message and its children
+			[messageId, ...childMessageIds].forEach((id) => {
+				delete history.messages[id];
+			});
+		}
 
 		await tick();
 
@@ -473,7 +579,7 @@
 			{#key chatId}
 				<section class="w-full" aria-labelledby="chat-conversation">
 					<h2 class="sr-only" id="chat-conversation">{$i18n.t('Chat Conversation')}</h2>
-					{#if messages.at(0)?.parentId !== null}
+					{#if messages.at(0)?.parentId != null}
 						<Loader
 							on:visible={(e) => {
 								console.log('visible');
@@ -510,8 +616,6 @@
 								{submitMessage}
 								{regenerateResponse}
 								{continueResponse}
-								{mergeResponses}
-								{addMessages}
 								{triggerScroll}
 								{readOnly}
 								{editCodeBlock}

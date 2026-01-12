@@ -734,6 +734,7 @@ async def ensure_initial_summary(
                 status="done",
                 summarize_task_id="",
                 cold_start_messages=cold_start_messages,
+                increase_summary_time=True,
             )
 
             if perf_logger:
@@ -920,6 +921,7 @@ async def update_summary(request, metadata, user, model, is_user_model):
             status = 'done',
             summarize_task_id = '',
             cold_start_messages = [],
+            increase_summary_time = True,
         )
 
         # 记录 summary 更新使用的材料（summarize 函数的完整参数）

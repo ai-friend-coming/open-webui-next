@@ -31,7 +31,6 @@
 
 	const i18n = getContext('i18n');
 
-	export let createMessagePair: Function;
 	export let stopResponse: Function;
 
 	export let autoScroll = false;
@@ -219,7 +218,6 @@
 					bind:showCommands
 					{toolServers}
 					{stopResponse}
-					{createMessagePair}
 					placeholder={$i18n.t('How can I help you today?')}
 					{onChange}
 					on:upload={(e) => {

@@ -41,7 +41,8 @@
 		functions,
 		selectedFolder,
 		pinnedChats,
-		showEmbeds
+		showEmbeds,
+		stoppedMessageIds
 	} from '$lib/stores';
 	import {
 		convertMessagesToHistory,
@@ -77,6 +78,7 @@
 	import { getTools } from '$lib/apis/tools';
 	import { uploadFile } from '$lib/apis/files';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
+	import { SendingRequestManagement } from './SendingRequestManagement';
 
 	import { fade } from 'svelte/transition';
 
@@ -87,13 +89,15 @@
 	import ChatControls from './ChatControls.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
-	import NotificationToast from '../NotificationToast.svelte';
 	import Spinner from '../common/Spinner.svelte';
-	import Tooltip from '../common/Tooltip.svelte';
-	import Sidebar from '../icons/Sidebar.svelte';
 	import { getFunctions } from '$lib/apis/functions';
 	import Image from '../common/Image.svelte';
 	import { updateFolderById } from '$lib/apis/folders';
+	import {
+		trackChatOpened,
+		trackMessageRegenerated,
+		parseChatForTracking
+	} from '$lib/posthog';
 
 	export let chatIdProp = '';
 
@@ -120,6 +124,10 @@
 	let eventCallback = null;
 
 	let chatIdUnsubscriber: Unsubscriber | undefined;
+	const sendingRequestManagement = new SendingRequestManagement();
+	let isWaitingForResponse = false;
+	const currentRequestId = sendingRequestManagement.currentRequestId;
+	$: isWaitingForResponse = $currentRequestId !== null;
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -136,9 +144,6 @@
 
 	let showCommands = false;
 
-	let generating = false;
-	let generationController = null;
-
 	let chat = null;
 	let tags = [];
 
@@ -146,9 +151,6 @@
 		messages: {},
 		currentId: null
 	};
-
-	let taskIds = null;
-	const requestStatus: Record<string, { failed: boolean }> = {};
 
 	// Chat Input
 	let prompt = '';
@@ -369,7 +371,7 @@
 	 * @param cb - 可选回调，用于 confirmation/execute/input 等需要响应的事件
 	 */
 	const chatEventHandler = async (event, cb) => {
-		console.log(event);
+		// console.log(event);
 
 		// 只处理当前聊天的事件（通过 chat_id 过滤）
 		if (event.chat_id === $chatId) {
@@ -396,16 +398,16 @@
 					// 用户点击停止或后端异常时触发，清理生成状态
 				} else if (type === 'chat:tasks:cancel') {
 					if (event.message_id) {
-						requestStatus[event.message_id] = { failed: true };
+						sendingRequestManagement.handleWsChatTasksCancel(event.message_id);
 					}
-					taskIds = null;
-					const responseMessage = history.messages[history.currentId];
-					// Set all response messages to done
-					for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-						history.messages[messageId].done = true;
+
+					if (event.message_id === history.currentId) {
+						const responseMessage = history.messages[history.currentId];
+						// Set all response messages to done
+						for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
+							history.messages[messageId].done = true;
+						}
 					}
-					// ========== 消息内容增量更新 ==========
-					// 流式响应时逐块追加内容
 				} else if (type === 'chat:message:delta' || type === 'message') {
 					message.content += data.content;
 					// ========== 消息内容替换 ==========
@@ -421,9 +423,20 @@
 					// ========== 错误处理 ==========
 					// 后端处理失败时触发，需要回滚消息并清理状态
 				} else if (type === 'chat:message:error') {
-					if (event.message_id) {
-						requestStatus[event.message_id] = { failed: true };
+					// 检查消息是否已被用户停止
+					if ($stoppedMessageIds.has(event.message_id)) {
+						stoppedMessageIds.update((ids) => {
+							ids.delete(event.message_id);
+							return ids;
+						});
+						return; // 跳过错误处理
 					}
+
+					// --- 生命周期追踪：WS 错误 ---
+					if (event.message_id) {
+						sendingRequestManagement.handleWsChatMessageError(event.message_id, data.error);
+					}
+
 					// 显示 Toast 通知用户错误
 					toast.error(data.error?.content || $i18n.t('An error occurred'));
 
@@ -448,9 +461,6 @@
 					if (parentId && history.messages[parentId]) {
 						history.messages[parentId].done = true;
 					}
-
-					// v3: 清理生成状态（防御性，后端会发送 chat:tasks:cancel 但添加保险）
-					cleanupGenerationState();
 
 					// 保存更新后的 history 到数据库
 					await saveChatHandler($chatId, history);
@@ -1199,16 +1209,20 @@
 				}
 
 				memoryLocked = Object.keys(history?.messages ?? {}).length > 0;
+				
+				// NotTODO:
+				// const taskRes = await getTaskIdsByChatId(localStorage.token, $chatId).catch((error) => {
+				// 	return null;
+				// });
 
-				const taskRes = await getTaskIdsByChatId(localStorage.token, $chatId).catch((error) => {
-					return null;
-				});
-
-				if (taskRes) {
-					taskIds = taskRes.task_ids;
-				}
+				// if (taskRes) {
+				// 	taskIds = taskRes.task_ids;
+				// }
 
 				await tick();
+
+				// 埋点：进入聊天窗
+				trackChatOpened(chat);
 
 				return true;
 			} else {
@@ -1270,6 +1284,12 @@
 			// ========== 错误处理：回滚消息 ==========
 			toast.error(`${error}`);
 
+			// 生命周期追踪：chatCompleted API 调用失败
+			sendingRequestManagement.failRequest(
+				responseMessageId,
+				{ errorType: 'completion_error', error: String(error) },
+				'error'
+			);
 			// v2: 删除错误消息而不是设置 error 字段
 			const errorMessage = history.messages[responseMessageId];
 			if (errorMessage) {
@@ -1294,9 +1314,6 @@
 				if (parentId && history.messages[parentId]) {
 					history.messages[parentId].done = true;
 				}
-
-				// v3: 清理生成状态（防御性，任务已在 1210 行清理但确保状态干净）
-				cleanupGenerationState();
 
 				// 保存更新后的 history 到数据库
 				await saveChatHandler($chatId, history);
@@ -1344,9 +1361,6 @@
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
 		}
-
-		// ========== 4. 清理生成状态 ==========
-		taskIds = null;
 	};
 
 	const chatActionHandler = async (chatId, actionId, modelId, responseMessageId, event = null) => {
@@ -1394,9 +1408,6 @@
 					history.messages[parentId].done = true;
 				}
 
-				// v3: 清理生成状态（防御性，确保状态干净）
-				cleanupGenerationState();
-
 				// 保存更新后的 history 到数据库
 				await saveChatHandler($chatId, history);
 			}
@@ -1442,129 +1453,6 @@
 				chat_id: chatId
 			});
 		}, 1000);
-	};
-
-	const createMessagePair = async (userPrompt) => {
-		messageInput?.setText('');
-		if (selectedModels.length === 0) {
-			toast.error($i18n.t('Model not selected'));
-		} else {
-			const modelId = selectedModels[0];
-			const model = $models.filter((m) => m.id === modelId).at(0);
-
-			const messages = createMessagesList(history, history.currentId);
-			const parentMessage = messages.length !== 0 ? messages.at(-1) : null;
-
-			const userMessageId = uuidv4();
-			const responseMessageId = uuidv4();
-
-			const userMessage = {
-				id: userMessageId,
-				parentId: parentMessage ? parentMessage.id : null,
-				childrenIds: [responseMessageId],
-				role: 'user',
-				content: userPrompt ? userPrompt : `[PROMPT] ${userMessageId}`,
-				timestamp: Math.floor(Date.now() / 1000)
-			};
-
-			const responseMessage = {
-				id: responseMessageId,
-				parentId: userMessageId,
-				childrenIds: [],
-				role: 'assistant',
-				content: `[RESPONSE] ${responseMessageId}`,
-				done: true,
-
-				model: modelId,
-				modelName: model.name ?? model.id,
-				modelIdx: 0,
-				timestamp: Math.floor(Date.now() / 1000)
-			};
-
-			if (parentMessage) {
-				parentMessage.childrenIds.push(userMessageId);
-				history.messages[parentMessage.id] = parentMessage;
-			}
-			history.messages[userMessageId] = userMessage;
-			history.messages[responseMessageId] = responseMessage;
-
-			history.currentId = responseMessageId;
-
-			await tick();
-
-			if (autoScroll) {
-				scrollToBottom();
-			}
-
-			if (messages.length === 0) {
-				await initChatHandler(history);
-			} else {
-				await saveChatHandler($chatId, history);
-			}
-		}
-	};
-
-	const addMessages = async ({ modelId, parentId, messages }) => {
-		const model = $models.filter((m) => m.id === modelId).at(0);
-
-		let parentMessage = history.messages[parentId];
-		let currentParentId = parentMessage ? parentMessage.id : null;
-		for (const message of messages) {
-			let messageId = uuidv4();
-
-			if (message.role === 'user') {
-				const userMessage = {
-					id: messageId,
-					parentId: currentParentId,
-					childrenIds: [],
-					timestamp: Math.floor(Date.now() / 1000),
-					...message
-				};
-
-				if (parentMessage) {
-					parentMessage.childrenIds.push(messageId);
-					history.messages[parentMessage.id] = parentMessage;
-				}
-
-				history.messages[messageId] = userMessage;
-				parentMessage = userMessage;
-				currentParentId = messageId;
-			} else {
-				const responseMessage = {
-					id: messageId,
-					parentId: currentParentId,
-					childrenIds: [],
-					done: true,
-					model: model.id,
-					modelName: model.name ?? model.id,
-					modelIdx: 0,
-					timestamp: Math.floor(Date.now() / 1000),
-					...message
-				};
-
-				if (parentMessage) {
-					parentMessage.childrenIds.push(messageId);
-					history.messages[parentMessage.id] = parentMessage;
-				}
-
-				history.messages[messageId] = responseMessage;
-				parentMessage = responseMessage;
-				currentParentId = messageId;
-			}
-		}
-
-		history.currentId = currentParentId;
-		await tick();
-
-		if (autoScroll) {
-			scrollToBottom();
-		}
-
-		if (messages.length === 0) {
-			await initChatHandler(history);
-		} else {
-			await saveChatHandler($chatId, history);
-		}
 	};
 
 	/**
@@ -1625,6 +1513,13 @@
 
 		// ========== 错误处理 ==========
 		if (error) {
+			// --- 生命周期追踪：响应错误（completion_error 类型）---
+			sendingRequestManagement.failRequest(
+				message.id,
+				{ errorType: 'completion_error', error: error },
+				'error'
+			);
+
 			await handleOpenAIError(error, message);
 		}
 
@@ -1640,7 +1535,11 @@
 			if (choices[0]?.message?.content) {
 				// 非流式响应：choices[0].message.content 包含完整内容
 				// Non-stream response
+				const wasEmpty = message.content === '';
 				message.content += choices[0]?.message?.content;
+				if (wasEmpty && message.content !== '') {
+					sendingRequestManagement.receiveFirstToken(message.id);
+				}
 			} else {
 				// 流式响应：choices[0].delta.content 包含增量内容
 				// Stream response
@@ -1648,7 +1547,12 @@
 				if (message.content == '' && value == '\n') {
 					console.log('Empty response');
 				} else {
+					// 检测首个 token（用于生命周期追踪）
+					const wasEmpty = message.content === '';
 					message.content += value;
+					if (wasEmpty && message.content !== '') {
+						sendingRequestManagement.receiveFirstToken(message.id);
+					}
 
 					// 触觉反馈（移动端）
 					if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
@@ -1686,7 +1590,11 @@
 		// 当后端 REALTIME_CHAT_SAVE 关闭时，流结束后一次性返回完整内容
 		if (content) {
 			// REALTIME_CHAT_SAVE is disabled
+			const wasEmpty = message.content === '';
 			message.content = content;
+			if (wasEmpty && message.content !== '') {
+				sendingRequestManagement.receiveFirstToken(message.id);
+			}
 
 			if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
 				navigator.vibrate(5);
@@ -1734,7 +1642,6 @@
 		// ========== 流式结束处理 ==========
 		// done=true 表示 LLM 响应完成，需要执行收尾逻辑
 		if (done) {
-			delete requestStatus[message.id];
 			// 标记消息完成状态（UI 会根据此状态显示/隐藏加载指示器）
 			message.done = true;
 
@@ -1795,6 +1702,16 @@
 				message.id,
 				createMessagesList(history, message.id)
 			);
+
+			// --- 生命周期追踪：完成请求 ---
+			sendingRequestManagement.completeRequest(message.id, {
+				responseLength: message.content?.length ?? 0,
+				usage: message.usage ?? null,
+				hasSources: (message.sources?.length ?? 0) > 0,
+				sourceCount: message.sources?.length ?? 0,
+				isArenaMode: message.arena ?? false,
+				selectedModelId: message.selectedModelId
+			});
 		}
 
 		await tick();
@@ -1993,7 +1910,9 @@
 
 		// === 9. 发送消息到后端 ===
 		// newChat: true 表示如果是新对话的第一条消息，需要先创建聊天记录
-		await sendMessage(history, userMessageId, { newChat: true });
+		// submitAt: 记录用户点击发送的时间，用于生命周期埋点
+		const submitAt = Date.now();
+		await sendMessage(history, userMessageId, { newChat: true, submitAt });
 	};
 
 	/**
@@ -2047,12 +1966,14 @@
 			messages = null,
 			modelId = null,
 			modelIdx = null,
-			newChat = false
+			newChat = false,
+			submitAt = Date.now()
 		}: {
 			messages?: any[] | null;
 			modelId?: string | null;
 			modelIdx?: number | null;
 			newChat?: boolean;
+			submitAt?: number;
 		} = {}
 	) => {
 		// === 1. UI 自动滚动 ===
@@ -2073,13 +1994,18 @@
 				? [atSelectedModel.id]
 				: selectedModels;
 
-		// === 4. 为每个选中的模型创建响应消息占位符 ===
+		// === 4. 准备用户消息数据（用于生命周期追踪）===
+		const userMessage = _history.messages[parentId];
+		const chatContextForTracking = chat ? parseChatForTracking(chat) : null;
+		const featuresForTracking = getFeatures();
+
+		// === 5. 为每个选中的模型创建响应消息占位符 ===
 		// 这样 UI 可以立即显示"正在输入..."状态
 		for (const [_modelIdx, modelId] of selectedModelIds.entries()) {
 			const combined = getCombinedModelById(modelId);
 			if (combined) {
 				const model = combined.model ?? combined.credential;
-				// 4.1 生成响应消息 ID 和空消息对象
+				// 5.1 生成响应消息 ID 和空消息对象
 				let responseMessageId = uuidv4();
 				let responseMessage = {
 					parentId: parentId,
@@ -2096,14 +2022,15 @@
 							? (combined.credential.name ?? combined.credential.model_id)
 							: (model.name ?? model.id),
 					modelIdx: modelIdx ? modelIdx : _modelIdx, // 多模型对话时，区分不同模型的响应
-					timestamp: Math.floor(Date.now() / 1000) // Unix epoch
+					timestamp: Math.floor(Date.now() / 1000), // Unix epoch
+					is_user_model: combined.source === 'user' // 是否为用户私有 API 模型
 				};
 
-				// 4.2 将响应消息添加到历史记录
+				// 5.2 将响应消息添加到历史记录
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;
 
-				// 4.3 更新父消息（用户消息）的子消息列表
+				// 5.3 更新父消息（用户消息）的子消息列表
 				// 构建消息树：user message -> [assistant message 1, assistant message 2, ...]
 				if (parentId !== null && history.messages[parentId]) {
 					// Add null check before accessing childrenIds
@@ -2113,9 +2040,26 @@
 					];
 				}
 
-				// 4.4 记录响应消息 ID，用于后续查找
+				// 5.4 记录响应消息 ID，用于后续查找
 				// key 格式：modelId-modelIdx，例如 "gpt-4-0"
 				responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
+
+				// 5.5 启动请求生命周期追踪（在创建响应消息后立即调用，确保时间戳准确）
+				sendingRequestManagement.startRequest(responseMessageId, {
+					isNewChat: newChat && userMessage?.parentId === null,
+					chatId: _chatId,
+					userMessageId: parentId,
+					messageLength: userMessage?.content?.length ?? 0,
+					modelId: modelId,
+					modelName: model.name ?? model.id ?? modelId,
+					isUserModel: combined.source === 'user',
+					responseMessageId: responseMessageId,
+					chatContext: chatContextForTracking,
+					hasFiles: (userMessage?.files?.length ?? 0) > 0,
+					fileCount: userMessage?.files?.length ?? 0,
+					selectedTools: selectedToolIds,
+					features: featuresForTracking
+				}, submitAt);
 			}
 		}
 		history = history;
@@ -2137,7 +2081,7 @@
 		// 使用 Promise.all 实现并行请求，提升多模型对话的性能
 		await Promise.all(
 			selectedModelIds.map(async (modelId, _modelIdx) => {
-				console.log('modelId', modelId);
+				// console.log('modelId', modelId);
 				const combined = getCombinedModelById(modelId);
 				const model = combined?.model ?? combined?.credential;
 
@@ -2331,7 +2275,6 @@
 		responseMessageId,
 		_chatId
 	) => {
-		requestStatus[responseMessageId] = { failed: false };
 		// 第一步: 从历史记录中获取消息引用
 		const responseMessage = _history.messages[responseMessageId]; // 预创建的空响应消息
 		const userMessage = _history.messages[responseMessage.parentId]; // 用户发送的消息
@@ -2540,8 +2483,26 @@
 			},
 			`${WEBUI_BASE_URL}/api`
 		).catch(async (error) => {
+			// 检查消息是否已被用户停止
+			// 如果已停止，跳过错误处理（消息已在 stopResponse 中撤销，错误对用户不重要）
+			if ($stoppedMessageIds.has(responseMessageId)) {
+				// 从 set 中移除，避免内存泄漏
+				stoppedMessageIds.update((ids) => {
+					ids.delete(responseMessageId);
+					return ids;
+				});
+				return null;
+			}
+
 			// 错误处理: API 请求失败时的回滚逻辑
 			console.log(error);
+
+			// 埋点：记录 HTTP 请求错误
+			sendingRequestManagement.failRequest(
+				responseMessageId,
+				{ errorType: 'http_error', error: error },
+				'error'
+			);
 
 			// 提取错误信息 (支持多种错误格式)
 			let errorMessage = error;
@@ -2579,9 +2540,6 @@
 				history.messages[parentId].done = true;
 			}
 
-			// 回滚步骤 5: 清理生成状态 (防御性)
-			cleanupGenerationState();
-
 			// 回滚步骤 6: 保存回滚后的 history 到数据库
 			await saveChatHandler($chatId, history);
 
@@ -2592,21 +2550,29 @@
 		if (res) {
 			if (res.error) {
 				// API 返回了错误 (HTTP 200 但 body 包含 error)
+				// 埋点：记录 API 错误
+				sendingRequestManagement.failRequest(
+					responseMessage.id,
+					{ errorType: 'api_error', error: res.error },
+					'error'
+				);
 				await handleOpenAIError(res.error, responseMessage);
 			} 
-			else if (requestStatus[responseMessageId]?.failed) // 这里用于规避 ws 先于 http response 到达之前返回了错误
-			{ 
-				delete requestStatus[responseMessageId];
-			} 
+			// 这里用于规避，在 http response 还未到达之前
+			// 1. ws 就返回了错误
+			// 2. 用户就点击终止回复
 			else 
 			{
-				// 成功: 注册 task_id 到 taskIds 数组
-				// 用于后续通过 chatEventHandler 匹配 Socket.IO 事件
-				if (taskIds) {
-					taskIds.push(res.task_id);
-				} else {
-					taskIds = [res.task_id];
+				if (res.task_id) {
+					await sendingRequestManagement.receiveHttpResponse(responseMessageId, res.task_id);
 				}
+				// // 成功: 注册 task_id 到 taskIds 数组
+				// // 用于后续通过 chatEventHandler 匹配 Socket.IO 事件
+				// if (taskIds) {
+				// 	taskIds.push(res.task_id);
+				// } else {
+				// 	taskIds = [res.task_id];
+				// }
 			}
 		}
 
@@ -2666,69 +2632,38 @@
 			history.messages[parentId].done = true;
 		}
 
-		// v3: 清理生成状态（防御性，任务未创建但确保状态干净）
-		cleanupGenerationState();
-
 		// 保存更新后的 history 到数据库
 		await saveChatHandler($chatId, history);
 	};
 
 	const stopResponse = async () => {
-		console.log("stopResponse");
-		if (taskIds) {
-			for (const taskId of taskIds) {
-				const res = await stopTask(localStorage.token, taskId).catch((error) => {
-					toast.error(`${error}`);
-					return null;
-				});
+		// --- 生命周期追踪：用户停止响应 ---
+		// 在停止之前���录当前状态并调用 stopRequest
+		if (history.currentId) {
+			const currentMessage = history.messages[history.currentId];
+			if (currentMessage && currentMessage.role === 'assistant') {
+				await sendingRequestManagement.stopRequest(
+					history.currentId,
+					currentMessage.content?.length ?? 0
+				);
 			}
+		}
 
-			taskIds = null;
-			
+		if (history.currentId) {
+			let last_message = history.messages[history.currentId];
 			// 发现当前一条 assistant message 还没有收到第一个 token, 因此该消息可以直接撤回！
-			const last_message = history.messages[history.currentId];
 			if (last_message.role === 'assistant' && last_message.content === '') {
 				const parentID = last_message.parentId;
 				delete history.messages[history.currentId];
 				history.currentId = parentID;
 				history.messages[parentID].done = true;
 				history.messages[parentID].childrenIds = [];
-				console.log(history.messages[parentID]);
 			}
-			const _chatId = JSON.parse(JSON.stringify($chatId));
-			const _history = JSON.parse(JSON.stringify(history));
-			await saveChatHandler(_chatId, _history);
-
-			if (autoScroll) {
-				scrollToBottom();
-			}
+			await saveChatHandler($chatId, history);
 		}
 
-		if (generating) {
-			generating = false;
-			generationController?.abort();
-			generationController = null;
-		}
-	};
-
-	/**
-	 * 清理生成相关的状态变量
-	 * 用于错误处理场景，恢复 UI 到待发送状态
-	 * 注意：不调用后端 API，不修改消息状态
-	 */
-	const cleanupGenerationState = () => {
-		// 清理后端任务 ID（防御性）
-		if (taskIds) {
-			taskIds = null;
-		}
-
-		// 清理客户端生成状态（MoA）
-		if (generating) {
-			generating = false;
-			if (generationController) {
-				generationController.abort();
-				generationController = null;
-			}
+		if (autoScroll) {
+			scrollToBottom();
 		}
 	};
 
@@ -2774,15 +2709,36 @@
 			scrollToBottom();
 		}
 
-		await sendMessage(history, userMessageId);
+		const submitAt = Date.now();
+		await sendMessage(history, userMessageId, { submitAt });
 	};
 
 	const regenerateResponse = async (message, suggestionPrompt = null) => {
+		// 记录用户点击重新生成的时间
+		const submitAt = Date.now();
 
 		if (history.currentId) {
 			// 先删除旧的 response message，避免产生分支
 			const parentId = message.parentId;
 			const userMessage = history.messages[parentId];
+			const isMultiModel = (userMessage?.models ?? [...selectedModels]).length > 1;
+
+			// === 埋点：重新生成消息 ===
+			trackMessageRegenerated({
+				chatId: $chatId,
+				userMessageId: parentId,
+				oldResponseMessageId: message.id,
+				oldModelId: message.model,
+				oldModelName: message.modelName || message.model,
+				oldIsUserModel: message.is_user_model ?? false,
+				oldResponseLength: message.content?.length ?? 0,
+				suggestionPrompt: suggestionPrompt,
+				suggestionSource: suggestionPrompt
+					? (['Add Details', 'More Concise'].includes(suggestionPrompt) ? 'preset' : 'custom')
+					: null,
+				isMultiModel: isMultiModel,
+				modelIdx: isMultiModel ? message.modelIdx : null
+			});
 
 			if (parentId && history.messages[parentId]) {
 				history.messages[parentId].childrenIds = history.messages[parentId].childrenIds.filter(
@@ -2801,6 +2757,7 @@
 			}
 
 			await sendMessage(history, userMessage.id, {
+				submitAt,
 				...(suggestionPrompt
 					? {
 							messages: [
@@ -2812,7 +2769,7 @@
 							]
 						}
 					: {}),
-				...((userMessage?.models ?? [...selectedModels]).length > 1
+				...(isMultiModel
 					? {
 							// If multiple models are selected, use the model from the message
 							modelId: message.model,
@@ -2845,61 +2802,6 @@
 					_chatId
 				);
 			}
-		}
-	};
-
-	const mergeResponses = async (messageId, responses, _chatId) => {
-		console.log('mergeResponses', messageId, responses);
-		const message = history.messages[messageId];
-		const mergedResponse = {
-			status: true,
-			content: ''
-		};
-		message.merged = mergedResponse;
-		history.messages[messageId] = message;
-
-		try {
-			generating = true;
-			const [res, controller] = await generateMoACompletion(
-				localStorage.token,
-				message.model,
-				history.messages[message.parentId].content,
-				responses
-			);
-
-			if (res && res.ok && res.body && generating) {
-				generationController = controller;
-				const textStream = await createOpenAITextStream(res.body, $settings.splitLargeChunks);
-				for await (const update of textStream) {
-					const { value, done, sources, error, usage } = update;
-					if (error || done) {
-						generating = false;
-						generationController = null;
-						break;
-					}
-
-					if (mergedResponse.content == '' && value == '\n') {
-						continue;
-					} else {
-						mergedResponse.content += value;
-						history.messages[messageId] = message;
-					}
-
-					if (autoScroll) {
-						scrollToBottom();
-					}
-				}
-
-				await saveChatHandler(_chatId, history);
-			} else {
-				console.error(res);
-				// v3: API 调用失败，清理生成状态
-				cleanupGenerationState();
-			}
-		} catch (e) {
-			console.error(e);
-			// v3: 异常情况，清理生成状态
-			cleanupGenerationState();
 		}
 	};
 
@@ -3160,9 +3062,7 @@
 										{submitMessage}
 										{continueResponse}
 										{regenerateResponse}
-										{mergeResponses}
 										{chatActionHandler}
-										{addMessages}
 										topPadding={true}
 										bottomPadding={files.length > 0}
 										{onSelect}
@@ -3174,7 +3074,7 @@
 								<MessageInput
 									bind:this={messageInput}
 									{history}
-									{taskIds}
+									{isWaitingForResponse}
 									{selectedModels}
 									bind:files
 									bind:prompt
@@ -3189,9 +3089,7 @@
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}
-									{generating}
 									{stopResponse}
-									{createMessagePair}
 									onChange={(data) => {
 										if (!$temporaryChatEnabled) {
 											saveDraft(data, $chatId);
@@ -3244,7 +3142,6 @@
 									bind:showCommands
 									toolServers={$toolServers}
 									{stopResponse}
-									{createMessagePair}
 									{onSelect}
 									onChange={(data) => {
 										if (!$temporaryChatEnabled) {

@@ -86,11 +86,9 @@
 	const i18n = getContext('i18n');
 
 	export let onChange: Function = () => {};
-	export let createMessagePair: Function;
 	export let stopResponse: Function;
 
 	export let autoScroll = false;
-	export let generating = false;
 
 	export let atSelectedModel: Model | undefined = undefined;
 	export let selectedModels: [''];
@@ -99,7 +97,7 @@
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
 
 	export let history;
-	export let taskIds = null;
+	export let isWaitingForResponse = false;
 
 	export let prompt = '';
 	export let files = [];
@@ -1223,7 +1221,7 @@
 									</div>
 								{/if}
 
-								<div class="px-2.5">
+								<div class="px-2.5 sensitive">
 									<div
 										class="scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-1 px-1 resize-none h-fit max-h-96 overflow-auto {files.length ===
 										0
@@ -1296,12 +1294,6 @@
 
 															if (e.key === 'Escape') {
 																stopResponse();
-															}
-
-															// Command/Ctrl + Shift + Enter to submit a message pair
-															if (isCtrlPressed && e.key === 'Enter' && e.shiftKey) {
-																e.preventDefault();
-																createMessagePair(prompt);
 															}
 
 															// Check if Ctrl + R is pressed
@@ -1770,7 +1762,7 @@
 											</Tooltip>
 										{/if}
 
-										{#if (taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true) || generating}
+										{#if isWaitingForResponse}
 											<div class=" flex items-center">
 												<Tooltip content={$i18n.t('Stop')}>
 													<button
