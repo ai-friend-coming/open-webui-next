@@ -796,14 +796,6 @@
 												citationsElement?.showSourceModal(idx - 1);
 											}
 										}}
-										onSave={({ raw, oldContent, newContent }) => {
-											history.messages[message.id].content = history.messages[
-												message.id
-											].content.replace(raw, raw.replace(oldContent, newContent));
-												if (citationsElement) {
-													citationsElement?.showSourceModal(idx - 1);
-												}
-											}}
 											onAddMessages={({ modelId, parentId, messages }) => {
 												addMessages({ modelId, parentId, messages });
 											}}
