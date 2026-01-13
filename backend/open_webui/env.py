@@ -923,10 +923,131 @@ EXTERNAL_PWA_MANIFEST_URL = os.environ.get("EXTERNAL_PWA_MANIFEST_URL")
 ####################################
 
 ALIPAY_APP_ID = os.environ.get("ALIPAY_APP_ID", "")
-ALIPAY_PRIVATE_KEY = os.environ.get("ALIPAY_PRIVATE_KEY", "")  # 应用私钥
-ALIPAY_PUBLIC_KEY = os.environ.get("ALIPAY_PUBLIC_KEY", "")  # 支付宝公钥
-ALIPAY_NOTIFY_URL = os.environ.get("ALIPAY_NOTIFY_URL", "")  # 异步通知地址
 ALIPAY_SANDBOX = os.environ.get("ALIPAY_SANDBOX", "false").lower() == "true"  # 沙箱模式
+
+
+def _process_private_key(key_content: str) -> str:
+    """
+    处理私钥内容
+
+    官方 SDK alipay-sdk-python 会自动添加 PKCS#1 格式头尾:
+    -----BEGIN RSA PRIVATE KEY-----
+    -----END RSA PRIVATE KEY-----
+
+    但支付宝开放平台生成的私钥通常是 PKCS#8 格式:
+    -----BEGIN PRIVATE KEY-----
+    -----END PRIVATE KEY-----
+
+    此函数会自动检测格式并转换为 SDK 期望的 PKCS#1 纯 Base64 内容
+    """
+    if not key_content:
+        return ""
+
+    key_content = key_content.strip()
+
+    # 检测是否是 PKCS#8 格式（需要转换）
+    if "-----BEGIN PRIVATE KEY-----" in key_content:
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.backends import default_backend
+
+            # 加载 PKCS#8 格式私钥
+            private_key = serialization.load_pem_private_key(
+                key_content.encode(), password=None, backend=default_backend()
+            )
+            # 转换为 PKCS#1 格式 (TraditionalOpenSSL)
+            pkcs1_pem = private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            ).decode()
+            # 提取纯 Base64 内容
+            lines = pkcs1_pem.strip().split("\n")
+            return "".join(lines[1:-1])
+        except Exception as e:
+            print(f"[ALIPAY] PKCS#8 私钥转换失败: {e}")
+            return ""
+
+    # 检测是否已经是 PKCS#1 格式，提取纯 Base64
+    if "-----BEGIN RSA PRIVATE KEY-----" in key_content:
+        lines = key_content.strip().split("\n")
+        return "".join(lines[1:-1])
+
+    # 纯 Base64 内容（无 PEM 头尾）
+    # 先清理空白字符
+    clean_key = "".join(key_content.split())
+
+    # 尝试判断是否为 PKCS#8 格式（先尝试添加头尾解析）
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.backends import default_backend
+
+        # 尝试作为 PKCS#8 解析
+        pkcs8_pem = f"-----BEGIN PRIVATE KEY-----\n{clean_key}\n-----END PRIVATE KEY-----"
+        private_key = serialization.load_pem_private_key(
+            pkcs8_pem.encode(), password=None, backend=default_backend()
+        )
+        # 成功，转换为 PKCS#1
+        pkcs1_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode()
+        lines = pkcs1_pem.strip().split("\n")
+        return "".join(lines[1:-1])
+    except Exception:
+        pass
+
+    # 如果 PKCS#8 解析失败，假定已经是 PKCS#1 格式
+    return clean_key
+
+
+def _process_public_key(key_content: str) -> str:
+    """
+    处理公钥内容
+
+    提取纯 Base64 内容，SDK 会自动添加 PUBLIC KEY 头尾
+    """
+    if not key_content:
+        return ""
+
+    key_content = key_content.strip()
+
+    # 如果包含 PEM 头尾，提取中间的 Base64
+    if "-----BEGIN PUBLIC KEY-----" in key_content:
+        lines = key_content.strip().split("\n")
+        return "".join(lines[1:-1])
+
+    # 纯 Base64 内容，移除所有空白
+    return "".join(key_content.split())
+
+
+# 应用私钥（支持 PKCS#8 或 PKCS#1 格式，也支持纯 Base64）
+_alipay_private_key = os.environ.get("ALIPAY_PRIVATE_KEY", "")
+ALIPAY_PRIVATE_KEY = _process_private_key(_alipay_private_key)
+
+# 支付宝公钥（支持带 PEM 头尾或纯 Base64）
+_alipay_public_key = os.environ.get("ALIPAY_PUBLIC_KEY", "")
+ALIPAY_PUBLIC_KEY = _process_public_key(_alipay_public_key)
+
+# 调试输出
+if _alipay_private_key:
+    print(f"[ALIPAY DEBUG] 原始私钥长度: {len(_alipay_private_key)}")
+    print(f"[ALIPAY DEBUG] 处理后私钥长度: {len(ALIPAY_PRIVATE_KEY)}")
+    if ALIPAY_PRIVATE_KEY:
+        print(f"[ALIPAY DEBUG] 私钥预览: {ALIPAY_PRIVATE_KEY[:50]}...")
+
+# 支付宝回调域名（后端地址，如 https://api.example.com）
+_alipay_domain = os.environ.get("ALIPAY_CALLBACK_DOMAIN", "")
+if _alipay_domain and not _alipay_domain.startswith(("http://", "https://")):
+    _alipay_domain = f"https://{_alipay_domain}"
+ALIPAY_CALLBACK_DOMAIN = _alipay_domain.rstrip("/")  # 移除末尾斜杠
+
+# 前端地址（支付完成后跳转回的地址，如 https://www.example.com）
+_frontend_url = os.environ.get("ALIPAY_FRONTEND_URL", "")
+if _frontend_url and not _frontend_url.startswith(("http://", "https://")):
+    _frontend_url = f"https://{_frontend_url}"
+ALIPAY_FRONTEND_URL = _frontend_url.rstrip("/")
 
 
 ####################################

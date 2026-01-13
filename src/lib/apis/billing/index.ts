@@ -333,7 +333,15 @@ export const getRechargeLogsByUserId = async (
 export interface CreateOrderResponse {
 	order_id: string;
 	out_trade_no: string;
-	qr_code: string;
+	pay_url: string; // 支付宝收银台跳转URL
+	amount: number;
+	expired_at: number;
+}
+
+export interface CreateH5OrderResponse {
+	order_id: string;
+	out_trade_no: string;
+	pay_url: string;
 	amount: number;
 	expired_at: number;
 }
@@ -343,6 +351,17 @@ export interface OrderStatusResponse {
 	status: string;
 	amount: number;
 	paid_at: number | null;
+}
+
+export interface PaymentOrder {
+	id: string;
+	out_trade_no: string; // 商户订单号
+	trade_no: string | null; // 支付宝交易号
+	amount: number; // 金额（元）
+	status: string; // pending/paid/closed/refunded
+	payment_method: string;
+	paid_at: number | null;
+	created_at: number;
 }
 
 export interface PaymentConfig {
@@ -379,6 +398,43 @@ export const getPaymentConfig = async (): Promise<PaymentConfig> => {
 };
 
 /**
+ * 获取用户支付订单列表
+ */
+export const getPaymentOrders = async (
+	token: string,
+	limit: number = 50,
+	offset: number = 0
+): Promise<PaymentOrder[]> => {
+	let error = null;
+
+	const res = await fetch(
+		`${WEBUI_API_BASE_URL}/billing/payment/orders?limit=${limit}&offset=${offset}`,
+		{
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`
+			}
+		}
+	)
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
  * 创建充值订单
  */
 export const createPaymentOrder = async (
@@ -388,6 +444,40 @@ export const createPaymentOrder = async (
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/billing/payment/create`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ amount })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
+ * 创建H5充值订单（移动端跳转支付）
+ */
+export const createH5PaymentOrder = async (
+	token: string,
+	amount: number
+): Promise<CreateH5OrderResponse> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/billing/payment/create/h5`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',

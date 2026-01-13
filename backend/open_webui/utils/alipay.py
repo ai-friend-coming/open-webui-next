@@ -1,7 +1,9 @@
 """
 支付宝支付服务
 
-使用当面付（扫码支付）模式
+支持：
+- 当面付（扫码支付）- PC端
+- 手机网站支付（H5）- 移动端
 """
 
 import logging
@@ -12,11 +14,35 @@ from open_webui.env import (
     ALIPAY_APP_ID,
     ALIPAY_PRIVATE_KEY,
     ALIPAY_PUBLIC_KEY,
-    ALIPAY_NOTIFY_URL,
+    ALIPAY_CALLBACK_DOMAIN,
     ALIPAY_SANDBOX,
 )
 
+# 回调路径常量
+NOTIFY_PATH = "/api/v1/billing/payment/notify"
+RETURN_PATH = "/api/v1/billing/payment/return"
+
+
+def get_notify_url() -> str:
+    """获取异步通知URL"""
+    if ALIPAY_CALLBACK_DOMAIN:
+        return f"{ALIPAY_CALLBACK_DOMAIN}{NOTIFY_PATH}"
+    return ""
+
+
+def get_return_url() -> str:
+    """获取同步返回URL"""
+    if ALIPAY_CALLBACK_DOMAIN:
+        return f"{ALIPAY_CALLBACK_DOMAIN}{RETURN_PATH}"
+    return ""
+
 log = logging.getLogger(__name__)
+
+# 启动时打印配置状态（使用 print 确保可见）
+print(f"[Alipay] ALIPAY_CALLBACK_DOMAIN = {ALIPAY_CALLBACK_DOMAIN or '(未配置)'}")
+print(f"[Alipay] notify_url = {get_notify_url() or '(未配置)'}")
+print(f"[Alipay] return_url = {get_return_url() or '(未配置)'}")
+print(f"[Alipay] ALIPAY_SANDBOX = {ALIPAY_SANDBOX}")
 
 
 def is_alipay_configured() -> bool:
@@ -84,25 +110,175 @@ def create_qr_payment(
         model.timeout_express = "15m"  # 15分钟过期
 
         request = AlipayTradePrecreateRequest(biz_model=model)
-        if ALIPAY_NOTIFY_URL:
-            request.notify_url = ALIPAY_NOTIFY_URL
+        notify_url = get_notify_url()
+        if notify_url:
+            request.notify_url = notify_url
 
         response = client.execute(request)
 
-        # 解析响应
-        if hasattr(response, "code") and response.code == "10000":
-            qr_code = response.qr_code
-            log.info(f"创建支付宝订单成功: {out_trade_no}")
-            return True, "success", qr_code
+        # 解析响应（可能是字符串或对象）
+        if isinstance(response, str):
+            import json
+            response = json.loads(response)
+
+        # 支持 dict 和对象两种格式
+        if isinstance(response, dict):
+            code = response.get("code")
+            if code == "10000":
+                qr_code = response.get("qr_code")
+                log.info(f"创建支付宝订单成功: {out_trade_no}")
+                return True, "success", qr_code
+            else:
+                error_msg = response.get("sub_msg") or response.get("msg") or "未知错误"
+                log.error(f"创建支付宝订单失败: {out_trade_no}, {response}")
+                return False, error_msg, None
         else:
-            error_msg = getattr(response, "sub_msg", None) or getattr(
-                response, "msg", "未知错误"
-            )
-            log.error(f"创建支付宝订单失败: {out_trade_no}, {error_msg}")
-            return False, error_msg, None
+            # 对象格式
+            if hasattr(response, "code") and response.code == "10000":
+                qr_code = response.qr_code
+                log.info(f"创建支付宝订单成功: {out_trade_no}")
+                return True, "success", qr_code
+            else:
+                error_msg = getattr(response, "sub_msg", None) or getattr(response, "msg", "未知错误")
+                log.error(f"创建支付宝订单失败: {out_trade_no}, {error_msg}")
+                return False, error_msg, None
 
     except Exception as e:
+        import traceback
         log.error(f"创建支付宝订单异常: {e}")
+        log.error(f"详细堆栈: {traceback.format_exc()}")
+        return False, str(e), None
+
+
+def create_wap_payment(
+    out_trade_no: str,
+    amount_yuan: float,
+    subject: str = "账户充值",
+    return_url: str = None,
+) -> Tuple[bool, str, Optional[str]]:
+    """
+    创建手机网站支付订单 (H5)
+
+    移动端用户跳转到支付宝收银台完成支付
+
+    Args:
+        out_trade_no: 商户订单号
+        amount_yuan: 金额（元）
+        subject: 订单标题
+        return_url: 同步返回地址（可选，默认使用环境变量配置）
+
+    Returns:
+        Tuple[success, message, pay_url]
+        pay_url: 支付宝收银台跳转URL
+    """
+    try:
+        from alipay.aop.api.domain.AlipayTradeWapPayModel import AlipayTradeWapPayModel
+        from alipay.aop.api.request.AlipayTradeWapPayRequest import (
+            AlipayTradeWapPayRequest,
+        )
+
+        client = get_alipay_client()
+
+        model = AlipayTradeWapPayModel()
+        model.out_trade_no = out_trade_no
+        model.total_amount = f"{amount_yuan:.2f}"
+        model.subject = subject
+        model.product_code = "QUICK_WAP_WAY"
+        model.timeout_express = "15m"  # 15分钟过期
+
+        request = AlipayTradeWapPayRequest(biz_model=model)
+        notify_url = get_notify_url()
+        if notify_url:
+            request.notify_url = notify_url
+        final_return_url = return_url or get_return_url()
+        if final_return_url:
+            request.return_url = final_return_url
+
+        print(f"[Alipay] 创建H5支付订单: {out_trade_no}")
+        print(f"[Alipay] notify_url = {notify_url or '(空)'}")
+        print(f"[Alipay] return_url = {final_return_url or '(空)'}")
+
+        # page_execute 返回跳转 URL
+        pay_url = client.page_execute(request, http_method="GET")
+
+        # 检查生成的URL中是否包含 return_url
+        if "return_url" in pay_url:
+            print(f"[Alipay] 创建成功，pay_url 包含 return_url 参数")
+        else:
+            print(f"[Alipay] 警告: pay_url 不包含 return_url! 支付完成后将无法显示返回商家按钮")
+        print(f"[Alipay] pay_url 前200字符: {pay_url[:200]}...")
+        return True, "success", pay_url
+
+    except Exception as e:
+        import traceback
+        log.error(f"创建H5支付订单异常: {e}")
+        log.error(f"详细堆栈: {traceback.format_exc()}")
+        return False, str(e), None
+
+
+def create_page_payment(
+    out_trade_no: str,
+    amount_yuan: float,
+    subject: str = "账户充值",
+    return_url: str = None,
+) -> Tuple[bool, str, Optional[str]]:
+    """
+    创建电脑网站支付订单 (PC)
+
+    桌面端用户跳转到支付宝收银台完成支付
+
+    Args:
+        out_trade_no: 商户订单号
+        amount_yuan: 金额（元）
+        subject: 订单标题
+        return_url: 同步返回地址（可选，默认使用环境变量配置）
+
+    Returns:
+        Tuple[success, message, pay_url]
+        pay_url: 支付宝收银台跳转URL
+    """
+    try:
+        from alipay.aop.api.domain.AlipayTradePagePayModel import AlipayTradePagePayModel
+        from alipay.aop.api.request.AlipayTradePagePayRequest import (
+            AlipayTradePagePayRequest,
+        )
+
+        client = get_alipay_client()
+
+        model = AlipayTradePagePayModel()
+        model.out_trade_no = out_trade_no
+        model.total_amount = f"{amount_yuan:.2f}"
+        model.subject = subject
+        model.product_code = "FAST_INSTANT_TRADE_PAY"
+        model.timeout_express = "15m"  # 15分钟过期
+
+        request = AlipayTradePagePayRequest(biz_model=model)
+        notify_url = get_notify_url()
+        if notify_url:
+            request.notify_url = notify_url
+        final_return_url = return_url or get_return_url()
+        if final_return_url:
+            request.return_url = final_return_url
+
+        print(f"[Alipay] 创建PC支付订单: {out_trade_no}")
+        print(f"[Alipay] notify_url = {notify_url or '(空)'}")
+        print(f"[Alipay] return_url = {final_return_url or '(空)'}")
+
+        # page_execute 返回跳转 URL
+        pay_url = client.page_execute(request, http_method="GET")
+
+        # 检查生成的URL中是否包含 return_url
+        if "return_url" in pay_url:
+            print(f"[Alipay] 创建成功，pay_url 包含 return_url 参数")
+        else:
+            print(f"[Alipay] 警告: pay_url 不包含 return_url! 支付完成后将无法显示返回商家按钮")
+        print(f"[Alipay] pay_url 前200字符: {pay_url[:200]}...")
+        return True, "success", pay_url
+
+    except Exception as e:
+        import traceback
+        log.error(f"创建PC支付订单异常: {e}")
+        log.error(f"详细堆栈: {traceback.format_exc()}")
         return False, str(e), None
 
 
@@ -131,12 +307,21 @@ def query_payment(out_trade_no: str) -> Tuple[str, Optional[str]]:
         request = AlipayTradeQueryRequest(biz_model=model)
         response = client.execute(request)
 
-        if hasattr(response, "code") and response.code == "10000":
-            trade_status = response.trade_status
-            trade_no = response.trade_no
-            return trade_status, trade_no
+        # 解析响应（可能是字符串或对象）
+        if isinstance(response, str):
+            import json
+            response = json.loads(response)
+
+        if isinstance(response, dict):
+            if response.get("code") == "10000":
+                return response.get("trade_status"), response.get("trade_no")
+            else:
+                return "NOT_FOUND", None
         else:
-            return "NOT_FOUND", None
+            if hasattr(response, "code") and response.code == "10000":
+                return response.trade_status, response.trade_no
+            else:
+                return "NOT_FOUND", None
 
     except Exception as e:
         log.error(f"查询支付宝订单失败: {e}")
@@ -167,7 +352,13 @@ def close_payment(out_trade_no: str) -> bool:
         request = AlipayTradeCloseRequest(biz_model=model)
         response = client.execute(request)
 
-        if hasattr(response, "code") and response.code == "10000":
+        # 解析响应（可能是字符串或对象）
+        if isinstance(response, str):
+            import json
+            response = json.loads(response)
+
+        code = response.get("code") if isinstance(response, dict) else getattr(response, "code", None)
+        if code == "10000":
             log.info(f"关闭支付宝订单成功: {out_trade_no}")
             return True
         else:

@@ -7,6 +7,7 @@
 	import BillingLogsTable from '$lib/components/billing/BillingLogsTable.svelte';
 	import BillingStatsChart from '$lib/components/billing/BillingStatsChart.svelte';
 	import LowBalanceAlert from '$lib/components/billing/LowBalanceAlert.svelte';
+	import PaymentOrdersTable from '$lib/components/billing/PaymentOrdersTable.svelte';
 	import RechargeCard from '$lib/components/billing/RechargeCard.svelte';
 	import RedeemCodeInput from '$lib/components/billing/RedeemCodeInput.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -107,6 +108,9 @@
 
 					<!-- 统计图表 -->
 					<BillingStatsChart />
+
+					<!-- 充值记录 -->
+					<PaymentOrdersTable />
 
 					<!-- 消费记录 (仅 debug 模式显示) -->
 					{#if dev}

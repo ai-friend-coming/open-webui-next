@@ -9,7 +9,8 @@ import logging
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from open_webui.models.users import Users, User
@@ -469,11 +470,21 @@ class CreateOrderRequest(BaseModel):
 
 
 class CreateOrderResponse(BaseModel):
-    """创建充值订单响应"""
+    """创建充值订单响应（PC网页支付）"""
 
     order_id: str
     out_trade_no: str
-    qr_code: str
+    pay_url: str  # 支付宝收银台跳转URL
+    amount: float
+    expired_at: int
+
+
+class CreateH5OrderResponse(BaseModel):
+    """创建H5支付订单响应（移动端跳转）"""
+
+    order_id: str
+    out_trade_no: str
+    pay_url: str
     amount: float
     expired_at: int
 
@@ -487,16 +498,62 @@ class OrderStatusResponse(BaseModel):
     paid_at: Optional[int] = None
 
 
+class PaymentOrderResponse(BaseModel):
+    """支付订单响应（用于列表展示）"""
+
+    id: str
+    out_trade_no: str  # 商户订单号
+    trade_no: Optional[str] = None  # 支付宝交易号
+    amount: float  # 金额（元）
+    status: str  # pending/paid/closed/refunded
+    payment_method: str
+    paid_at: Optional[int] = None
+    created_at: int
+
+
+@router.get("/payment/orders", response_model=list[PaymentOrderResponse])
+async def get_user_payment_orders(
+    limit: int = 50,
+    offset: int = 0,
+    user=Depends(get_verified_user),
+):
+    """
+    获取当前用户的支付订单列表
+
+    需要登录
+    """
+    from open_webui.models.billing import PaymentOrders
+
+    try:
+        orders = PaymentOrders.get_by_user_id(user.id, limit=limit, offset=offset)
+        return [
+            PaymentOrderResponse(
+                id=o.id,
+                out_trade_no=o.out_trade_no,
+                trade_no=o.trade_no,
+                amount=o.amount / 10000,  # 毫 → 元
+                status=o.status,
+                payment_method=o.payment_method,
+                paid_at=o.paid_at,
+                created_at=o.created_at,
+            )
+            for o in orders
+        ]
+    except Exception as e:
+        log.error(f"获取支付订单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取支付订单失败: {str(e)}")
+
+
 @router.post("/payment/create", response_model=CreateOrderResponse)
 async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verified_user)):
     """
-    创建充值订单（生成支付二维码）
+    创建充值订单（PC端电脑网站支付，跳转支付宝收银台）
 
     需要登录
     """
     import uuid as uuid_module
 
-    from open_webui.utils.alipay import create_qr_payment, is_alipay_configured
+    from open_webui.utils.alipay import create_page_payment, is_alipay_configured
     from open_webui.models.billing import PaymentOrders
 
     # 检查支付宝配置
@@ -504,16 +561,16 @@ async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verifie
         raise HTTPException(status_code=503, detail="支付功能暂未开放，请联系管理员")
 
     # 验证金额
-    if req.amount < 1:
-        raise HTTPException(status_code=400, detail="充值金额最低1元")
+    if req.amount < 0.01:
+        raise HTTPException(status_code=400, detail="充值金额最低0.01元")
     if req.amount > 10000:
         raise HTTPException(status_code=400, detail="充值金额最高10000元")
 
     # 生成订单号: CK + 时间戳 + 随机字符
     out_trade_no = f"CK{int(time.time())}{uuid_module.uuid4().hex[:8].upper()}"
 
-    # 调用支付宝创建订单
-    success, msg, qr_code = create_qr_payment(
+    # 调用支付宝创建PC网页支付订单
+    success, msg, pay_url = create_page_payment(
         out_trade_no=out_trade_no,
         amount_yuan=req.amount,
         subject="Cakumi账户充值",
@@ -531,17 +588,79 @@ async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verifie
         user_id=user.id,
         out_trade_no=out_trade_no,
         amount=int(req.amount * 10000),  # 元 → 毫
-        qr_code=qr_code,
+        qr_code=pay_url,  # 存储跳转URL
         expired_at=expired_at,
         payment_method="alipay",
+        payment_type="page",
     )
 
-    log.info(f"创建支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
+    log.info(f"创建PC支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
 
     return CreateOrderResponse(
         order_id=order.id,
         out_trade_no=out_trade_no,
-        qr_code=qr_code,
+        pay_url=pay_url,
+        amount=req.amount,
+        expired_at=expired_at,
+    )
+
+
+@router.post("/payment/create/h5", response_model=CreateH5OrderResponse)
+async def create_h5_payment_order(req: CreateOrderRequest, user=Depends(get_verified_user)):
+    """
+    创建H5支付订单（移动端跳转支付宝收银台）
+
+    需要登录
+    """
+    import uuid as uuid_module
+
+    from open_webui.utils.alipay import create_wap_payment, is_alipay_configured
+    from open_webui.models.billing import PaymentOrders
+
+    # 检查支付宝配置
+    if not is_alipay_configured():
+        raise HTTPException(status_code=503, detail="支付功能暂未开放，请联系管理员")
+
+    # 验证金额
+    if req.amount < 0.01:
+        raise HTTPException(status_code=400, detail="充值金额最低0.01元")
+    if req.amount > 10000:
+        raise HTTPException(status_code=400, detail="充值金额最高10000元")
+
+    # 生成订单号: CK + 时间戳 + 随机字符
+    out_trade_no = f"CK{int(time.time())}{uuid_module.uuid4().hex[:8].upper()}"
+
+    # 调用支付宝创建H5支付订单
+    success, msg, pay_url = create_wap_payment(
+        out_trade_no=out_trade_no,
+        amount_yuan=req.amount,
+        subject="Cakumi账户充值",
+    )
+
+    if not success:
+        log.error(f"创建H5支付订单失败: {msg}")
+        raise HTTPException(status_code=500, detail=f"创建订单失败: {msg}")
+
+    # 保存订单到数据库
+    now = int(time.time())
+    expired_at = now + 900  # 15分钟后过期
+
+    order = PaymentOrders.create(
+        user_id=user.id,
+        out_trade_no=out_trade_no,
+        amount=int(req.amount * 10000),  # 元 → 毫
+        qr_code=pay_url,  # H5支付存储跳转URL
+        expired_at=expired_at,
+        payment_method="alipay",
+        payment_type="h5",
+    )
+
+    log.info(f"创建H5支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
+
+    return CreateH5OrderResponse(
+        order_id=order.id,
+        out_trade_no=out_trade_no,
+        pay_url=pay_url,
         amount=req.amount,
         expired_at=expired_at,
     )
@@ -573,17 +692,49 @@ async def get_payment_status(order_id: str, user=Depends(get_verified_user)):
     )
 
 
+@router.get("/payment/return")
+async def payment_return(request: Request):
+    """
+    支付宝同步返回页面（支付完成后跳转）
+
+    注意：此接口无需登录验证，会重定向到前端页面
+    """
+    from open_webui.env import ALIPAY_FRONTEND_URL
+    from open_webui.models.billing import PaymentOrders
+
+    # 获取回调参数
+    params = dict(request.query_params)
+    out_trade_no = params.get("out_trade_no", "")
+
+    log.info(f"支付宝同步返回: {out_trade_no}")
+
+    # 查询订单
+    order = PaymentOrders.get_by_out_trade_no(out_trade_no)
+
+    # 构建前端页面路径
+    if order:
+        page_path = f"/payment/return?order_id={order.id}&status={order.status}"
+    else:
+        page_path = "/payment/return?error=order_not_found"
+
+    # 如果配置了前端地址，使用完整 URL；否则使用相对路径
+    if ALIPAY_FRONTEND_URL:
+        redirect_url = f"{ALIPAY_FRONTEND_URL}{page_path}"
+    else:
+        redirect_url = page_path
+
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
 @router.post("/payment/notify")
-async def alipay_notify(request):
+async def alipay_notify(request: Request):
     """
     支付宝异步通知回调
 
     注意：此接口无需登录验证
     """
-    from fastapi import Request
     from open_webui.utils.alipay import verify_notify_sign
     from open_webui.models.billing import PaymentOrders, RechargeLog
-    from open_webui.models.users import Users
     import uuid as uuid_module
 
     # 获取回调参数

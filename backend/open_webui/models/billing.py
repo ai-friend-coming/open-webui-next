@@ -80,7 +80,8 @@ class PaymentOrder(Base):
     amount = Column(Integer, nullable=False)  # 金额（毫，1元=10000毫）
     status = Column(String(20), default="pending")  # pending/paid/closed/refunded
     payment_method = Column(String(20), default="alipay")  # alipay
-    qr_code = Column(Text, nullable=True)  # 支付二维码内容
+    payment_type = Column(String(20), default="qrcode")  # qrcode/h5 (扫码/H5跳转)
+    qr_code = Column(Text, nullable=True)  # 支付二维码内容或跳转URL
     paid_at = Column(BigInteger, nullable=True)  # 支付时间
     created_at = Column(BigInteger, nullable=False)
     updated_at = Column(BigInteger, nullable=False)
@@ -151,6 +152,7 @@ class PaymentOrderModel(BaseModel):
     amount: int  # 毫
     status: str
     payment_method: str
+    payment_type: str = "qrcode"  # qrcode/h5
     qr_code: Optional[str] = None
     paid_at: Optional[int] = None
     created_at: int
@@ -319,6 +321,7 @@ class PaymentOrderTable:
         qr_code: str,
         expired_at: int,
         payment_method: str = "alipay",
+        payment_type: str = "qrcode",
     ) -> PaymentOrderModel:
         """创建支付订单"""
         now = int(time.time())
@@ -330,6 +333,7 @@ class PaymentOrderTable:
                 amount=amount,
                 status="pending",
                 payment_method=payment_method,
+                payment_type=payment_type,
                 qr_code=qr_code,
                 created_at=now,
                 updated_at=now,
