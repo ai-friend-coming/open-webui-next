@@ -1063,3 +1063,19 @@ ENABLE_IMPORT_MEMORY_EXTRACTION = (
 
 # 最大导入聊天记录数量（防止后台负载过高）
 MAX_IMPORT_CHATS_COUNT = int(os.environ.get("MAX_IMPORT_CHATS_COUNT", "50"))
+
+
+####################################
+# END-TO-END ENCRYPTION
+####################################
+
+# 启用端到端加密功能（默认关闭）
+# 开启后，流式响应的内容会在后端加密，前端实时解密
+ENABLE_E2E_ENCRYPTION = (
+    os.environ.get("ENABLE_E2E_ENCRYPTION", "false").lower() == "true"
+)
+
+# 是否在日志中输出加密调试信息
+ENCRYPTION_DEBUG = (
+    os.environ.get("ENCRYPTION_DEBUG", "false").lower() == "true"
+)
