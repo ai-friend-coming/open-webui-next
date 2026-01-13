@@ -10,6 +10,7 @@
 
 	import AdvancedParams from './Advanced/AdvancedParams.svelte';
 	import Textarea from '$lib/components/common/Textarea.svelte';
+	import Switch from '$lib/components/common/Switch.svelte';
 	export let saveSettings: Function;
 	export let getModels: Function;
 
@@ -23,6 +24,7 @@
 	let system = '';
 
 	let showAdvanced = false;
+	let enableDataAnalysis = false;
 
 	const toggleNotification = async () => {
 		const permission = await Notification.requestPermission();
@@ -114,6 +116,7 @@
 
 		notificationEnabled = $settings.notificationEnabled ?? false;
 		system = $settings.system ?? '';
+		enableDataAnalysis = $settings?.enableDataAnalysis ?? false;
 
 		params = { ...params, ...$settings.params };
 		params.stop = $settings?.params?.stop ? ($settings?.params?.stop ?? []).join(',') : null;
@@ -214,6 +217,27 @@
 						<!-- <option value="rose-pine dark">🪻 {$i18n.t('Rosé Pine')}</option>
 						<option value="rose-pine-dawn light">🌷 {$i18n.t('Rosé Pine Dawn')}</option> -->
 					</select>
+				</div>
+			</div>
+
+			<div class="py-0.5 flex w-full justify-between">
+				<div class="flex flex-col gap-0.5">
+					<div id="enable-data-analysis-label" class="text-xs font-medium">
+						{$i18n.t('Data for Personalized Experience')}
+					</div>
+					<div class="text-xs text-gray-400 dark:text-gray-500 max-w-full">
+						{$i18n.t('Allow us to use your conversation data to optimize your experience. Your data privacy is protected.')}
+					</div>
+				</div>
+				<div class="flex items-center gap-2 p-1">
+					<Switch
+						ariaLabelledbyId="enable-data-analysis-label"
+						tooltip={true}
+						bind:state={enableDataAnalysis}
+						on:change={() => {
+							saveSettings({ enableDataAnalysis });
+						}}
+					/>
 				</div>
 			</div>
 
