@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 
+from open_webui.env import PERF_LOG_DIR
+
 
 class ChatPerfLogger:
     """聊天性能日志记录器"""
@@ -439,7 +441,7 @@ class ChatPerfLogger:
 
         return result
 
-    async def save_to_file(self, log_dir: str = "logs") -> Optional[Path]:
+    async def save_to_file(self, log_dir: Optional[str] = None) -> Optional[Path]:
         """
         保存为 JSON 文件
 
@@ -449,10 +451,11 @@ class ChatPerfLogger:
         Returns:
             保存的文件路径，失败则返回 None
         """
+        log_dir = log_dir or PERF_LOG_DIR
         try:
             # 确保 log 目录存在
             log_path = Path(log_dir)
-            log_path.mkdir(exist_ok=True)
+            log_path.mkdir(parents=True, exist_ok=True)
 
             if self._filepath is None:
                 self._filepath = self._build_filepath(log_path)

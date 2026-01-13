@@ -262,6 +262,9 @@ if FROM_INIT_PY:
         os.getenv("FRONTEND_BUILD_DIR", OPEN_WEBUI_DIR / "frontend")
     ).resolve()
 
+# 性能日志目录（默认 DATA_DIR/logs）
+PERF_LOG_DIR = Path(os.getenv("PERF_LOG_DIR", DATA_DIR / "logs"))
+
 ####################################
 # Database
 ####################################

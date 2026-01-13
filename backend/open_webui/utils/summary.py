@@ -631,7 +631,7 @@ async def summarize(
         )
 
 
-async def summarize_rolling(
+async def summarize_multi_chunk(
     messages: List[Dict],
     model_id: str,
     user: Any,
@@ -644,12 +644,12 @@ async def summarize_rolling(
     perf_logger: Optional["ChatPerfLogger"] = None,
 ) -> Union[str, Tuple[str, Dict[str, Any]]]:
     """
-    滚动摘要生成器 - 处理超大消息列表的分段摘要
+    并行分段摘要生成器 - 处理超大消息列表的分段摘要
 
-    当消息总 token 数超过单次 LLM 调用上限时，将消息分段处理：
-    1. 第一段：取从旧到新不超过 threshold 的消息 → 生成 summary_1
-    2. 第二段：summary_1 + 下一段消息 → 生成 summary_2
-    3. 重复直到所有消息处理完毕
+    当消息总 token 数超过单次 LLM 调用上限时，将消息分段并行处理：
+    1. 将消息按 token_threshold 分成多段
+    2. 并发对每一段调用 summarize
+    3. 将所有摘要直接拼接作为最终结果
 
     参数：
         messages: 完整的消息列表（按时间从旧到新排序）
@@ -659,17 +659,20 @@ async def summarize_rolling(
         is_user_model: 是否为用户私有模型
         model_config: 模型配置
         token_threshold: 单次 LLM 调用的 token 上限
-        old_summary: 已有的旧摘要（可选，用于增量更新）
+        old_summary: 已有的旧摘要（可选，会作为第一段的前缀）
         return_details: 是否返回详细信息
+        perf_logger: 性能日志记录器
 
     返回：
         摘要字符串，或 (摘要字符串, 详细信息字典)
     """
+    import asyncio
+
     # 0. 空消息检查
     if not messages:
-        log.warning("滚动摘要跳过：无消息")
+        log.warning("并行摘要跳过：无消息")
         if return_details:
-            return "", {"usage": {"prompt_tokens": 0, "completion_tokens": 0}, "iterations": 0}
+            return "", {"usage": {"prompt_tokens": 0, "completion_tokens": 0}, "chunks": 0}
         return ""
 
     # 1. 预检查：如果消息 token 总数不超过阈值，直接调用 summarize
@@ -687,99 +690,100 @@ async def summarize_rolling(
             return_details=return_details,
         )
 
+    # 2. 将消息分成多段
+    chunks = []
+    remaining_messages = messages.copy()
+    while remaining_messages:
+        chunk, remaining_messages = split_messages_by_tokens(remaining_messages, token_threshold)
+        # 边界情况：单条消息超过阈值，强制取出
+        if not chunk and remaining_messages:
+            log.warning(f"并行摘要：单条消息超过阈值，强制取出")
+            chunk = [remaining_messages.pop(0)]
+        if chunk:
+            chunks.append(chunk)
+
     log.info(
-        f"开始滚动摘要: total_tokens={total_tokens}, threshold={token_threshold}, "
-        f"messages_count={len(messages)}, is_user_model={is_user_model}"
+        f"开始并行摘要: total_tokens={total_tokens}, threshold={token_threshold}, "
+        f"messages_count={len(messages)}, chunks={len(chunks)}, is_user_model={is_user_model}"
     )
 
-    # 2. 初始化滚动状态
-    current_summary = old_summary
-    remaining_messages = messages.copy()
-    iteration = 0
-    all_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    all_prompts = []
-    all_responses = []
-
-    # 3. 滚动循环
-    while remaining_messages:
-        iteration += 1
-
-        # 3.1 从 remaining_messages 头部取出不超过 token_threshold 的消息
-        chunk, remaining_messages = split_messages_by_tokens(remaining_messages, token_threshold)
-
-        # 3.2 边界情况：chunk 为空但还有剩余消息（单条消息超过阈值）
-        if not chunk and remaining_messages:
-            log.warning(f"滚动摘要第 {iteration} 轮：单条消息超过阈值，强制取出")
-            chunk = [remaining_messages.pop(0)]
-
-        if not chunk:
-            break
-
-        log.info(
-            f"滚动摘要第 {iteration} 轮: chunk_size={len(chunk)}, "
-            f"remaining={len(remaining_messages)}"
-        )
-
-        # 3.5 调用 summarize 生成本轮摘要
+    # 3. 并发对每一段调用 summarize
+    async def summarize_chunk(chunk_idx: int, chunk: List[Dict]) -> Tuple[int, str, Dict]:
+        """对单个分段进行摘要"""
         try:
-            current_summary, details = await summarize(
+            # 只有第一段需要 old_summary
+            chunk_old_summary = old_summary if chunk_idx == 0 else None
+            summary_text, details = await summarize(
                 messages=chunk,
                 model_id=model_id,
                 user=user,
                 request=request,
                 is_user_model=is_user_model,
                 model_config=model_config,
-                old_summary=current_summary,
+                old_summary=chunk_old_summary,
                 return_details=True,
             )
-
-            # 3.6 累计 usage
-            usage = details.get("usage", {})
-            all_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
-            all_usage["completion_tokens"] += usage.get("completion_tokens", 0)
-            all_prompts.append(details.get("prompt", ""))
-            all_responses.append(details.get("response", ""))
-
-            # 3.7 记录本轮迭代到 perf_logger
-            if perf_logger:
-                # 本轮输入的 old_summary（第一轮是传入的 old_summary，后续轮是上一轮的结果）
-                iteration_old_summary = old_summary if iteration == 1 else all_responses[-2] if len(all_responses) > 1 else None
-                perf_logger.record_rolling_summary_iteration(
-                    iteration=iteration,
-                    old_summary=iteration_old_summary,
-                    messages=chunk,
-                    response=current_summary,
-                    usage=usage,
-                    remaining_messages_count=len(remaining_messages),
-                )
-
             log.info(
-                f"滚动摘要第 {iteration} 轮完成: "
-                f"prompt_tokens={usage.get('prompt_tokens', 0)}, "
-                f"completion_tokens={usage.get('completion_tokens', 0)}, "
-                f"summary_length={len(current_summary) if current_summary else 0}"
+                f"并行摘要第 {chunk_idx + 1}/{len(chunks)} 段完成: "
+                f"messages={len(chunk)}, "
+                f"prompt_tokens={details.get('usage', {}).get('prompt_tokens', 0)}, "
+                f"completion_tokens={details.get('usage', {}).get('completion_tokens', 0)}"
             )
-
+            return chunk_idx, summary_text, details
         except Exception as e:
-            log.error(f"滚动摘要第 {iteration} 轮失败: {e}")
+            log.error(f"并行摘要第 {chunk_idx + 1} 段失败: {e}")
             raise
 
+    # 并发执行所有分段的摘要
+    tasks = [summarize_chunk(i, chunk) for i, chunk in enumerate(chunks)]
+    results = await asyncio.gather(*tasks)
+
+    # 4. 按顺序整理结果
+    results_sorted = sorted(results, key=lambda x: x[0])
+    all_summaries = []
+    all_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+    all_prompts = []
+    all_responses = []
+
+    for chunk_idx, summary_text, details in results_sorted:
+        all_summaries.append(summary_text)
+        usage = details.get("usage", {})
+        all_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+        all_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+        all_prompts.append(details.get("prompt", ""))
+        all_responses.append(details.get("response", ""))
+
+        # 记录到 perf_logger
+        if perf_logger:
+            perf_logger.record_rolling_summary_iteration(
+                iteration=chunk_idx + 1,
+                old_summary=old_summary if chunk_idx == 0 else None,
+                messages=chunks[chunk_idx],
+                response=summary_text,
+                usage=usage,
+                remaining_messages_count=sum(len(chunks[j]) for j in range(chunk_idx + 1, len(chunks))),
+            )
+
+    # 5. 拼接所有摘要
+    final_summary = "\n\n".join(all_summaries)
+
     log.info(
-        f"滚动摘要完成: iterations={iteration}, "
+        f"并行摘要完成: chunks={len(chunks)}, "
         f"total_prompt_tokens={all_usage['prompt_tokens']}, "
-        f"total_completion_tokens={all_usage['completion_tokens']}"
+        f"total_completion_tokens={all_usage['completion_tokens']}, "
+        f"final_summary_length={len(final_summary)}"
     )
 
-    # 4. 返回最终摘要
+    # 6. 返回最终摘要
     if return_details:
-        return current_summary, {
+        return final_summary, {
             "usage": all_usage,
-            "iterations": iteration,
+            "chunks": len(chunks),
             "prompts": all_prompts,
             "responses": all_responses,
             "model": model_id,
         }
-    return current_summary
+    return final_summary
 
 
 async def ensure_initial_summary(
@@ -967,7 +971,7 @@ async def ensure_initial_summary(
         # 需要生成摘要：创建后台任务
         async def summarize_and_save():
             async with chat_error_boundary(metadata, user):
-                summary_text, summary_llm_details = await summarize_rolling(
+                summary_text, summary_llm_details = await summarize_multi_chunk(
                     messages=messages_for_summary,
                     model_id=model_id,
                     user=user,
