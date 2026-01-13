@@ -116,15 +116,15 @@
 
 <div class="flex flex-col h-full">
 	<!-- 顶部操作栏 -->
-	<div class="flex justify-between items-center mb-4 pb-4 border-b dark:border-gray-700">
-		<div>
+	<div class="flex flex-wrap justify-between items-start gap-4 mb-4 pb-4 border-b dark:border-gray-700">
+		<div class="flex-1 min-w-0">
 			<h2 class="text-xl font-semibold text-gray-900 dark:text-white">兑换码管理</h2>
 			<p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
 				创建和管理兑换码，用户可通过兑换码获得余额充值
 			</p>
 		</div>
 		<button
-			class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+			class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 flex-shrink-0 whitespace-nowrap"
 			on:click={() => (showCreateModal = true)}
 		>
 			<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -135,12 +135,12 @@
 	</div>
 
 	<!-- 筛选器 -->
-	<div class="flex items-center gap-4 mb-4">
+	<div class="flex flex-wrap items-center gap-4 mb-4">
 		<div class="flex items-center gap-2">
-			<label class="text-sm font-medium text-gray-700 dark:text-gray-300">状态筛选:</label>
+			<label class="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">状态筛选:</label>
 			<select
 				bind:value={statusFilter}
-				class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500"
+				class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 min-w-[120px]"
 			>
 				<option value="all">全部</option>
 				<option value="active">生效中</option>
@@ -249,10 +249,10 @@
 
 							<!-- 操作 -->
 							<td class="px-4 py-3">
-								<div class="flex items-center justify-end gap-1">
+								<div class="flex items-center justify-end gap-1 flex-shrink-0 min-w-fit">
 									<Tooltip content="查看日志">
 										<button
-											class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+											class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0"
 											on:click={() => { selectedCode = code; showLogsModal = true; }}
 										>
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,7 +263,7 @@
 
 									<Tooltip content="编辑">
 										<button
-											class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+											class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0"
 											on:click={() => { selectedCode = code; showEditModal = true; }}
 										>
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,7 +274,7 @@
 
 									<Tooltip content={code.enabled ? '禁用' : '启用'}>
 										<button
-											class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+											class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex-shrink-0"
 											on:click={() => handleToggle(code.id)}
 										>
 											{#if code.enabled}
@@ -291,7 +291,7 @@
 
 									<Tooltip content="删除">
 										<button
-											class="p-2 hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors text-red-600"
+											class="p-2 hover:bg-red-100 dark:hover:bg-red-900/20 rounded transition-colors text-red-600 flex-shrink-0"
 											on:click={() => { selectedCode = code; showDeleteConfirm = true; }}
 										>
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
