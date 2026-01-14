@@ -2,7 +2,6 @@
 	import { onMount, getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { toast } from 'svelte-sonner';
 	import { getPaymentStatus, getBalance } from '$lib/apis/billing';
 	import { balance } from '$lib/stores';
 
@@ -63,7 +62,6 @@
 
 			if (result.status === 'paid') {
 				status = 'paid';
-				toast.success($i18n.t('充值成功！已到账') + ` ¥${result.amount}`);
 
 				// 清理 sessionStorage
 				sessionStorage.removeItem('pending_payment_order');
