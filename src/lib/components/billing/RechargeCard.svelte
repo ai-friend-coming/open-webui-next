@@ -159,11 +159,18 @@
 </script>
 
 <div
-	class="p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm"
+	class="p-5 bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/30 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all duration-300"
 >
-	<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-		{$i18n.t('账户充值')}
-	</h3>
+	<div class="flex items-center gap-2.5 mb-4">
+		<div class="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
+			<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+			</svg>
+		</div>
+		<h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+			{$i18n.t('账户充值')}
+		</h3>
+	</div>
 
 	{#if !alipayEnabled}
 		<!-- 支付未配置 -->
@@ -187,13 +194,13 @@
 	{:else}
 		<!-- 金额选择 -->
 		<div class="space-y-4">
-			<div class="grid grid-cols-3 gap-2">
+			<div class="grid grid-cols-3 gap-2.5">
 				{#each amountOptions as amount}
 					<button
-						class="py-2 px-3 rounded-lg border text-sm font-medium transition-colors
+						class="py-2.5 px-3 rounded-xl border text-sm font-semibold transition-all duration-200
 							{selectedAmount === amount
-							? 'border-indigo-500 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
-							: 'border-gray-200 dark:border-gray-600 hover:border-indigo-300 dark:hover:border-indigo-500 text-gray-700 dark:text-gray-300'}"
+							? 'border-indigo-500 bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 dark:from-indigo-900/40 dark:to-purple-900/40 dark:text-indigo-300 shadow-md scale-105'
+							: 'border-gray-200/60 dark:border-gray-600/60 hover:border-indigo-300 dark:hover:border-indigo-500 text-gray-700 dark:text-gray-300 hover:shadow-md hover:scale-102 bg-white/50 dark:bg-gray-700/50'}"
 						on:click={() => {
 							selectedAmount = amount;
 							customAmount = '';
@@ -211,9 +218,9 @@
 					bind:value={customAmount}
 					on:input={() => (selectedAmount = null)}
 					placeholder={$i18n.t('自定义金额 (0.01-10000)')}
-					class="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg
-						bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100
-						focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+					class="w-full px-4 py-2.5 border border-gray-200/60 dark:border-gray-600/60 rounded-xl
+						bg-white/50 dark:bg-gray-700/50 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
+						focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all"
 				/>
 			</div>
 
@@ -221,8 +228,10 @@
 			<button
 				on:click={createOrder}
 				disabled={!isValidAmount || loading}
-				class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-600
-					text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
+				class="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700
+					disabled:from-gray-300 disabled:to-gray-300 dark:disabled:from-gray-600 dark:disabled:to-gray-600
+					text-white font-semibold rounded-xl transition-all duration-200 disabled:cursor-not-allowed
+					shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
 			>
 				{#if loading}
 					<span class="flex items-center justify-center gap-2">
@@ -244,15 +253,18 @@
 			{#if loading}
 				<button
 					on:click={cancelWaiting}
-					class="w-full py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+					class="w-full py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors font-medium"
 				>
 					{$i18n.t('取消等待 / 重新选择金额')}
 				</button>
 			{/if}
 
-			<p class="text-xs text-gray-500 dark:text-gray-400 text-center">
-				{$i18n.t('支持支付宝支付')}
-			</p>
+			<div class="flex items-center justify-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+				<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+					<path d="M3.75 21h16.5M4.5 3h15l-3.86 14.14a2 2 0 01-1.93 1.5H8.29a2 2 0 01-1.93-1.5L2.5 3h2z"/>
+				</svg>
+				<span>{$i18n.t('支持支付宝支付')}</span>
+			</div>
 		</div>
 	{/if}
 </div>

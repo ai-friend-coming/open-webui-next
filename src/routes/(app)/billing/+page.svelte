@@ -89,10 +89,10 @@
 		</div>
 	</nav>
 
-	<div class="flex-1 overflow-y-auto min-w-[320px]">
-		<div class="billing-page max-w-7xl mx-auto px-4 py-4 pb-16">
+	<div class="flex-1 overflow-y-auto min-w-[320px] bg-gradient-to-br from-indigo-50/30 via-purple-50/20 to-pink-50/30 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
+		<div class="billing-page max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-20">
 			<!-- 页面副标题 -->
-			<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+			<p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
 				{$i18n.t('查看您的余额、消费记录和统计信息')}
 			</p>
 
@@ -100,9 +100,9 @@
 			<LowBalanceAlert />
 
 			<!-- 两栏布局：左侧自适应，右侧固定宽度 -->
-			<div class="flex flex-col lg:flex-row gap-6 mt-6">
+			<div class="flex flex-col lg:flex-row gap-4 sm:gap-5 lg:gap-6">
 				<!-- 左侧主内容区（自适应宽度） -->
-				<div class="flex-1 min-w-0 space-y-6 order-2 lg:order-1">
+				<div class="flex-1 min-w-0 space-y-4 sm:space-y-5 lg:space-y-6 order-2 lg:order-1">
 					<!-- 余额卡片 -->
 					<BalanceDisplay />
 
@@ -119,8 +119,8 @@
 				</div>
 
 				<!-- 右侧充值卡片（固定宽度，移动端显示在上方） -->
-				<div class="lg:w-[360px] lg:flex-shrink-0 order-1 lg:order-2">
-					<div class="lg:sticky lg:top-6 space-y-4">
+				<div class="lg:w-[380px] lg:flex-shrink-0 order-1 lg:order-2">
+					<div class="lg:sticky lg:top-6 space-y-4 sm:space-y-5">
 						<RechargeCard />
 						<RedeemCodeInput />
 					</div>

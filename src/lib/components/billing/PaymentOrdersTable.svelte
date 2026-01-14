@@ -74,28 +74,35 @@
 	};
 </script>
 
-<div class="payment-orders-table bg-white dark:bg-gray-850 rounded-xl shadow-sm">
-	<div class="table-header px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-		<h2 class="text-lg font-semibold">{$i18n.t('充值记录')}</h2>
+<div class="payment-orders-table bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/30 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden">
+	<div class="table-header px-5 py-4 border-b border-gray-200/50 dark:border-gray-700/50">
+		<div class="flex items-center gap-2.5">
+			<div class="p-1.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
+				<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+				</svg>
+			</div>
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">{$i18n.t('充值记录')}</h2>
+		</div>
 	</div>
 
 	<div class="table-container overflow-x-auto">
 		<table class="w-full">
 			<thead>
-				<tr class="bg-gray-50 dark:bg-gray-800">
-					<th class="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+				<tr class="bg-gradient-to-r from-gray-50/80 to-gray-100/80 dark:from-gray-700/50 dark:to-gray-800/50 backdrop-blur-sm">
+					<th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap uppercase tracking-wider"
 						>{$i18n.t('时间')}</th
 					>
-					<th class="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+					<th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap uppercase tracking-wider"
 						>{$i18n.t('订单号')}</th
 					>
-					<th class="px-4 py-3 text-right text-xs font-semibold whitespace-nowrap"
+					<th class="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap uppercase tracking-wider"
 						>{$i18n.t('金额')}</th
 					>
-					<th class="px-4 py-3 text-center text-xs font-semibold whitespace-nowrap"
+					<th class="px-4 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap uppercase tracking-wider"
 						>{$i18n.t('状态')}</th
 					>
-					<th class="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+					<th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap uppercase tracking-wider"
 						>{$i18n.t('支付时间')}</th
 					>
 				</tr>
@@ -103,9 +110,9 @@
 			<tbody>
 				{#each orders as order (order.id)}
 					<tr
-						class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+						class="border-b border-gray-200/30 dark:border-gray-700/30 hover:bg-white/50 dark:hover:bg-gray-700/30 transition-colors"
 					>
-						<td class="px-4 py-3 text-sm whitespace-nowrap">{formatDate(order.created_at)}</td>
+						<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{formatDate(order.created_at)}</td>
 						<td class="px-4 py-3 whitespace-nowrap">
 							<button
 								class="flex items-center gap-1.5 group"
@@ -113,12 +120,12 @@
 								title={$i18n.t('点击复制')}
 							>
 								<code
-									class="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono group-hover:bg-gray-200 dark:group-hover:bg-gray-700 transition"
+									class="px-2.5 py-1 bg-gray-100/80 dark:bg-gray-700/80 rounded-lg text-xs font-mono group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/30 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-all backdrop-blur-sm"
 								>
 									{order.out_trade_no}
 								</code>
 								<svg
-									class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition"
+									class="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition"
 									fill="none"
 									stroke="currentColor"
 									viewBox="0 0 24 24"
@@ -132,19 +139,19 @@
 								</svg>
 							</button>
 						</td>
-						<td class="px-4 py-3 text-right text-sm font-semibold whitespace-nowrap text-green-600">
+						<td class="px-4 py-3 text-right text-sm font-bold whitespace-nowrap text-green-600 dark:text-green-400">
 							+¥{order.amount.toFixed(2)}
 						</td>
 						<td class="px-4 py-3 text-center whitespace-nowrap">
 							<span
-								class="inline-block px-2 py-0.5 rounded text-xs font-medium {getStatusClass(
+								class="inline-block px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-sm {getStatusClass(
 									order.status
 								)}"
 							>
 								{getStatusLabel(order.status)}
 							</span>
 						</td>
-						<td class="px-4 py-3 text-sm whitespace-nowrap text-gray-500 dark:text-gray-400">
+						<td class="px-4 py-3 text-sm whitespace-nowrap text-gray-600 dark:text-gray-400">
 							{order.paid_at ? formatDate(order.paid_at) : '-'}
 						</td>
 					</tr>
@@ -159,9 +166,9 @@
 		{/if}
 
 		{#if !loading && hasMore && orders.length > 0}
-			<div class="flex justify-center py-4">
+			<div class="flex justify-center py-4 px-4">
 				<button
-					class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition"
+					class="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]"
 					on:click={loadOrders}
 				>
 					{$i18n.t('加载更多')}
@@ -170,21 +177,23 @@
 		{/if}
 
 		{#if !loading && orders.length === 0}
-			<div class="flex flex-col items-center justify-center py-12 text-gray-500">
-				<svg
-					class="w-16 h-16 mb-4 opacity-50"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="1.5"
-						d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
-					/>
-				</svg>
-				<p class="text-sm">{$i18n.t('暂无充值记录')}</p>
+			<div class="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+				<div class="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-2xl mb-4">
+					<svg
+						class="w-16 h-16 text-indigo-400 dark:text-indigo-500"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="1.5"
+							d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+						/>
+					</svg>
+				</div>
+				<p class="text-sm font-medium">{$i18n.t('暂无充值记录')}</p>
 			</div>
 		{/if}
 	</div>

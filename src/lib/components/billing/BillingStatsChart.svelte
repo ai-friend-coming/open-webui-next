@@ -213,14 +213,21 @@
 	});
 </script>
 
-<div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-inner">
+<div class="p-5 bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/30 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
 	<!-- 标题和时间选择器 -->
 	<div class="flex justify-between items-center mb-4">
-		<p class="text-sm font-semibold text-gray-700 dark:text-gray-300">{$i18n.t('消费统计')}</p>
+		<div class="flex items-center gap-2.5">
+			<div class="p-1.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
+				<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+				</svg>
+			</div>
+			<p class="text-sm font-semibold text-gray-700 dark:text-gray-300">{$i18n.t('消费统计')}</p>
+		</div>
 		<select
 			bind:value={period}
 			on:change={loadStats}
-			class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+			class="px-3 py-1.5 text-xs border border-gray-200/60 dark:border-gray-600/60 rounded-lg bg-white/50 dark:bg-gray-700/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-gray-700 dark:text-gray-300"
 		>
 			{#each periodOptions as opt}
 				<option value={opt.value}>{opt.label}</option>
@@ -228,20 +235,20 @@
 		</select>
 	</div>
 
-	<div class="relative h-56">
+	<div class="relative h-56 rounded-xl overflow-hidden bg-white/30 dark:bg-gray-700/30 backdrop-blur-sm">
 		{#if showLoading}
-			<div class="absolute inset-0 flex justify-center items-center bg-gray-50/80 dark:bg-gray-800/80 z-10">
-				<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500"></div>
+			<div class="absolute inset-0 flex justify-center items-center bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm z-10">
+				<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
 			</div>
 		{/if}
 
 		{#if !$billingStats || !$billingStats.daily || $billingStats.daily.length === 0}
 			{#if !loading && !showLoading}
 				<div class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
-					<svg class="w-10 h-10 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
 					</svg>
-					<p class="text-xs">{$i18n.t('暂无消费记录')}</p>
+					<p class="text-sm font-medium">{$i18n.t('暂无消费记录')}</p>
 				</div>
 			{/if}
 		{/if}

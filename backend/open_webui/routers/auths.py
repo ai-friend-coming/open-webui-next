@@ -43,6 +43,7 @@ from open_webui.env import (
     EMAIL_SMTP_FROM,
     ENABLE_SIGNUP_EMAIL_VERIFICATION,
     ENABLE_INITIAL_ADMIN_SIGNUP,
+    SIGNUP_WELCOME_BONUS,
     SRC_LOG_LEVELS,
 )
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -68,6 +69,7 @@ from open_webui.utils.auth import (
 )
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions
+from open_webui.billing.core import recharge_user
 
 from typing import Optional, List
 
@@ -739,6 +741,21 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
         )
 
         if user:
+            # 赠送注册金额（如果配置了）
+            signup_bonus = request.app.state.config.SIGNUP_WELCOME_BONUS
+            if signup_bonus > 0:
+                try:
+                    recharge_user(
+                        user_id=user.id,
+                        amount=signup_bonus,
+                        operator_id="system",
+                        remark="注册赠送"
+                    )
+                    log.info(f"User {user.id} received welcome bonus: {signup_bonus} 毫")
+                except Exception as bonus_err:
+                    log.error(f"Failed to give welcome bonus to user {user.id}: {str(bonus_err)}")
+                    # 不影响注册流程，继续执行
+
             expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
             expires_at = None
             if expires_delta:
@@ -1086,6 +1103,7 @@ async def get_admin_config(request: Request, user=Depends(get_admin_user)):
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,
         "WEBUI_URL": request.app.state.config.WEBUI_URL,
         "ENABLE_SIGNUP": request.app.state.config.ENABLE_SIGNUP,
+        "SIGNUP_WELCOME_BONUS": request.app.state.config.SIGNUP_WELCOME_BONUS,
         "ENABLE_API_KEY": request.app.state.config.ENABLE_API_KEY,
         "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS": request.app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS,
         "API_KEY_ALLOWED_ENDPOINTS": request.app.state.config.API_KEY_ALLOWED_ENDPOINTS,
@@ -1106,6 +1124,7 @@ class AdminConfig(BaseModel):
     SHOW_ADMIN_DETAILS: bool
     WEBUI_URL: str
     ENABLE_SIGNUP: bool
+    SIGNUP_WELCOME_BONUS: int
     ENABLE_API_KEY: bool
     ENABLE_API_KEY_ENDPOINT_RESTRICTIONS: bool
     API_KEY_ALLOWED_ENDPOINTS: str
@@ -1128,6 +1147,10 @@ async def update_admin_config(
     request.app.state.config.SHOW_ADMIN_DETAILS = form_data.SHOW_ADMIN_DETAILS
     request.app.state.config.WEBUI_URL = form_data.WEBUI_URL
     request.app.state.config.ENABLE_SIGNUP = form_data.ENABLE_SIGNUP
+
+    # 验证并更新注册赠送金额
+    if form_data.SIGNUP_WELCOME_BONUS >= 0:
+        request.app.state.config.SIGNUP_WELCOME_BONUS = form_data.SIGNUP_WELCOME_BONUS
 
     request.app.state.config.ENABLE_API_KEY = form_data.ENABLE_API_KEY
     request.app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS = (
@@ -1169,6 +1192,7 @@ async def update_admin_config(
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,
         "WEBUI_URL": request.app.state.config.WEBUI_URL,
         "ENABLE_SIGNUP": request.app.state.config.ENABLE_SIGNUP,
+        "SIGNUP_WELCOME_BONUS": request.app.state.config.SIGNUP_WELCOME_BONUS,
         "ENABLE_API_KEY": request.app.state.config.ENABLE_API_KEY,
         "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS": request.app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS,
         "API_KEY_ALLOWED_ENDPOINTS": request.app.state.config.API_KEY_ALLOWED_ENDPOINTS,

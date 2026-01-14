@@ -305,6 +305,48 @@
 						<Switch bind:state={adminConfig.ENABLE_SIGNUP} />
 					</div>
 
+					{#if adminConfig?.ENABLE_SIGNUP}
+						<div class="mb-2.5">
+							<div class="flex items-center gap-2 mb-2">
+								<div class="self-center text-xs font-medium">
+									{$i18n.t('注册赠送金额')}
+								</div>
+								<Tooltip
+									content={$i18n.t('新用户注册时自动赠送的金额（单位：毫，1元 = 10000毫）。设置为 0 则不赠送。')}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="1.5"
+										stroke="currentColor"
+										class="w-4 h-4"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"
+										/>
+									</svg>
+								</Tooltip>
+							</div>
+							<input
+								type="number"
+								min="0"
+								step="1000"
+								bind:value={adminConfig.SIGNUP_WELCOME_BONUS}
+								class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+								placeholder="100000"
+							/>
+							<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+								{$i18n.t('当前设置：')}
+								{adminConfig.SIGNUP_WELCOME_BONUS >= 0
+									? `¥${(adminConfig.SIGNUP_WELCOME_BONUS / 10000).toFixed(2)}`
+									: '¥0.00'}
+							</div>
+						</div>
+					{/if}
+
 					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
 						<div class=" self-center text-xs font-medium">
 							{$i18n.t('Show Admin Details in Account Pending Overlay')}
