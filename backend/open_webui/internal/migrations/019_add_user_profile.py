@@ -39,6 +39,17 @@ with suppress(ImportError):
 def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
     """Create the data_for_personalized_experience table."""
 
+    # 检查表是否已存在，避免重复创建
+    try:
+        cursor = database.execute_sql(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = 'data_for_personalized_experience'"
+        )
+        if cursor.fetchone():
+            # 表已存在，跳过创建
+            return
+    except Exception:
+        pass  # 非 PostgreSQL 数据库或其他情况，继续尝试创建
+
     @migrator.create_model
     class DataforPersonalizedExperience(pw.Model):
         id = pw.CharField(max_length=255, primary_key=True)  # 与 user.id 相同
