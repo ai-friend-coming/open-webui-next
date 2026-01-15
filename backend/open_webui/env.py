@@ -362,6 +362,15 @@ if DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL is not None:
     except Exception:
         DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL = 0.0
 
+####################################
+# USER PROFILE ANALYSIS
+####################################
+
+# 用户画像分析消息阈值，达到此数量后触发 LLM 分析
+USER_PROFILE_MESSAGE_THRESHOLD = int(
+    os.environ.get("USER_PROFILE_MESSAGE_THRESHOLD", "50")
+)
+
 RESET_CONFIG_ON_START = (
     os.environ.get("RESET_CONFIG_ON_START", "False").lower() == "true"
 )

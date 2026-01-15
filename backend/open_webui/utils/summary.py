@@ -812,14 +812,12 @@ async def ensure_initial_summary(
     chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
     old_summary = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
     memory_enabled = chat_item.chat.get('memory_enabled', True)
+    loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
+    token_target = INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT
 
     # === 2. 已有摘要则跳过 ===
     if old_summary:
         return
-
-    # === 3. 判断聊天来源 ===
-    loaded_by_user = (chat_item.meta or {}).get("loaded_by_user", None)
-    token_target = INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT
 
     # === 4. 定义四种内部处理函数 ===
 

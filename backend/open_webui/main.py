@@ -494,6 +494,7 @@ from open_webui.utils.summary import ensure_initial_summary
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
 from open_webui.utils.access_control import has_access
+from open_webui.utils.user_profile import update_profile
 
 from open_webui.utils.auth import (
     get_license_data,
@@ -1667,6 +1668,18 @@ async def chat_completion(
                 is_user_model=form_data.get("is_user_model", False),
                 model_config=model,
                 perf_logger=perf_logger
+            )
+
+            # === 8.0.5 用户画像分析（异步，不阻塞主请求）===
+            await create_task(
+                request.app.state.redis,
+                update_profile(
+                    user.id,
+                    request,
+                    form_data.get("model", ""),
+                    user,
+                    form_data,
+                ),
             )
 
             # 标记 payload 处理开始
