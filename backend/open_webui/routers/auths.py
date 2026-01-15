@@ -43,9 +43,9 @@ from open_webui.env import (
     EMAIL_SMTP_FROM,
     ENABLE_SIGNUP_EMAIL_VERIFICATION,
     ENABLE_INITIAL_ADMIN_SIGNUP,
-    SIGNUP_WELCOME_BONUS,
     SRC_LOG_LEVELS,
 )
+from open_webui.config import SIGNUP_WELCOME_BONUS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response, JSONResponse
 from open_webui.config import OPENID_PROVIDER_URL, ENABLE_OAUTH_SIGNUP, ENABLE_LDAP
