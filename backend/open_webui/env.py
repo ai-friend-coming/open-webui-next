@@ -17,6 +17,8 @@ from open_webui.constants import ERROR_MESSAGES
 # Load .env file
 ####################################
 
+TEST_AAA=True
+
 # Use .resolve() to get the canonical path, removing any '..' or '.' components
 ENV_FILE_PATH = Path(__file__).resolve()
 
