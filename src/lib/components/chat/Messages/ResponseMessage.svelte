@@ -717,7 +717,7 @@
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
 
 									<!-- 端到端加密：显示解密进度 -->
-									{#if isEncryptionEnabled() && (isDecrypting || encryptedTail)}
+									{#if isEncryptionEnabled() && (!message.done || isDecrypting || encryptedTail)}
 										<div class="flex items-center gap-2 mb-2">
 											<!-- 已解密的明文部分 -->
 											{#if decryptedContent}
@@ -763,8 +763,8 @@
 												</span>
 											{/if}
 
-											<!-- 加密传输指示器 -->
-											<EncryptionIndicator show={true} variant="inline" />
+											<!-- 加密传输指示器：在消息未完成或正在解密时显示 -->
+											<EncryptionIndicator show={!message.done || isDecrypting || !!encryptedTail} variant="inline" />
 										</div>
 									{:else}
 										<!-- 未启用加密或已完全解密，正常显示 -->
