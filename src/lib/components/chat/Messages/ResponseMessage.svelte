@@ -717,7 +717,8 @@
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
 
 									<!-- 端到端加密：显示解密进度 -->
-									{#if isEncryptionEnabled() && (!message.done || isDecrypting || encryptedTail)}
+									<!-- 已禁用加密显示逻辑，直接显示正常内容 -->
+									{#if false && isEncryptionEnabled() && (!message.done || isDecrypting || encryptedTail)}
 										<div class="flex items-center gap-2 mb-2">
 											<!-- 已解密的明文部分 -->
 											{#if decryptedContent}
