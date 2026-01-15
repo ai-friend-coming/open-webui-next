@@ -1116,6 +1116,24 @@ ENABLE_LOGIN_FORM = PersistentConfig(
 )
 
 
+def get_signup_welcome_bonus():
+    """Get SIGNUP_WELCOME_BONUS from environment with validation"""
+    bonus = os.environ.get("SIGNUP_WELCOME_BONUS", "100000")
+    try:
+        bonus_int = int(bonus)
+        return max(0, bonus_int)  # Ensure non-negative
+    except ValueError:
+        log.warning(f"Invalid SIGNUP_WELCOME_BONUS value '{bonus}', defaulting to 100000")
+        return 100000
+
+
+SIGNUP_WELCOME_BONUS = PersistentConfig(
+    "SIGNUP_WELCOME_BONUS",
+    "ui.signup_welcome_bonus",
+    get_signup_welcome_bonus(),
+)
+
+
 DEFAULT_LOCALE = PersistentConfig(
     "DEFAULT_LOCALE",
     "ui.default_locale",

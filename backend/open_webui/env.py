@@ -474,18 +474,6 @@ try:
 except ValueError:
     EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
 
-# 注册赠送金额配置（单位：毫，1元 = 10000毫）
-# 默认赠送 10 元 = 100000 毫
-SIGNUP_WELCOME_BONUS = os.environ.get("SIGNUP_WELCOME_BONUS", "100000")
-try:
-    SIGNUP_WELCOME_BONUS = int(SIGNUP_WELCOME_BONUS)
-    if SIGNUP_WELCOME_BONUS < 0:
-        SIGNUP_WELCOME_BONUS = 0
-except ValueError:
-    SIGNUP_WELCOME_BONUS = 100000
-    log.warning(f"Invalid SIGNUP_WELCOME_BONUS value, defaulting to {SIGNUP_WELCOME_BONUS}")
-
-
 WEBUI_AUTH_TRUSTED_EMAIL_HEADER = os.environ.get(
     "WEBUI_AUTH_TRUSTED_EMAIL_HEADER", None
 )
