@@ -1348,12 +1348,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             if perf_logger:
                 perf_logger.mark_payload_checkpoint("after_memory")
 
-        # 12.2 网页搜索功能 - 执行网络搜索 [已屏蔽]
-        if False:
-            if "web_search" in features and features["web_search"]:
-                form_data = await chat_web_search_handler(
-                    request, form_data, extra_params, user
-                )
+        # 12.2 网页搜索功能 - 执行网络搜索
+        if "web_search" in features and features["web_search"]:
+            form_data = await chat_web_search_handler(
+                request, form_data, extra_params, user
+            )
 
         # 12.3 图像生成功能 - 处理图像生成请求 [已屏蔽]
         if False:

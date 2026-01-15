@@ -1497,9 +1497,8 @@
 											class="flex self-center w-[1px] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50"
 										/> -->
 
-										<!-- AI-Friend 屏蔽扩展菜单-->
-										{#if false}
-											{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
+										<!-- AI-Friend 扩展菜单 -->
+										{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
 												<IntegrationsMenu
 													selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
 													{toggleFilters}
@@ -1535,9 +1534,8 @@
 													</div>
 												</IntegrationsMenu>
 											{/if}
-										{/if}
 
-										{#if showMemoryButton}
+											{#if showMemoryButton}
 											<Tooltip
 												content={memoryLocked
 													? $i18n.t('对话进行中无法切换记忆')
