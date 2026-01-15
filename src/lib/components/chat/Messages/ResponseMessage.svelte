@@ -757,14 +757,14 @@
 											{/if}
 
 											<!-- 密文尾部 -->
-											{#if encryptedTail}
+											<!-- {#if encryptedTail}
 												<span class="font-mono text-gray-400 dark:text-gray-500 text-sm tracking-wider">
 													{encryptedTail}
 												</span>
-											{/if}
+											{/if} -->
 
 											<!-- 加密传输指示器：在消息未完成或正在解密时显示 -->
-											<EncryptionIndicator show={!message.done || isDecrypting || !!encryptedTail} variant="inline" />
+											<!-- <EncryptionIndicator show={!message.done || isDecrypting || !!encryptedTail} variant="inline" /> -->
 										</div>
 									{:else}
 										<!-- 未启用加密或已完全解密，正常显示 -->
