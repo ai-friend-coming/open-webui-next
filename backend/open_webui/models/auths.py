@@ -92,6 +92,7 @@ class SignupCodeForm(BaseModel):
 
 class AddUserForm(SignupForm):
     role: Optional[str] = "pending"
+    code: Optional[str] = None  # 管理员添加用户时不需要验证码
 
 
 class ResetPasswordCodeForm(BaseModel):
