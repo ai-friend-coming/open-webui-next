@@ -7,6 +7,7 @@ from open_webui.models.memories import Memories, MemoryModel
 from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 from open_webui.utils.auth import get_verified_user
 from open_webui.env import SRC_LOG_LEVELS
+from open_webui.memory.mem0 import mem0_delete_all
 
 
 log = logging.getLogger(__name__)
@@ -201,3 +202,20 @@ async def delete_memory_by_id(memory_id: str, user=Depends(get_verified_user)):
         return True
 
     return False
+
+
+############################
+# DeleteAllMem0Memories
+############################
+
+
+@router.delete("/mem0/all", response_model=bool)
+async def delete_all_mem0_memories(user=Depends(get_verified_user)):
+    """
+    删除用户的所有 mem0 记忆
+
+    Returns:
+        bool: 删除成功返回 True
+    """
+    result = await mem0_delete_all(user.id)
+    return result

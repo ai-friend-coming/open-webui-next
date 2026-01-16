@@ -5,6 +5,8 @@
 	import { toast } from 'svelte-sonner';
 	import ManageModal from './Personalization/ManageModal.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import { deleteAllMem0Memories } from '$lib/apis/memories';
 	const dispatch = createEventDispatcher();
 
 	const i18n = getContext('i18n');
@@ -12,9 +14,24 @@
 	export let saveSettings: Function;
 
 	let showManageModal = false;
+	let showDeleteConfirm = false;
 
 	// Addons
 	let enableMemory = false;
+
+	const handleDeleteAllMemories = async () => {
+		try {
+			const result = await deleteAllMem0Memories(localStorage.token);
+			if (result) {
+				toast.success($i18n.t('All memories deleted successfully'));
+			} else {
+				toast.error($i18n.t('Failed to delete memories'));
+			}
+		} catch (error) {
+			console.error('Error deleting memories:', error);
+			toast.error($i18n.t('Failed to delete memories'));
+		}
+	};
 
 	onMount(async () => {
 		enableMemory = $settings?.memory ?? false;
@@ -22,6 +39,14 @@
 </script>
 
 <ManageModal bind:show={showManageModal} />
+
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title={$i18n.t('Delete All Memories')}
+	message={$i18n.t('Are you sure you want to delete all memories? This action cannot be undone.')}
+	confirmLabel={$i18n.t('Delete All Memories')}
+	onConfirm={handleDeleteAllMemories}
+/>
 
 <form
 	id="tab-personalization"
@@ -73,7 +98,7 @@
 			</div> -->
 		</div>
 
-		<div class="mt-3 mb-1 ml-1">
+		<div class="mt-3 mb-1 ml-1 flex gap-2">
 			<button
 				type="button"
 				class=" px-3.5 py-1.5 font-medium hover:bg-black/5 dark:hover:bg-white/5 outline outline-1 outline-gray-300 dark:outline-gray-800 rounded-3xl"
@@ -82,6 +107,15 @@
 				}}
 			>
 				{$i18n.t('Manage')}
+			</button>
+			<button
+				type="button"
+				class=" px-3.5 py-1.5 font-medium hover:bg-red-50 dark:hover:bg-red-950/20 outline outline-1 outline-red-300 dark:outline-red-800 text-red-600 dark:text-red-400 rounded-3xl"
+				on:click={() => {
+					showDeleteConfirm = true;
+				}}
+			>
+				{$i18n.t('Delete All Memories')}
 			</button>
 		</div>
 	</div>

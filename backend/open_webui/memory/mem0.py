@@ -319,3 +319,29 @@ async def mem0_delete_by_message_content(user_id: str, chat_id: str, message_con
     except Exception as e:
         log.error(f"[mem: delete] mem0_delete_by_message_content failed: {e}")
         return False
+
+
+async def mem0_delete_all(user_id: str) -> bool:
+    """
+    删除用户的所有 mem0 记忆
+
+    Args:
+        user_id: 用户ID
+
+    Returns:
+        bool: 删除成功返回 True
+    """
+    try:
+        log.info(f"[mem: delete all]mem0_delete_all called with user_id: {user_id}")
+
+        # 只使用 user_id 过滤，删除该用户的所有记忆
+        memory_client.delete(
+            filters={
+                "user_id": user_id
+            }
+        )
+        log.info(f"[mem: delete all]Successfully deleted all memories for user_id: {user_id}")
+        return True
+    except Exception as e:
+        log.error(f"[mem: delete all] mem0_delete_all failed: {e}")
+        return False
