@@ -30,7 +30,9 @@ let form = {
 	base_url: '',
 	api_key: ''
 };
+let originalForm = null; // 保存编辑时的原始表单数据
 let testingConnection = false;
+let connectionVerified = false; // 跟踪API连接是否已验证
 const i18n = getContext('i18n');
 
 	export let selectedModels = [''];
@@ -76,6 +78,18 @@ const i18n = getContext('i18n');
 		}
 	}
 
+	// 检查关键字段是否被修改（编辑模式下）
+	$: hasKeyFieldsChanged = editingCredential && originalForm && (
+		form.model_id !== originalForm.model_id ||
+		form.api_key !== originalForm.api_key ||
+		form.base_url !== originalForm.base_url
+	);
+
+	// 当关键字段变化时，重置验证状态
+	$: if (hasKeyFieldsChanged) {
+		connectionVerified = false;
+	}
+
 	const loadUserModels = async () => {
 		const res = await listUserModels(localStorage.token).catch((err) => {
 			console.error(err);
@@ -102,6 +116,8 @@ const i18n = getContext('i18n');
 			api_key: ''
 		};
 		editingCredential = null;
+		originalForm = null;
+		connectionVerified = false; // 重置验证状态
 	};
 
 	const submitUserModel = async () => {
@@ -144,10 +160,12 @@ const i18n = getContext('i18n');
 		try {
 			const res = await testUserModel(localStorage.token, form).catch((err) => {
 				toast.error(`${err?.detail ?? err}`);
+				connectionVerified = false; // 验证失败，重置状态
 				return null;
 			});
 
 			if (res) {
+				connectionVerified = true; // 验证成功，设置状态为true
 				if (res.has_model === false) {
 					toast.warning($i18n.t('Connected, but the model ID was not found on the endpoint'));
 				} else {
@@ -210,6 +228,19 @@ const i18n = getContext('i18n');
 						}}
 						on:deleteUserModel={(e) => {
 							removeUserModel(e.detail);
+						}}
+						on:editUserModel={(e) => {
+							const cred = e.detail._credential;
+							editingCredential = cred.id.replace('user:', '');
+							form = {
+								name: cred.name || '',
+								model_id: cred.model_id || '',
+								base_url: cred.base_url || '',
+								api_key: cred.api_key || ''
+							};
+							originalForm = { ...form };
+							connectionVerified = true; // 编辑已有的credential，默认已验证
+							showUserModelModal = true;
 						}}
 						bind:value={selectedModel}
 					/>
@@ -317,9 +348,10 @@ const i18n = getContext('i18n');
 					{testingConnection ? $i18n.t('Testing...') : $i18n.t('Verify Connection')}
 				</button>
 				<button
-					class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black"
+					class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black disabled:opacity-50 disabled:cursor-not-allowed"
 					on:click={submitUserModel}
-					disabled={disabled || testingConnection}
+					disabled={disabled || testingConnection || (!connectionVerified && (!editingCredential || hasKeyFieldsChanged))}
+					title={!connectionVerified && (!editingCredential || hasKeyFieldsChanged) ? $i18n.t('Please verify the connection first') : ''}
 				>
 					{$i18n.t('Save')}
 				</button>
