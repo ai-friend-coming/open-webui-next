@@ -80,15 +80,44 @@
         resetState();
     }
 
+    // 提取聊天记录的时间戳（兼容多种格式）
+    const extractTimestamp = (chat: any): number => {
+        // 尝试获取各种时间戳字段
+        const timestamp =
+            chat?.timestamp ||
+            chat?.updated_at ||
+            chat?.created_at ||
+            chat?.create_time ||
+            chat?.chat?.timestamp ||
+            chat?.chat?.updated_at ||
+            chat?.chat?.created_at;
+
+        if (!timestamp) return 0;
+
+        // 处理不同格式的时间戳
+        if (typeof timestamp === 'number') {
+            // 如果是毫秒级时间戳（13位），转换为秒级
+            return timestamp > 10000000000 ? Math.floor(timestamp / 1000) : timestamp;
+        }
+
+        if (typeof timestamp === 'string') {
+            // 尝试解析ISO字符串或其他格式
+            const date = new Date(timestamp);
+            return isNaN(date.getTime()) ? 0 : Math.floor(date.getTime() / 1000);
+        }
+
+        return 0;
+    };
+
     // 处理文件
     const handleFiles = async (files: FileList | File[]) => {
         if (!files || files.length === 0) return;
         const file = files[0];
-        
+
         loading = true;
         errorMsg = '';
         fileName = file.name;
-        
+
         try {
             const text = await file.text();
             let parsed: any;
@@ -110,7 +139,13 @@
             if (!Array.isArray(parsed)) throw new Error('JSON 格式错误');
             if (parsed.length === 0) throw new Error('未检测到聊天记录');
 
-            rawChats = parsed;
+            // 按时间戳从新到旧排序
+            rawChats = parsed.sort((a, b) => {
+                const timeA = extractTimestamp(a);
+                const timeB = extractTimestamp(b);
+                return timeB - timeA; // 降序：新的在前
+            });
+
             chatConfigs = new Map();
             // 埋点2：文件解析成功
             trackImportChatsFileParsed(rawChats.length);
