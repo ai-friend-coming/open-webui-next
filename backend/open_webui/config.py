@@ -1134,6 +1134,52 @@ SIGNUP_WELCOME_BONUS = PersistentConfig(
 )
 
 
+def get_first_recharge_bonus_enabled():
+    """Get FIRST_RECHARGE_BONUS_ENABLED from environment"""
+    return os.environ.get("FIRST_RECHARGE_BONUS_ENABLED", "False").lower() == "true"
+
+
+def get_first_recharge_bonus_rate():
+    """Get FIRST_RECHARGE_BONUS_RATE from environment with validation"""
+    rate = os.environ.get("FIRST_RECHARGE_BONUS_RATE", "10")
+    try:
+        rate_float = float(rate)
+        return max(0, min(100, rate_float))  # Ensure between 0-100
+    except ValueError:
+        log.warning(f"Invalid FIRST_RECHARGE_BONUS_RATE value '{rate}', defaulting to 10")
+        return 10.0
+
+
+def get_first_recharge_bonus_max_amount():
+    """Get FIRST_RECHARGE_BONUS_MAX_AMOUNT from environment with validation (in 毫)"""
+    amount = os.environ.get("FIRST_RECHARGE_BONUS_MAX_AMOUNT", "500000")  # 默认50元
+    try:
+        amount_int = int(amount)
+        return max(0, amount_int)  # Ensure non-negative
+    except ValueError:
+        log.warning(f"Invalid FIRST_RECHARGE_BONUS_MAX_AMOUNT value '{amount}', defaulting to 500000")
+        return 500000
+
+
+FIRST_RECHARGE_BONUS_ENABLED = PersistentConfig(
+    "FIRST_RECHARGE_BONUS_ENABLED",
+    "ui.first_recharge_bonus.enabled",
+    get_first_recharge_bonus_enabled(),
+)
+
+FIRST_RECHARGE_BONUS_RATE = PersistentConfig(
+    "FIRST_RECHARGE_BONUS_RATE",
+    "ui.first_recharge_bonus.rate",
+    get_first_recharge_bonus_rate(),
+)
+
+FIRST_RECHARGE_BONUS_MAX_AMOUNT = PersistentConfig(
+    "FIRST_RECHARGE_BONUS_MAX_AMOUNT",
+    "ui.first_recharge_bonus.max_amount",
+    get_first_recharge_bonus_max_amount(),
+)
+
+
 DEFAULT_LOCALE = PersistentConfig(
     "DEFAULT_LOCALE",
     "ui.default_locale",

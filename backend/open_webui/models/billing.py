@@ -410,8 +410,141 @@ class PaymentOrderTable:
             return result
 
 
+class FirstRechargeBonusLog(Base):
+    """首充优惠日志表"""
+
+    __tablename__ = "first_recharge_bonus_log"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, unique=True, nullable=False, index=True)  # 用户ID（唯一索引）
+    recharge_amount = Column(Integer, nullable=False)  # 首充金额（毫）
+    bonus_amount = Column(Integer, nullable=False)  # 奖励金额（毫）
+    bonus_rate = Column(Integer, nullable=False)  # 返现比例（整数百分比，如10表示10%）
+    created_at = Column(BigInteger, nullable=False, index=True)  # 参与时间
+
+
+####################
+# FirstRechargeBonusLog Pydantic Models
+####################
+
+
+class FirstRechargeBonusLogModel(BaseModel):
+    """首充优惠日志 Pydantic 模型（以毫为单位，1元=10000毫）"""
+
+    id: str
+    user_id: str
+    recharge_amount: int  # 毫
+    bonus_amount: int  # 毫
+    bonus_rate: int  # 整数百分比
+    created_at: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+####################
+# FirstRechargeBonusLog Data Access Layer
+####################
+
+
+class FirstRechargeBonusLogTable:
+    """首充优惠日志数据访问层"""
+
+    def has_participated(self, user_id: str) -> bool:
+        """检查用户是否已参与过首充优惠"""
+        try:
+            with get_db() as db:
+                exists = (
+                    db.query(FirstRechargeBonusLog)
+                    .filter_by(user_id=user_id)
+                    .first()
+                )
+                return exists is not None
+        except Exception:
+            return False
+
+    def create(
+        self,
+        user_id: str,
+        recharge_amount: int,
+        bonus_amount: int,
+        bonus_rate: int,
+    ) -> FirstRechargeBonusLogModel:
+        """创建首充优惠记录"""
+        with get_db() as db:
+            now = int(time.time_ns())
+            log = FirstRechargeBonusLog(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                recharge_amount=recharge_amount,
+                bonus_amount=bonus_amount,
+                bonus_rate=bonus_rate,
+                created_at=now,
+            )
+            db.add(log)
+            db.commit()
+            db.refresh(log)
+            return FirstRechargeBonusLogModel.model_validate(log)
+
+    def get_stats(self) -> dict:
+        """获取首充优惠统计数据"""
+        with get_db() as db:
+            result = db.query(
+                func.count(FirstRechargeBonusLog.id).label("participant_count"),
+                func.sum(FirstRechargeBonusLog.recharge_amount).label("total_recharge"),
+                func.sum(FirstRechargeBonusLog.bonus_amount).label("total_bonus"),
+            ).first()
+
+            return {
+                "participant_count": result.participant_count or 0,
+                "total_recharge": result.total_recharge or 0,
+                "total_bonus": result.total_bonus or 0,
+            }
+
+    def get_participant_list(
+        self, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """获取参与者列表（包含用户名）"""
+        from open_webui.models.users import User
+
+        with get_db() as db:
+            # 查询总数
+            total = db.query(FirstRechargeBonusLog).count()
+
+            # 查询列表
+            logs = (
+                db.query(
+                    FirstRechargeBonusLog,
+                    User.name.label("user_name"),
+                    User.email.label("user_email"),
+                )
+                .join(User, FirstRechargeBonusLog.user_id == User.id)
+                .order_by(FirstRechargeBonusLog.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+                .all()
+            )
+
+            # 转换为字典格式
+            participants = [
+                {
+                    "id": log.FirstRechargeBonusLog.id,
+                    "user_id": log.FirstRechargeBonusLog.user_id,
+                    "user_name": log.user_name,
+                    "user_email": log.user_email,
+                    "recharge_amount": log.FirstRechargeBonusLog.recharge_amount,
+                    "bonus_amount": log.FirstRechargeBonusLog.bonus_amount,
+                    "bonus_rate": log.FirstRechargeBonusLog.bonus_rate,
+                    "created_at": log.FirstRechargeBonusLog.created_at,
+                }
+                for log in logs
+            ]
+
+            return participants, total
+
+
 # 单例实例
 ModelPricings = ModelPricingTable()
 BillingLogs = BillingLogTable()
 RechargeLogs = RechargeLogTable()
 PaymentOrders = PaymentOrderTable()
+FirstRechargeBonusLogs = FirstRechargeBonusLogTable()

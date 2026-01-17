@@ -780,11 +780,34 @@ async def alipay_notify(request: Request):
     # 增加用户余额
     try:
         from open_webui.models.users import User as UserModel
+        from open_webui.models.billing import FirstRechargeBonusLogs, BillingLog
+        from open_webui.config import (
+            FIRST_RECHARGE_BONUS_ENABLED,
+            FIRST_RECHARGE_BONUS_RATE,
+            FIRST_RECHARGE_BONUS_MAX_AMOUNT,
+        )
 
         with get_db() as db:
             user = db.query(UserModel).filter_by(id=order.user_id).first()
             if user:
-                user.balance = (user.balance or 0) + order.amount
+                # 检查是否需要发放首充优惠
+                bonus_amount = 0
+                is_first_recharge = False
+
+                if (
+                    FIRST_RECHARGE_BONUS_ENABLED.value
+                    and not FirstRechargeBonusLogs.has_participated(order.user_id)
+                ):
+                    is_first_recharge = True
+                    # 计算奖励金额
+                    rate = float(FIRST_RECHARGE_BONUS_RATE.value) / 100
+                    max_amount = int(FIRST_RECHARGE_BONUS_MAX_AMOUNT.value)
+                    bonus_amount = int(order.amount * rate)
+                    bonus_amount = min(bonus_amount, max_amount)
+
+                # 更新用户余额（充值金额 + 奖励金额）
+                total_amount = order.amount + bonus_amount
+                user.balance = (user.balance or 0) + total_amount
                 db.commit()
 
                 # 记录充值日志
@@ -799,9 +822,45 @@ async def alipay_notify(request: Request):
                 db.add(recharge_log)
                 db.commit()
 
+                # 如果是首充，记录首充优惠日志和计费日志
+                if is_first_recharge and bonus_amount > 0:
+                    try:
+                        # 记录首充优惠参与记录
+                        FirstRechargeBonusLogs.create(
+                            user_id=order.user_id,
+                            recharge_amount=order.amount,
+                            bonus_amount=bonus_amount,
+                            bonus_rate=int(FIRST_RECHARGE_BONUS_RATE.value),
+                        )
+
+                        # 记录计费日志（奖励类型）
+                        billing_log = BillingLog(
+                            id=str(uuid_module.uuid4()),
+                            user_id=order.user_id,
+                            model_id="first_recharge_bonus",
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            total_cost=bonus_amount,
+                            balance_after=user.balance,
+                            log_type="refund",  # 使用 refund 类型表示奖励
+                            created_at=int(time.time_ns()),
+                        )
+                        db.add(billing_log)
+                        db.commit()
+
+                        log.info(
+                            f"首充优惠发放成功: 用户={order.user_id}, "
+                            f"充值={order.amount / 10000:.2f}元, "
+                            f"奖励={bonus_amount / 10000:.2f}元"
+                        )
+                    except Exception as e:
+                        log.error(f"首充优惠记录失败: {e}")
+                        # 不影响充值流程，继续执行
+
                 log.info(
                     f"支付成功: 用户={order.user_id}, 金额={order.amount / 10000:.2f}元, "
                     f"订单={out_trade_no}"
+                    + (f", 首充奖励={bonus_amount / 10000:.2f}元" if is_first_recharge else "")
                 )
     except Exception as e:
         log.error(f"支付回调处理失败: {e}")

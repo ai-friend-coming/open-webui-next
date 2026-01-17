@@ -72,6 +72,7 @@ from open_webui.routers import (
     audio,
     billing,
     redeem_codes,
+    first_recharge_bonus,
     images,
     ollama,
     openai,
@@ -1355,6 +1356,11 @@ app.include_router(prompts.router, prefix="/api/v1/prompts", tags=["prompts"])
 app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
 
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
+app.include_router(
+    first_recharge_bonus.router,
+    prefix="/api/v1/first-recharge-bonus",
+    tags=["first_recharge_bonus"],
+)
 app.include_router(redeem_codes.router, prefix="/api/v1", tags=["redeem_codes"])
 app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"])
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
