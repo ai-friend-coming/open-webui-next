@@ -107,6 +107,9 @@ jobs:
           labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=registry,ref=${{ steps.cache-meta.outputs.tags }}
           cache-to: type=registry,ref=${{ steps.cache-meta.outputs.tags }},mode=max
+          # 禁用 attestation 以加速推送
+          provenance: false
+          sbom: false
           build-args: |
             BUILD_HASH=${{ github.sha }}
             BUILD_BRANCH=${{ github.ref_name }}
@@ -114,6 +117,7 @@ jobs:
 
       - name: Push to Tencent TCR
         uses: docker/build-push-action@v5
+        timeout-minutes: 30
         with:
           context: .
           push: true
@@ -121,10 +125,35 @@ jobs:
           tags: ${{ steps.meta-tcr.outputs.tags }}
           labels: ${{ steps.meta-tcr.outputs.labels }}
           cache-from: type=registry,ref=${{ steps.cache-meta.outputs.tags }}
+          # 禁用 attestation 以避免推送额外数据
+          provenance: false
+          sbom: false
           build-args: |
             BUILD_HASH=${{ github.sha }}
             BUILD_BRANCH=${{ github.ref_name }}
             USE_SLIM=true
+
+      # 备选方案：如果 build-push-action 仍然卡住，可以使用手动推送显示进度
+      - name: Manual push to TCR (fallback with progress)
+        if: failure()
+        run: |
+          echo "🔄 尝试手动推送到 TCR..."
+          # 获取第一个 tag
+          FIRST_TAG=$(echo "${{ steps.meta-tcr.outputs.tags }}" | head -n 1)
+          echo "推送镜像: $FIRST_TAG"
+
+          # 使用 docker push 显示进度
+          docker push "$FIRST_TAG" --quiet=false 2>&1 | while read line; do
+            echo "$line"
+          done
+
+          # 推送其他 tags
+          echo "${{ steps.meta-tcr.outputs.tags }}" | tail -n +2 | while read tag; do
+            if [ -n "$tag" ]; then
+              echo "推送镜像: $tag"
+              docker push "$tag"
+            fi
+          done
 
       - name: Inspect image
         run: |
