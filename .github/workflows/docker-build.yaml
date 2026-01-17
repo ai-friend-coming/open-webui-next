@@ -24,11 +24,6 @@ jobs:
         run: |
           echo "IMAGE_NAME=${IMAGE_NAME,,}" >>${GITHUB_ENV}
           echo "FULL_IMAGE_NAME=ghcr.io/${IMAGE_NAME,,}" >>${GITHUB_ENV}
-          
-          # 定义 TCR 镜像地址
-          # ${IMAGE_NAME##*/} 提取的是不带用户名的纯仓库名 (例如 my-repo)，以适配 TCR 格式
-          REPO_PURE_NAME=${IMAGE_NAME##*/}
-          echo "TCR_FULL_IMAGE_NAME=ccr.ccs.tencentyun.com/open-webui-next/${REPO_PURE_NAME,,}" >>${GITHUB_ENV}
         env:
           IMAGE_NAME: '${{ github.repository }}'
 
@@ -45,35 +40,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # [新增] 登录腾讯云 TCR
-      - name: Log in to Tencent TCR
-        uses: docker/login-action@v3
-        with:
-          registry: ccr.ccs.tencentyun.com
-          username: "100004409622"
-          password: ${{ secrets.TCR_PASSWORD }}
-
       - name: Extract metadata for GHCR
         id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.FULL_IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,prefix=git-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,enable=${{ github.ref == 'refs/heads/main' }},prefix=,suffix=,value=slim
-          flavor: |
-            latest=${{ github.ref == 'refs/heads/main' }}
-            suffix=-slim,onlatest=true
-
-      - name: Extract metadata for TCR
-        id: meta-tcr
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.TCR_FULL_IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -107,76 +78,12 @@ jobs:
           labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=registry,ref=${{ steps.cache-meta.outputs.tags }}
           cache-to: type=registry,ref=${{ steps.cache-meta.outputs.tags }},mode=max
-          # 禁用 attestation 以加速推送
           provenance: false
           sbom: false
           build-args: |
             BUILD_HASH=${{ github.sha }}
             BUILD_BRANCH=${{ github.ref_name }}
             USE_SLIM=true
-
-      # 使用 docker tag + push 方式推送到 TCR（显示进度，更可靠）
-      - name: Push to Tencent TCR
-        timeout-minutes: 60
-        run: |
-          echo "🚀 开始推送到腾讯云 TCR..."
-
-          # 获取 GHCR 的第一个 tag 作为源镜像
-          GHCR_IMAGE="${{ env.FULL_IMAGE_NAME }}:${{ steps.meta-ghcr.outputs.version }}"
-          echo "源镜像: $GHCR_IMAGE"
-
-          # 从 GHCR 拉取镜像
-          echo "📥 拉取 GHCR 镜像..."
-          docker pull "$GHCR_IMAGE"
-
-          # 只推送主要的 slim tag（减少推送次数）
-          TCR_IMAGE="${{ env.TCR_FULL_IMAGE_NAME }}:${{ steps.meta-ghcr.outputs.version }}"
-          echo ""
-          echo "🏷️ 标记镜像: $TCR_IMAGE"
-          docker tag "$GHCR_IMAGE" "$TCR_IMAGE"
-
-          # 推送函数（带重试）
-          push_with_retry() {
-            local image=$1
-            local max_retries=3
-            local retry=0
-
-            while [ $retry -lt $max_retries ]; do
-              echo ""
-              echo "📤 推送镜像 (尝试 $((retry+1))/$max_retries): $image"
-              if docker push "$image"; then
-                echo "✅ 推送成功: $image"
-                return 0
-              else
-                retry=$((retry+1))
-                if [ $retry -lt $max_retries ]; then
-                  echo "⚠️ 推送失败，10秒后重试..."
-                  sleep 10
-                fi
-              fi
-            done
-
-            echo "❌ 推送失败，已达最大重试次数"
-            return 1
-          }
-
-          # 推送主 tag
-          push_with_retry "$TCR_IMAGE"
-
-          # 如果是 main 分支，额外推送 slim 和 latest tag
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo ""
-            echo "📌 推送额外标签..."
-
-            docker tag "$GHCR_IMAGE" "${{ env.TCR_FULL_IMAGE_NAME }}:slim"
-            push_with_retry "${{ env.TCR_FULL_IMAGE_NAME }}:slim"
-
-            docker tag "$GHCR_IMAGE" "${{ env.TCR_FULL_IMAGE_NAME }}:latest"
-            push_with_retry "${{ env.TCR_FULL_IMAGE_NAME }}:latest"
-          fi
-
-          echo ""
-          echo "🎉 TCR 推送完成！"
 
       - name: Inspect image
         run: |
@@ -186,22 +93,12 @@ jobs:
         run: |
           echo "## 🐳 Docker 镜像构建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**GHCR 镜像标签:**" >> $GITHUB_STEP_SUMMARY
+          echo "**镜像标签:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta-ghcr.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**TCR 镜像标签:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta-tcr.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**拉取命令 (GHCR):**" >> $GITHUB_STEP_SUMMARY
+          echo "**拉取命令:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.FULL_IMAGE_NAME }}:slim" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**拉取命令 (TCR):**" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.TCR_FULL_IMAGE_NAME }}:slim" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
