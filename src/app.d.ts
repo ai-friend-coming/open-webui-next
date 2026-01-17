@@ -7,6 +7,11 @@ declare global {
 		// interface PageData {}
 		// interface Platform {}
 	}
+
+	// Vite define 全局变量类型声明
+	const APP_VERSION: string;
+	const APP_BUILD_HASH: string;
+	const APP_BUILD_BRANCH: string;
 }
 
 export {};

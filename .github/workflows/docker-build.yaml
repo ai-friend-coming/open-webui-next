@@ -53,14 +53,27 @@ jobs:
           username: "100004409622"
           password: ${{ secrets.TCR_PASSWORD }}
 
-      - name: Extract metadata for Docker images
-        id: meta
+      - name: Extract metadata for GHCR
+        id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
-          # [修改] 这里增加了 TCR 地址，插件会自动为两个仓库生成 Tag
-          images: |
-            ${{ env.FULL_IMAGE_NAME }}
-            ${{ env.TCR_FULL_IMAGE_NAME }}
+          images: ${{ env.FULL_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=git-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,enable=${{ github.ref == 'refs/heads/main' }},prefix=,suffix=,value=slim
+          flavor: |
+            latest=${{ github.ref == 'refs/heads/main' }}
+            suffix=-slim,onlatest=true
+
+      - name: Extract metadata for TCR
+        id: meta-tcr
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.TCR_FULL_IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -84,39 +97,79 @@ jobs:
             prefix=cache-slim-linux-amd64-
             latest=false
 
-      - name: Build and push Docker image (slim)
+      - name: Build and push to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-ghcr.outputs.tags }}
+          labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=registry,ref=${{ steps.cache-meta.outputs.tags }}
           cache-to: type=registry,ref=${{ steps.cache-meta.outputs.tags }},mode=max
+          # 禁用 attestation 以加速推送
+          provenance: false
+          sbom: false
           build-args: |
             BUILD_HASH=${{ github.sha }}
             BUILD_BRANCH=${{ github.ref_name }}
             USE_SLIM=true
 
+      # 使用 docker tag + push 方式推送到 TCR（显示进度，更可靠）
+      - name: Push to Tencent TCR
+        timeout-minutes: 30
+        run: |
+          echo "🚀 开始推送到腾讯云 TCR..."
+
+          # 获取 GHCR 的第一个 tag 作为源镜像
+          GHCR_IMAGE="${{ env.FULL_IMAGE_NAME }}:${{ steps.meta-ghcr.outputs.version }}"
+          echo "源镜像: $GHCR_IMAGE"
+
+          # 从 GHCR 拉取镜像（应该很快，因为在同一网络）
+          echo "📥 拉取 GHCR 镜像..."
+          docker pull "$GHCR_IMAGE"
+
+          # 为每个 TCR tag 创建标签并推送
+          echo "📤 推送到 TCR..."
+          echo "${{ steps.meta-tcr.outputs.tags }}" | while read tag; do
+            if [ -n "$tag" ]; then
+              echo ""
+              echo "----------------------------------------"
+              echo "🏷️ 标记镜像: $tag"
+              docker tag "$GHCR_IMAGE" "$tag"
+
+              echo "📤 推送镜像: $tag"
+              docker push "$tag"
+              echo "✅ 完成: $tag"
+            fi
+          done
+
+          echo ""
+          echo "🎉 所有 TCR 镜像推送完成！"
+
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.FULL_IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.FULL_IMAGE_NAME }}:${{ steps.meta-ghcr.outputs.version }}
 
       - name: Output image tags
         run: |
           echo "## 🐳 Docker 镜像构建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**镜像标签:**" >> $GITHUB_STEP_SUMMARY
+          echo "**GHCR 镜像标签:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta-ghcr.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**TCR 镜像标签:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta-tcr.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**拉取命令 (GHCR):**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.FULL_IMAGE_NAME }}:slim" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          # [新增] 输出 TCR 拉取命令
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**拉取命令 (TCR):**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.TCR_FULL_IMAGE_NAME }}:slim" >> $GITHUB_STEP_SUMMARY
