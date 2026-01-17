@@ -117,7 +117,7 @@ jobs:
 
       # 使用 docker tag + push 方式推送到 TCR（显示进度，更可靠）
       - name: Push to Tencent TCR
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: |
           echo "🚀 开始推送到腾讯云 TCR..."
 
@@ -125,27 +125,58 @@ jobs:
           GHCR_IMAGE="${{ env.FULL_IMAGE_NAME }}:${{ steps.meta-ghcr.outputs.version }}"
           echo "源镜像: $GHCR_IMAGE"
 
-          # 从 GHCR 拉取镜像（应该很快，因为在同一网络）
+          # 从 GHCR 拉取镜像
           echo "📥 拉取 GHCR 镜像..."
           docker pull "$GHCR_IMAGE"
 
-          # 为每个 TCR tag 创建标签并推送
-          echo "📤 推送到 TCR..."
-          echo "${{ steps.meta-tcr.outputs.tags }}" | while read tag; do
-            if [ -n "$tag" ]; then
-              echo ""
-              echo "----------------------------------------"
-              echo "🏷️ 标记镜像: $tag"
-              docker tag "$GHCR_IMAGE" "$tag"
+          # 只推送主要的 slim tag（减少推送次数）
+          TCR_IMAGE="${{ env.TCR_FULL_IMAGE_NAME }}:${{ steps.meta-ghcr.outputs.version }}"
+          echo ""
+          echo "🏷️ 标记镜像: $TCR_IMAGE"
+          docker tag "$GHCR_IMAGE" "$TCR_IMAGE"
 
-              echo "📤 推送镜像: $tag"
-              docker push "$tag"
-              echo "✅ 完成: $tag"
-            fi
-          done
+          # 推送函数（带重试）
+          push_with_retry() {
+            local image=$1
+            local max_retries=3
+            local retry=0
+
+            while [ $retry -lt $max_retries ]; do
+              echo ""
+              echo "📤 推送镜像 (尝试 $((retry+1))/$max_retries): $image"
+              if docker push "$image"; then
+                echo "✅ 推送成功: $image"
+                return 0
+              else
+                retry=$((retry+1))
+                if [ $retry -lt $max_retries ]; then
+                  echo "⚠️ 推送失败，10秒后重试..."
+                  sleep 10
+                fi
+              fi
+            done
+
+            echo "❌ 推送失败，已达最大重试次数"
+            return 1
+          }
+
+          # 推送主 tag
+          push_with_retry "$TCR_IMAGE"
+
+          # 如果是 main 分支，额外推送 slim 和 latest tag
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo ""
+            echo "📌 推送额外标签..."
+
+            docker tag "$GHCR_IMAGE" "${{ env.TCR_FULL_IMAGE_NAME }}:slim"
+            push_with_retry "${{ env.TCR_FULL_IMAGE_NAME }}:slim"
+
+            docker tag "$GHCR_IMAGE" "${{ env.TCR_FULL_IMAGE_NAME }}:latest"
+            push_with_retry "${{ env.TCR_FULL_IMAGE_NAME }}:latest"
+          fi
 
           echo ""
-          echo "🎉 所有 TCR 镜像推送完成！"
+          echo "🎉 TCR 推送完成！"
 
       - name: Inspect image
         run: |
