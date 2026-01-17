@@ -16,7 +16,11 @@
 		userSignUp,
 		sendSignupCode,
 		sendResetCode,
-		resetPassword
+		resetPassword,
+		sendSignupSmsCode,
+		userSignUpWithSms,
+		sendResetSmsCode,
+		resetPasswordWithSms
 	} from '$lib/apis/auths';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
@@ -47,9 +51,17 @@
 	let password = '';
 	let confirmPassword = '';
 	let verificationCode = '';
-	let sendCodeCooldown = 0;
 	let sendCodeTimer: ReturnType<typeof setInterval> | null = null;
 	let sendingCode = false;
+
+	// SMS verification
+	let phone = '';
+	let useSmsVerification = false; // 切换邮箱/短信验证模式
+
+	// 独立的冷却时间（避免切换模式时绕过冷却）
+	let emailSendCodeCooldown = 0;
+	let smsSendCodeCooldown = 0;
+	$: sendCodeCooldown = useSmsVerification ? smsSendCodeCooldown : emailSendCodeCooldown;
 
 	const switchMode = (target: string) => {
 		clearSendCodeTimer();
@@ -57,8 +69,11 @@
 		verificationCode = '';
 		password = '';
 		confirmPassword = '';
-		sendCodeCooldown = 0;
+		// 切换模式时重置所有冷却时间
+		emailSendCodeCooldown = 0;
+		smsSendCodeCooldown = 0;
 		sendingCode = false;
+		phone = '';
 	};
 
 	let ldapUsername = '';
@@ -119,27 +134,45 @@
 		}
 
 		if (!verificationCode) {
-			toast.error('请输入邮箱验证码');
+			toast.error(useSmsVerification ? $i18n.t('Please enter SMS verification code') : $i18n.t('Please enter email verification code'));
 			return;
 		}
 
-		const sessionUser = await userSignUp(
-			name,
-			email,
-			password,
-			generateInitialsImage(name),
-			verificationCode
-		).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
+		let sessionUser;
+		if (useSmsVerification) {
+			if (!phone) {
+				toast.error($i18n.t('Please enter your phone number'));
+				return;
+			}
+			sessionUser = await userSignUpWithSms(
+				name,
+				phone,
+				password,
+				generateInitialsImage(name),
+				verificationCode
+			).catch((error) => {
+				toast.error(`${error}`);
+				return null;
+			});
+		} else {
+			sessionUser = await userSignUp(
+				name,
+				email,
+				password,
+				generateInitialsImage(name),
+				verificationCode
+			).catch((error) => {
+				toast.error(`${error}`);
+				return null;
+			});
+		}
 
 		await setSessionUser(sessionUser);
 	};
 
 	const resetPasswordHandler = async () => {
 		if (!verificationCode) {
-			toast.error('请输入邮箱验证码');
+			toast.error(useSmsVerification ? $i18n.t('Please enter SMS verification code') : $i18n.t('Please enter email verification code'));
 			return;
 		}
 
@@ -148,13 +181,25 @@
 			return;
 		}
 
-		const res = await resetPassword(email, verificationCode, password).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
+		let res;
+		if (useSmsVerification) {
+			if (!phone) {
+				toast.error($i18n.t('Please enter your phone number'));
+				return;
+			}
+			res = await resetPasswordWithSms(phone, verificationCode, password).catch((error) => {
+				toast.error(`${error}`);
+				return null;
+			});
+		} else {
+			res = await resetPassword(email, verificationCode, password).catch((error) => {
+				toast.error(`${error}`);
+				return null;
+			});
+		}
 
 		if (res) {
-			toast.success('密码已重置，请使用新密码登录');
+			toast.success($i18n.t('Password has been reset, please sign in with your new password'));
 			switchMode('signin');
 		}
 	};
@@ -176,22 +221,39 @@
 
 	const startSendCodeCooldown = (seconds: number) => {
 		clearSendCodeTimer();
-		sendCodeCooldown = seconds;
+		// 根据当前模式更新对应的冷却时间变量
+		if (useSmsVerification) {
+			smsSendCodeCooldown = seconds;
+		} else {
+			emailSendCodeCooldown = seconds;
+		}
 
 		sendCodeTimer = setInterval(() => {
-			if (sendCodeCooldown <= 1) {
+			// 同时递减两个冷却时间（如果有的话）
+			if (emailSendCodeCooldown > 0) {
+				emailSendCodeCooldown -= 1;
+			}
+			if (smsSendCodeCooldown > 0) {
+				smsSendCodeCooldown -= 1;
+			}
+			// 当两个都归零时清除定时器
+			if (emailSendCodeCooldown <= 0 && smsSendCodeCooldown <= 0) {
 				clearSendCodeTimer();
-				sendCodeCooldown = 0;
-			} else {
-				sendCodeCooldown -= 1;
 			}
 		}, 1000);
 	};
 
 	const sendCodeHandler = async () => {
-		if (!email) {
-			toast.error('请先填写邮箱');
-			return;
+		if (useSmsVerification) {
+			if (!phone) {
+				toast.error($i18n.t('Please enter your phone number first'));
+				return;
+			}
+		} else {
+			if (!email) {
+				toast.error($i18n.t('Please enter your email first'));
+				return;
+			}
 		}
 
 		if (sendCodeCooldown > 0 || sendingCode) {
@@ -199,8 +261,19 @@
 		}
 
 		sendingCode = true;
-		const res =
-			mode === 'reset'
+		let res;
+		if (useSmsVerification) {
+			res = mode === 'reset'
+				? await sendResetSmsCode(phone).catch((error) => {
+						toast.error(`${error}`);
+						return null;
+					})
+				: await sendSignupSmsCode(phone).catch((error) => {
+						toast.error(`${error}`);
+						return null;
+					});
+		} else {
+			res = mode === 'reset'
 				? await sendResetCode(email).catch((error) => {
 						toast.error(`${error}`);
 						return null;
@@ -209,10 +282,11 @@
 						toast.error(`${error}`);
 						return null;
 					});
+		}
 		sendingCode = false;
 
 		if (res) {
-			toast.success('验证码已发送，请查收邮箱');
+			toast.success(useSmsVerification ? $i18n.t('Code sent, please check your SMS') : $i18n.t('Code sent, please check your email'));
 			const interval = $config?.features?.signup_email_verification_send_interval ?? 60;
 			startSendCodeCooldown(interval);
 		}
@@ -223,7 +297,7 @@
 			await ldapSignInHandler();
 		} else if (mode === 'signin') {
 			if (!agreeToTerms) {
-				toast.error('如果要登陆，请先同意用户协议');
+				toast.error($i18n.t('Please agree to the terms of service to sign in'));
 				return;
 			}
 			await signInHandler();
@@ -231,7 +305,7 @@
 			await resetPasswordHandler();
 		} else {
 			if (!agreeToPrivacy) {
-				toast.error('如果要注册，请先同意隐私协议');
+				toast.error($i18n.t('Please agree to the privacy policy to sign up'));
 				return;
 			}
 			await signUpHandler();
@@ -459,25 +533,95 @@
 												/>
 											</div>
 										{:else}
-											<div class="mb-2">
-												<label for="email" class="text-sm font-medium text-left mb-1 block"
-													>{$i18n.t('Email')}</label
-												>
-												<input
-													bind:value={email}
-													type="email"
-													id="email"
-													class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
-													autocomplete="email"
-													name="email"
-													placeholder={$i18n.t('Enter Your Email')}
-													required
-												/>
-											</div>
+											{#if mode === 'signup' || mode === 'reset'}
+												<!-- 邮箱/手机号切换按钮 -->
+												{#if $config?.features?.enable_sms_verification}
+													<div class="mb-3 flex gap-2">
+														<button
+															type="button"
+															class="flex-1 py-1.5 text-sm font-medium rounded-full transition-all {!useSmsVerification
+																? 'bg-gray-700/10 dark:bg-gray-100/10'
+																: 'hover:bg-gray-700/5 dark:hover:bg-gray-100/5'}"
+															on:click={() => {
+																useSmsVerification = false;
+																verificationCode = '';
+															}}
+														>
+															{mode === 'reset' ? $i18n.t('Email Reset') : $i18n.t('Email Registration')}
+														</button>
+														<button
+															type="button"
+															class="flex-1 py-1.5 text-sm font-medium rounded-full transition-all {useSmsVerification
+																? 'bg-gray-700/10 dark:bg-gray-100/10'
+																: 'hover:bg-gray-700/5 dark:hover:bg-gray-100/5'}"
+															on:click={() => {
+																useSmsVerification = true;
+																verificationCode = '';
+															}}
+														>
+															{mode === 'reset' ? $i18n.t('Phone Reset') : $i18n.t('Phone Registration')}
+														</button>
+													</div>
+												{/if}
+											{/if}
+
+											{#if useSmsVerification && (mode === 'signup' || mode === 'reset')}
+												<!-- 手机号输入（注册/重置模式） -->
+												<div class="mb-2">
+													<label for="phone" class="text-sm font-medium text-left mb-1 block">{$i18n.t('Phone Number')}</label>
+													<input
+														bind:value={phone}
+														type="tel"
+														id="phone"
+														class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
+														autocomplete="tel"
+														name="phone"
+														placeholder={$i18n.t('Enter Your Phone Number')}
+														pattern="1[3-9][0-9]{'{'}9{'}'}"
+														title={$i18n.t('Please enter a valid 11-digit phone number')}
+														required
+													/>
+												</div>
+											{:else}
+												<!-- 邮箱输入（登录时支持邮箱/手机号） -->
+												<div class="mb-2">
+													<label for="email" class="text-sm font-medium text-left mb-1 block">
+														{#if mode === 'signin' && $config?.features?.enable_sms_verification}
+															{$i18n.t('Email or Phone')}
+														{:else}
+															{$i18n.t('Email')}
+														{/if}
+													</label>
+													{#if mode === 'signin' && $config?.features?.enable_sms_verification}
+														<input
+															bind:value={email}
+															type="text"
+															id="email"
+															class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
+															autocomplete="username"
+															name="email"
+															placeholder={$i18n.t('Enter Email or Phone Number')}
+															required
+														/>
+													{:else}
+														<input
+															bind:value={email}
+															type="email"
+															id="email"
+															class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
+															autocomplete="email"
+															name="email"
+															placeholder={$i18n.t('Enter Your Email')}
+															required
+														/>
+													{/if}
+												</div>
+											{/if}
+
 											{#if mode === 'signup' || mode === 'reset'}
 												<div class="mb-2">
 													<label for="verification-code" class="text-sm font-medium text-left mb-1 block"
-														>邮箱验证码</label
+														>{useSmsVerification ? $i18n.t('SMS Verification Code') : $i18n.t('Email Verification Code')}</label
 													>
 													<div class="flex gap-2">
 														<input
@@ -485,7 +629,7 @@
 															type="text"
 															id="verification-code"
 															class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
-															placeholder="请输入邮箱验证码"
+															placeholder={useSmsVerification ? $i18n.t('Enter SMS Verification Code') : $i18n.t('Enter Email Verification Code')}
 															autocomplete="one-time-code"
 														/>
 														<button
@@ -495,11 +639,11 @@
 															on:click={sendCodeHandler}
 														>
 															{#if sendingCode}
-																发送中...
+																{$i18n.t('Sending...')}
 															{:else if sendCodeCooldown > 0}
 																{sendCodeCooldown}s
 															{:else}
-																发送验证码
+																{$i18n.t('Send Code')}
 															{/if}
 														</button>
 													</div>

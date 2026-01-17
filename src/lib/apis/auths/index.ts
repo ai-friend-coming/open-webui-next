@@ -411,6 +411,133 @@ export const resetPassword = async (email: string, code: string, newPassword: st
 	return res;
 };
 
+// SMS Verification APIs
+
+export const sendSignupSmsCode = async (phone: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/signup/sms/code`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ phone })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err.message ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const userSignUpWithSms = async (
+	name: string,
+	phone: string,
+	password: string,
+	profile_image_url: string,
+	sms_code: string
+) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/signup/sms`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		credentials: 'include',
+		body: JSON.stringify({
+			name,
+			phone,
+			password,
+			profile_image_url,
+			sms_code
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err.message ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const sendResetSmsCode = async (phone: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/password/reset/sms/code`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ phone })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err.message ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const resetPasswordWithSms = async (phone: string, sms_code: string, newPassword: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/password/reset/sms`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			phone,
+			sms_code,
+			new_password: newPassword
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail ?? err.message ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const userSignOut = async () => {
 	let error = null;
 
@@ -442,10 +569,11 @@ export const userSignOut = async () => {
 export const addUser = async (
 	token: string,
 	name: string,
-	email: string,
+	email: string | null,
 	password: string,
 	role: string = 'pending',
-	profile_image_url: null | string = null
+	profile_image_url: null | string = null,
+	phone: string | null = null
 ) => {
 	let error = null;
 
@@ -457,7 +585,8 @@ export const addUser = async (
 		},
 		body: JSON.stringify({
 			name: name,
-			email: email,
+			...(email && { email: email }),
+			...(phone && { phone: phone }),
 			password: password,
 			role: role,
 			...(profile_image_url && { profile_image_url: profile_image_url })

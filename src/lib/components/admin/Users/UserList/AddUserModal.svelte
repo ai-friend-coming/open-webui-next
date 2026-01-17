@@ -24,6 +24,7 @@
 	let _user = {
 		name: '',
 		email: '',
+		phone: '',
 		password: '',
 		role: 'user'
 	};
@@ -32,6 +33,7 @@
 		_user = {
 			name: '',
 			email: '',
+			phone: '',
 			password: '',
 			role: 'user'
 		};
@@ -44,15 +46,22 @@
 		};
 
 		if (tab === '') {
+			// 验证：邮箱和手机号至少填一个
+			if (!_user.email && !_user.phone) {
+				toast.error($i18n.t('Either email or phone number is required.'));
+				return;
+			}
+
 			loading = true;
 
 			const res = await addUser(
 				localStorage.token,
 				_user.name,
-				_user.email,
+				_user.email || null,
 				_user.password,
 				_user.role,
-				generateInitialsImage(_user.name)
+				generateInitialsImage(_user.name),
+				_user.phone || null
 			).catch((error) => {
 				toast.error(`${error}`);
 			});
@@ -210,7 +219,7 @@
 							<hr class=" border-gray-100 dark:border-gray-850 my-2.5 w-full" />
 
 							<div class="flex flex-col w-full">
-								<div class=" mb-1 text-xs text-gray-500">{$i18n.t('Email')}</div>
+								<div class=" mb-1 text-xs text-gray-500">{$i18n.t('Email')} ({$i18n.t('Optional')})</div>
 
 								<div class="flex-1">
 									<input
@@ -218,9 +227,25 @@
 										type="email"
 										bind:value={_user.email}
 										placeholder={$i18n.t('Enter Your Email')}
-										required
 									/>
 								</div>
+							</div>
+
+							<div class="flex flex-col w-full mt-1">
+								<div class=" mb-1 text-xs text-gray-500">{$i18n.t('Phone')} ({$i18n.t('Optional')})</div>
+
+								<div class="flex-1">
+									<input
+										class="w-full text-sm bg-transparent disabled:text-gray-500 dark:disabled:text-gray-500 outline-hidden"
+										type="tel"
+										bind:value={_user.phone}
+										placeholder={$i18n.t('Enter Your Phone Number')}
+									/>
+								</div>
+							</div>
+
+							<div class="text-xs text-gray-400 mt-1">
+								{$i18n.t('Either email or phone number is required.')}
 							</div>
 
 							<div class="flex flex-col w-full mt-1">

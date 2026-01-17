@@ -22,7 +22,8 @@
 
 			return (
 				user.name.toLowerCase().includes(query.toLowerCase()) ||
-				user.email.toLowerCase().includes(query.toLowerCase())
+				(user.email && user.email.toLowerCase().includes(query.toLowerCase())) ||
+				(user.phone && user.phone.toLowerCase().includes(query.toLowerCase()))
 			);
 		})
 		.sort((a, b) => {

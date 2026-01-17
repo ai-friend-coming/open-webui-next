@@ -27,7 +27,8 @@ class User(Base):
     id = Column(String, primary_key=True)
     name = Column(String)
 
-    email = Column(String)
+    email = Column(String, nullable=True)
+    phone = Column(String(20), nullable=True)
     username = Column(String(50), nullable=True)
 
     role = Column(String)
@@ -64,7 +65,8 @@ class UserModel(BaseModel):
     id: str
     name: str
 
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     username: Optional[str] = None
 
     role: str = "pending"
@@ -113,7 +115,8 @@ class UserListResponse(BaseModel):
 class UserInfoResponse(BaseModel):
     id: str
     name: str
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     role: str
 
 
@@ -135,7 +138,8 @@ class UserIdNameListResponse(BaseModel):
 class UserResponse(BaseModel):
     id: str
     name: str
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     role: str
     profile_image_url: str
 
@@ -155,7 +159,8 @@ class UserRoleUpdateForm(BaseModel):
 class UserUpdateForm(BaseModel):
     role: str
     name: str
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     profile_image_url: str
     password: Optional[str] = None
 
@@ -165,10 +170,11 @@ class UsersTable:
         self,
         id: str,
         name: str,
-        email: str,
+        email: Optional[str] = None,
         profile_image_url: str = "/user.png",
         role: str = "pending",
         oauth_sub: Optional[str] = None,
+        phone: Optional[str] = None,
     ) -> Optional[UserModel]:
         with get_db() as db:
             user = UserModel(
@@ -176,6 +182,7 @@ class UsersTable:
                     "id": id,
                     "name": name,
                     "email": email,
+                    "phone": phone,
                     "role": role,
                     "profile_image_url": profile_image_url,
                     # AI-Friend, 默认启用记忆功能
@@ -219,6 +226,14 @@ class UsersTable:
         except Exception:
             return None
 
+    def get_user_by_phone(self, phone: str) -> Optional[UserModel]:
+        try:
+            with get_db() as db:
+                user = db.query(User).filter_by(phone=phone).first()
+                return UserModel.model_validate(user)
+        except Exception:
+            return None
+
     def get_user_by_oauth_sub(self, sub: str) -> Optional[UserModel]:
         try:
             with get_db() as db:
@@ -243,6 +258,7 @@ class UsersTable:
                         or_(
                             User.name.ilike(f"%{query_key}%"),
                             User.email.ilike(f"%{query_key}%"),
+                            User.phone.ilike(f"%{query_key}%"),
                         )
                     )
 

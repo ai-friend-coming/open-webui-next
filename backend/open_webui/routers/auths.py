@@ -19,6 +19,9 @@ from open_webui.models.auths import (
     SignupCodeForm,
     UpdatePasswordForm,
     UserResponse,
+    SMSCodeForm,
+    SignupSMSForm,
+    ResetPasswordSMSForm,
 )
 from open_webui.models.users import Users, UpdateProfileForm
 from open_webui.models.groups import Groups
@@ -44,6 +47,14 @@ from open_webui.env import (
     ENABLE_SIGNUP_EMAIL_VERIFICATION,
     ENABLE_INITIAL_ADMIN_SIGNUP,
     SRC_LOG_LEVELS,
+    ENABLE_SMS_VERIFICATION,
+    SMS_MWAPI_USER_ID,
+    SMS_MWAPI_PASSWORD,
+    SMS_MWAPI_MAIN_ADDR,
+    SMS_MWAPI_BAK_ADDRS,
+    SMS_VERIFICATION_CODE_TTL,
+    SMS_VERIFICATION_SEND_INTERVAL,
+    SMS_VERIFICATION_MAX_ATTEMPTS,
 )
 from open_webui.config import SIGNUP_WELCOME_BONUS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -57,6 +68,8 @@ from open_webui.utils.email_utils import (
     generate_verification_code,
     send_email,
 )
+from open_webui.utils.sms_utils import SMSVerificationManager, generate_sms_code
+from open_webui.utils.sms_client import init_sms_client, send_sms_code, get_sms_client, SMSScene
 from open_webui.utils.auth import (
     decode_token,
     create_api_key,
@@ -146,6 +159,7 @@ async def get_session_user(
         "expires_at": expires_at,
         "id": user.id,
         "email": user.email,
+        "phone": user.phone,
         "name": user.name,
         "role": user.role,
         "profile_image_url": user.profile_image_url,
@@ -190,7 +204,12 @@ async def update_password(
     if WEBUI_AUTH_TRUSTED_EMAIL_HEADER:
         raise HTTPException(400, detail=ERROR_MESSAGES.ACTION_PROHIBITED)
     if session_user:
-        user = Auths.authenticate_user(session_user.email, form_data.password)
+        # 根据用户是邮箱还是手机号注册来验证密码
+        user = None
+        if session_user.email:
+            user = Auths.authenticate_user(session_user.email, form_data.password)
+        elif session_user.phone:
+            user = Auths.authenticate_user_by_phone(session_user.phone, form_data.password)
 
         if user:
             hashed = get_password_hash(form_data.new_password)
@@ -463,6 +482,7 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
                     "expires_at": expires_at,
                     "id": user.id,
                     "email": user.email,
+                    "phone": user.phone,
                     "name": user.name,
                     "role": user.role,
                     "profile_image_url": user.profile_image_url,
@@ -529,7 +549,14 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
 
             user = Auths.authenticate_user(admin_email.lower(), admin_password)
     else:
-        user = Auths.authenticate_user(form_data.email.lower(), form_data.password)
+        # 判断输入是邮箱还是手机号
+        login_identifier = form_data.email.strip()
+        if validate_phone_format(login_identifier):
+            # 手机号登录
+            user = Auths.authenticate_user_by_phone(login_identifier, form_data.password)
+        else:
+            # 邮箱登录
+            user = Auths.authenticate_user(login_identifier.lower(), form_data.password)
 
     if user:
 
@@ -569,6 +596,7 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
             "expires_at": expires_at,
             "id": user.id,
             "email": user.email,
+            "phone": user.phone,
             "name": user.name,
             "role": user.role,
             "profile_image_url": user.profile_image_url,
@@ -808,6 +836,7 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
                 "expires_at": expires_at,
                 "id": user.id,
                 "email": user.email,
+                "phone": user.phone,
                 "name": user.name,
                 "role": user.role,
                 "profile_image_url": user.profile_image_url,
@@ -818,6 +847,375 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
     except Exception as err:
         log.error(f"Signup error: {str(err)}")
         raise HTTPException(500, detail="An internal error occurred during signup.")
+
+
+############################
+# SMS Verification for SignUp
+############################
+
+
+def validate_phone_format(phone: str) -> bool:
+    """验证中国大陆手机号格式"""
+    import re
+    pattern = r"^1[3-9]\d{9}$"
+    return bool(re.match(pattern, phone))
+
+
+def get_sms_verification_manager(request: Request, prefix: str = "sms:code") -> SMSVerificationManager:
+    """获取短信验证管理器"""
+    attr_name = f"sms_verification_manager_{prefix.replace(':', '_')}"
+    manager = getattr(request.app.state, attr_name, None)
+    if manager is None:
+        manager = SMSVerificationManager(request.app.state.redis, prefix=prefix)
+        setattr(request.app.state, attr_name, manager)
+    return manager
+
+
+def ensure_sms_client_initialized():
+    """确保短信客户端已初始化"""
+    if get_sms_client() is None:
+        log.info(f"[SMS Config] ENABLE_SMS_VERIFICATION={ENABLE_SMS_VERIFICATION}")
+        log.info(f"[SMS Config] SMS_MWAPI_USER_ID={SMS_MWAPI_USER_ID or 'NOT SET'}")
+        log.info(f"[SMS Config] SMS_MWAPI_MAIN_ADDR={SMS_MWAPI_MAIN_ADDR or 'NOT SET'}")
+        log.info(f"[SMS Config] SMS_MWAPI_PASSWORD={'SET' if SMS_MWAPI_PASSWORD else 'NOT SET'}")
+        if SMS_MWAPI_USER_ID and SMS_MWAPI_PASSWORD and SMS_MWAPI_MAIN_ADDR:
+            bak_addrs = [addr.strip() for addr in SMS_MWAPI_BAK_ADDRS.split(",") if addr.strip()]
+            init_sms_client(SMS_MWAPI_USER_ID, SMS_MWAPI_PASSWORD, SMS_MWAPI_MAIN_ADDR, bak_addrs)
+        else:
+            log.error("[SMS Config] Missing required SMS configuration")
+
+
+@router.post("/signup/sms/code")
+async def send_signup_sms_code(request: Request, form_data: SMSCodeForm):
+    """发送注册短信验证码"""
+    has_users = Users.has_users()
+
+    if WEBUI_AUTH:
+        if (
+            not request.app.state.config.ENABLE_SIGNUP
+            or not request.app.state.config.ENABLE_LOGIN_FORM
+        ):
+            if has_users or not ENABLE_INITIAL_ADMIN_SIGNUP:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
+                )
+    else:
+        if has_users:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
+            )
+
+    if not ENABLE_SMS_VERIFICATION:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="SMS verification is not enabled.",
+        )
+
+    phone = form_data.phone.strip()
+
+    if not validate_phone_format(phone):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.INVALID_PHONE_FORMAT,
+        )
+
+    # 检查手机号是否已被注册
+    if Users.get_user_by_phone(phone):
+        raise HTTPException(400, detail=ERROR_MESSAGES.PHONE_TAKEN)
+
+    manager = get_sms_verification_manager(request, prefix="sms:signup:code")
+
+    can_send, remaining = await manager.can_send(phone, SMS_VERIFICATION_SEND_INTERVAL)
+    if not can_send:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Please wait {int(remaining)} seconds before requesting a new code.",
+        )
+
+    # 确保短信客户端已初始化
+    ensure_sms_client_initialized()
+    if get_sms_client() is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SMS service is not configured.",
+        )
+
+    code = generate_sms_code()
+    await manager.store_code(
+        phone,
+        code,
+        SMS_VERIFICATION_CODE_TTL,
+        SMS_VERIFICATION_MAX_ATTEMPTS,
+        request.client.host if request.client else None,
+    )
+
+    # 发送短信（注册场景）
+    success, msgid, error = send_sms_code(phone, code, SMSScene.SIGNUP)
+    if not success:
+        log.error(f"Failed to send SMS to {phone}: {error}")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send SMS verification code.",
+        )
+
+    log.info(f"SMS verification code sent to {phone}, msgid: {msgid}")
+    return {"status": True}
+
+
+@router.post("/signup/sms", response_model=SessionUserResponse)
+async def signup_with_sms(request: Request, response: Response, form_data: SignupSMSForm):
+    """使用短信验证码注册"""
+    has_users = Users.has_users()
+
+    if WEBUI_AUTH:
+        if (
+            not request.app.state.config.ENABLE_SIGNUP
+            or not request.app.state.config.ENABLE_LOGIN_FORM
+        ):
+            if has_users or not ENABLE_INITIAL_ADMIN_SIGNUP:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
+                )
+    else:
+        if has_users:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
+            )
+
+    if not ENABLE_SMS_VERIFICATION:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="SMS verification is not enabled.",
+        )
+
+    phone = form_data.phone.strip()
+
+    if not validate_phone_format(phone):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.INVALID_PHONE_FORMAT,
+        )
+
+    # 检查手机号是否已被注册
+    if Users.get_user_by_phone(phone):
+        raise HTTPException(400, detail=ERROR_MESSAGES.PHONE_TAKEN)
+
+    # 验证短信验证码
+    manager = get_sms_verification_manager(request, prefix="sms:signup:code")
+    if not await manager.validate_code(phone, form_data.sms_code):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired SMS verification code.",
+        )
+
+    try:
+        role = "admin" if not has_users else "user"
+
+        if len(form_data.password.encode("utf-8")) > 72:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.PASSWORD_TOO_LONG,
+            )
+
+        hashed = get_password_hash(form_data.password)
+        # 使用独立的 phone 字段存储手机号
+        user = Auths.insert_new_auth(
+            email=None,
+            password=hashed,
+            name=form_data.name,
+            profile_image_url=form_data.profile_image_url,
+            role=role,
+            phone=phone,
+        )
+
+        if user:
+            # 赠送注册金额
+            signup_bonus = request.app.state.config.SIGNUP_WELCOME_BONUS
+            if signup_bonus > 0:
+                try:
+                    recharge_user(
+                        user_id=user.id,
+                        amount=signup_bonus,
+                        operator_id="system",
+                        remark="注册赠送"
+                    )
+                    log.info(f"User {user.id} received welcome bonus: {signup_bonus} 毫")
+                except Exception as bonus_err:
+                    log.error(f"Failed to give welcome bonus to user {user.id}: {str(bonus_err)}")
+
+            expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+            expires_at = None
+            if expires_delta:
+                expires_at = int(time.time()) + int(expires_delta.total_seconds())
+
+            token = create_token(
+                data={"id": user.id},
+                expires_delta=expires_delta,
+            )
+
+            datetime_expires_at = (
+                datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
+                if expires_at
+                else None
+            )
+
+            response.set_cookie(
+                key="token",
+                value=token,
+                expires=datetime_expires_at,
+                httponly=True,
+                samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+                secure=WEBUI_AUTH_COOKIE_SECURE,
+            )
+
+            if request.app.state.config.WEBHOOK_URL:
+                await post_webhook(
+                    request.app.state.WEBUI_NAME,
+                    request.app.state.config.WEBHOOK_URL,
+                    WEBHOOK_MESSAGES.USER_SIGNUP(user.name),
+                    {
+                        "action": "signup",
+                        "message": WEBHOOK_MESSAGES.USER_SIGNUP(user.name),
+                        "user": user.model_dump_json(exclude_none=True),
+                    },
+                )
+
+            user_permissions = get_permissions(
+                user.id, request.app.state.config.USER_PERMISSIONS
+            )
+
+            if not has_users:
+                request.app.state.config.ENABLE_SIGNUP = False
+
+            return {
+                "token": token,
+                "token_type": "Bearer",
+                "expires_at": expires_at,
+                "id": user.id,
+                "email": user.email,
+                "phone": user.phone,
+                "name": user.name,
+                "role": user.role,
+                "profile_image_url": user.profile_image_url,
+                "permissions": user_permissions,
+            }
+        else:
+            raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
+    except Exception as err:
+        log.error(f"SMS Signup error: {str(err)}")
+        raise HTTPException(500, detail="An internal error occurred during signup.")
+
+
+############################
+# Password Reset via SMS Code
+############################
+
+
+@router.post("/password/reset/sms/code")
+async def send_reset_sms_code(request: Request, form_data: SMSCodeForm):
+    """发送密码重置短信验证码"""
+    if not ENABLE_SMS_VERIFICATION:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="SMS verification is not enabled.",
+        )
+
+    phone = form_data.phone.strip()
+
+    if not validate_phone_format(phone):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.INVALID_PHONE_FORMAT,
+        )
+
+    # 检查用户是否存在（避免用户枚举，不存在也返回成功）
+    user = Users.get_user_by_phone(phone)
+    if not user:
+        return {"status": True}
+
+    manager = get_sms_verification_manager(request, prefix="sms:reset:code")
+
+    can_send, remaining = await manager.can_send(phone, SMS_VERIFICATION_SEND_INTERVAL)
+    if not can_send:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Please wait {int(remaining)} seconds before requesting a new code.",
+        )
+
+    ensure_sms_client_initialized()
+    if get_sms_client() is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SMS service is not configured.",
+        )
+
+    code = generate_sms_code()
+    await manager.store_code(
+        phone,
+        code,
+        SMS_VERIFICATION_CODE_TTL,
+        SMS_VERIFICATION_MAX_ATTEMPTS,
+        request.client.host if request.client else None,
+    )
+
+    # 发送短信（密码重置场景）
+    success, msgid, error = send_sms_code(phone, code, SMSScene.RESET)
+    if not success:
+        log.error(f"Failed to send reset SMS to {phone}: {error}")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send SMS verification code.",
+        )
+
+    log.info(f"Password reset SMS code sent to {phone}, msgid: {msgid}")
+    return {"status": True}
+
+
+@router.post("/password/reset/sms")
+async def reset_password_with_sms(request: Request, form_data: ResetPasswordSMSForm):
+    """使用短信验证码重置密码"""
+    if not ENABLE_SMS_VERIFICATION:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="SMS verification is not enabled.",
+        )
+
+    phone = form_data.phone.strip()
+
+    if not validate_phone_format(phone):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.INVALID_PHONE_FORMAT,
+        )
+
+    user = Users.get_user_by_phone(phone)
+    if not user:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_CRED
+        )
+
+    manager = get_sms_verification_manager(request, prefix="sms:reset:code")
+    if not await manager.validate_code(phone, form_data.sms_code):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired SMS verification code.",
+        )
+
+    if len(form_data.new_password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.PASSWORD_TOO_LONG,
+        )
+
+    hashed = get_password_hash(form_data.new_password)
+    ok = Auths.update_user_password_by_id(user.id, hashed)
+    if not ok:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password.",
+        )
+
+    return {"status": True}
 
 
 ############################
@@ -1023,37 +1421,64 @@ async def signout(request: Request, response: Response):
 
 @router.post("/add", response_model=SigninResponse)
 async def add_user(form_data: AddUserForm, user=Depends(get_admin_user)):
-    if not validate_email_format(form_data.email.lower()):
+    # 验证：至少提供邮箱或手机号其中之一
+    if not form_data.email and not form_data.phone:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
+            status.HTTP_400_BAD_REQUEST,
+            detail="Either email or phone number is required.",
         )
 
-    if Users.get_user_by_email(form_data.email.lower()):
-        raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
+    email = None
+    phone = None
+
+    # 验证并处理邮箱
+    if form_data.email:
+        email = form_data.email.lower().strip()
+        if not validate_email_format(email):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT
+            )
+        if Users.get_user_by_email(email):
+            raise HTTPException(400, detail=ERROR_MESSAGES.EMAIL_TAKEN)
+
+    # 验证并处理手机号
+    if form_data.phone:
+        phone = form_data.phone.strip()
+        if not validate_phone_format(phone):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.INVALID_PHONE_FORMAT,
+            )
+        if Users.get_user_by_phone(phone):
+            raise HTTPException(400, detail=ERROR_MESSAGES.PHONE_TAKEN)
 
     try:
         hashed = get_password_hash(form_data.password)
-        user = Auths.insert_new_auth(
-            form_data.email.lower(),
-            hashed,
-            form_data.name,
-            form_data.profile_image_url,
-            form_data.role,
+        new_user = Auths.insert_new_auth(
+            email=email,
+            password=hashed,
+            name=form_data.name,
+            profile_image_url=form_data.profile_image_url,
+            role=form_data.role,
+            phone=phone,
         )
 
-        if user:
-            token = create_token(data={"id": user.id})
+        if new_user:
+            token = create_token(data={"id": new_user.id})
             return {
                 "token": token,
                 "token_type": "Bearer",
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-                "role": user.role,
-                "profile_image_url": user.profile_image_url,
+                "id": new_user.id,
+                "email": new_user.email,
+                "phone": new_user.phone,
+                "name": new_user.name,
+                "role": new_user.role,
+                "profile_image_url": new_user.profile_image_url,
             }
         else:
             raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
+    except HTTPException:
+        raise
     except Exception as err:
         log.error(f"Add user error: {str(err)}")
         raise HTTPException(

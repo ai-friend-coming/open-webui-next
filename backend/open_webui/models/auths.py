@@ -21,14 +21,16 @@ class Auth(Base):
     __tablename__ = "auth"
 
     id = Column(String, primary_key=True)
-    email = Column(String)
+    email = Column(String, nullable=True)
+    phone = Column(String(20), nullable=True)
     password = Column(Text)
     active = Column(Boolean)
 
 
 class AuthModel(BaseModel):
     id: str
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     password: str
     active: bool = True
 
@@ -49,7 +51,8 @@ class ApiKey(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     name: str
     role: str
     profile_image_url: str
@@ -90,9 +93,14 @@ class SignupCodeForm(BaseModel):
     email: str
 
 
-class AddUserForm(SignupForm):
+class AddUserForm(BaseModel):
+    """管理员添加用户表单，邮箱和手机号至少填一个"""
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    password: str
+    profile_image_url: Optional[str] = "/user.png"
     role: Optional[str] = "pending"
-    code: Optional[str] = None  # 管理员添加用户时不需要验证码
 
 
 class ResetPasswordCodeForm(BaseModel):
@@ -105,15 +113,35 @@ class ResetPasswordForm(BaseModel):
     new_password: str
 
 
+# 短信验证相关表单
+class SMSCodeForm(BaseModel):
+    phone: str
+
+
+class SignupSMSForm(BaseModel):
+    name: str
+    phone: str
+    password: str
+    profile_image_url: Optional[str] = "/user.png"
+    sms_code: str
+
+
+class ResetPasswordSMSForm(BaseModel):
+    phone: str
+    sms_code: str
+    new_password: str
+
+
 class AuthsTable:
     def insert_new_auth(
         self,
-        email: str,
+        email: Optional[str],
         password: str,
         name: str,
         profile_image_url: str = "/user.png",
         role: str = "pending",
         oauth_sub: Optional[str] = None,
+        phone: Optional[str] = None,
     ) -> Optional[UserModel]:
         with get_db() as db:
             log.info("insert_new_auth")
@@ -121,13 +149,13 @@ class AuthsTable:
             id = str(uuid.uuid4())
 
             auth = AuthModel(
-                **{"id": id, "email": email, "password": password, "active": True}
+                **{"id": id, "email": email, "phone": phone, "password": password, "active": True}
             )
             result = Auth(**auth.model_dump())
             db.add(result)
 
             user = Users.insert_new_user(
-                id, name, email, profile_image_url, role, oauth_sub
+                id, name, email, profile_image_url, role, oauth_sub, phone
             )
 
             db.commit()
@@ -180,6 +208,36 @@ class AuthsTable:
                     return user
         except Exception:
             return None
+
+    def authenticate_user_by_phone(self, phone: str, password: str) -> Optional[UserModel]:
+        """通过手机号和密码认证用户"""
+        log.info(f"authenticate_user_by_phone: {phone}")
+
+        user = Users.get_user_by_phone(phone)
+        if not user:
+            return None
+
+        try:
+            with get_db() as db:
+                auth = db.query(Auth).filter_by(id=user.id, active=True).first()
+                if auth:
+                    if verify_password(password, auth.password):
+                        return user
+                    else:
+                        return None
+                else:
+                    return None
+        except Exception:
+            return None
+
+    def update_phone_by_id(self, id: str, phone: str) -> bool:
+        try:
+            with get_db() as db:
+                result = db.query(Auth).filter_by(id=id).update({"phone": phone})
+                db.commit()
+                return True if result == 1 else False
+        except Exception:
+            return False
 
     def update_user_password_by_id(self, id: str, new_password: str) -> bool:
         try:

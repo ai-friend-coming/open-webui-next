@@ -312,7 +312,7 @@
 						on:click={() => setSortKey('email')}
 					>
 						<div class="flex gap-1.5 items-center">
-							{$i18n.t('Email')}
+							{$i18n.t('Contact')}
 
 							{#if orderBy === 'email'}
 								<span class="font-normal"
@@ -466,7 +466,19 @@
 								<div class="font-medium truncate">{user.name}</div>
 							</div>
 						</td>
-						<td class=" px-3 py-1"> {user.email} </td>
+						<td class=" px-3 py-1">
+							<div class="flex flex-col gap-0.5">
+								{#if user.email}
+									<span>{user.email}</span>
+								{/if}
+								{#if user.phone}
+									<span class="text-gray-500">{user.phone}</span>
+								{/if}
+								{#if !user.email && !user.phone}
+									<span class="text-gray-400">-</span>
+								{/if}
+							</div>
+						</td>
 
 						<td class="px-3 py-1 min-w-[8rem] w-32">
 							<div class="flex items-center gap-2">

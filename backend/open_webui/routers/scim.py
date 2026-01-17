@@ -316,16 +316,19 @@ def user_to_scim(user: UserModel, request: Request) -> SCIMUser:
         for group in user_groups
     ]
 
+    # SCIM userName 必填，优先使用 email，否则使用 phone 或 id
+    user_name = user.email or user.phone or user.id
+
     return SCIMUser(
         id=user.id,
-        userName=user.email,
+        userName=user_name,
         name=SCIMName(
             formatted=user.name,
             givenName=given_name,
             familyName=family_name,
         ),
         displayName=user.name,
-        emails=[SCIMEmail(value=user.email)],
+        emails=[SCIMEmail(value=user.email)] if user.email else None,
         active=user.role != "pending",
         photos=(
             [SCIMPhoto(value=user.profile_image_url)]

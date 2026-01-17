@@ -45,6 +45,8 @@ class ERROR_MESSAGES(str, Enum):
     )
     INVALID_CRED = "The email or password provided is incorrect. Please check for typos and try logging in again."
     INVALID_EMAIL_FORMAT = "The email format you entered is invalid. Please double-check and make sure you're using a valid email address (e.g., yourname@example.com)."
+    INVALID_PHONE_FORMAT = "The phone number format is invalid. Please enter a valid 11-digit phone number."
+    PHONE_TAKEN = "This phone number is already registered. Please use another phone number or sign in with your existing account."
     INVALID_PASSWORD = (
         "The password provided is incorrect. Please check for typos and try again."
     )

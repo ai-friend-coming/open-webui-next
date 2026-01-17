@@ -82,7 +82,7 @@ async def send_get_request(url, key=None, user: UserModel = None):
                         {
                             "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                             "X-OpenWebUI-User-Id": user.id,
-                            "X-OpenWebUI-User-Email": user.email,
+                            "X-OpenWebUI-User-Email": user.email or "",
                             "X-OpenWebUI-User-Role": user.role,
                         }
                         if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -152,7 +152,7 @@ async def get_headers_and_cookies(
             {
                 "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                 "X-OpenWebUI-User-Id": user.id,
-                "X-OpenWebUI-User-Email": user.email,
+                "X-OpenWebUI-User-Email": user.email or "",
                 "X-OpenWebUI-User-Role": user.role,
                 **(
                     {"X-OpenWebUI-Chat-Id": metadata.get("chat_id")}
@@ -945,7 +945,7 @@ async def generate_chat_completion(
         payload["user"] = {
             "name": user.name,
             "id": user.id,
-            "email": user.email,
+            "email": user.email or "",
             "role": user.role,
         }
 

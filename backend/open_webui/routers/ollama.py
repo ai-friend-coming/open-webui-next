@@ -91,7 +91,7 @@ async def send_get_request(url, key=None, user: UserModel = None):
                         {
                             "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                             "X-OpenWebUI-User-Id": user.id,
-                            "X-OpenWebUI-User-Email": user.email,
+                            "X-OpenWebUI-User-Email": user.email or "",
                             "X-OpenWebUI-User-Role": user.role,
                         }
                         if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -143,7 +143,7 @@ async def send_post_request(
                     {
                         "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                         "X-OpenWebUI-User-Id": user.id,
-                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Email": user.email or "",
                         "X-OpenWebUI-User-Role": user.role,
                         **(
                             {"X-OpenWebUI-Chat-Id": metadata.get("chat_id")}
@@ -254,7 +254,7 @@ async def verify_connection(
                         {
                             "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                             "X-OpenWebUI-User-Id": user.id,
-                            "X-OpenWebUI-User-Email": user.email,
+                            "X-OpenWebUI-User-Email": user.email or "",
                             "X-OpenWebUI-User-Role": user.role,
                         }
                         if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -478,7 +478,7 @@ async def get_ollama_tags(
                         {
                             "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                             "X-OpenWebUI-User-Id": user.id,
-                            "X-OpenWebUI-User-Email": user.email,
+                            "X-OpenWebUI-User-Email": user.email or "",
                             "X-OpenWebUI-User-Role": user.role,
                         }
                         if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -848,7 +848,7 @@ async def copy_model(
                     {
                         "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                         "X-OpenWebUI-User-Id": user.id,
-                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Email": user.email or "",
                         "X-OpenWebUI-User-Role": user.role,
                     }
                     if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -919,7 +919,7 @@ async def delete_model(
                     {
                         "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                         "X-OpenWebUI-User-Id": user.id,
-                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Email": user.email or "",
                         "X-OpenWebUI-User-Role": user.role,
                     }
                     if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -983,7 +983,7 @@ async def show_model_info(
                     {
                         "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                         "X-OpenWebUI-User-Id": user.id,
-                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Email": user.email or "",
                         "X-OpenWebUI-User-Role": user.role,
                     }
                     if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -1074,7 +1074,7 @@ async def embed(
                     {
                         "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                         "X-OpenWebUI-User-Id": user.id,
-                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Email": user.email or "",
                         "X-OpenWebUI-User-Role": user.role,
                     }
                     if ENABLE_FORWARD_USER_INFO_HEADERS and user
@@ -1161,7 +1161,7 @@ async def embeddings(
                     {
                         "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
                         "X-OpenWebUI-User-Id": user.id,
-                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Email": user.email or "",
                         "X-OpenWebUI-User-Role": user.role,
                     }
                     if ENABLE_FORWARD_USER_INFO_HEADERS and user

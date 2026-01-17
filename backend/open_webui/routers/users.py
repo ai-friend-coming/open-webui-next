@@ -462,12 +462,24 @@ async def update_user_by_id(
     user = Users.get_user_by_id(user_id)
 
     if user:
-        if form_data.email.lower() != user.email:
-            email_user = Users.get_user_by_email(form_data.email.lower())
+        # 验证邮箱是否被其他用户使用
+        email = form_data.email.lower().strip() if form_data.email else None
+        if email and email != user.email:
+            email_user = Users.get_user_by_email(email)
             if email_user:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=ERROR_MESSAGES.EMAIL_TAKEN,
+                )
+
+        # 验证手机号是否被其他用户使用
+        phone = form_data.phone.strip() if form_data.phone else None
+        if phone and phone != user.phone:
+            phone_user = Users.get_user_by_phone(phone)
+            if phone_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered.",
                 )
 
         if form_data.password:
@@ -475,13 +487,19 @@ async def update_user_by_id(
             log.debug(f"hashed: {hashed}")
             Auths.update_user_password_by_id(user_id, hashed)
 
-        Auths.update_email_by_id(user_id, form_data.email.lower())
+        # 更新 Auth 表中的 email 和 phone
+        if email:
+            Auths.update_email_by_id(user_id, email)
+        if phone:
+            Auths.update_phone_by_id(user_id, phone)
+
         updated_user = Users.update_user_by_id(
             user_id,
             {
                 "role": form_data.role,
                 "name": form_data.name,
-                "email": form_data.email.lower(),
+                "email": email,
+                "phone": phone,
                 "profile_image_url": form_data.profile_image_url,
             },
         )
