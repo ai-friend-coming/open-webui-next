@@ -286,7 +286,26 @@ async def test_user_model_connection(
             raise
         except Exception as e:
             log.exception(e)
+
+            # 常见国内被墙的API域名列表
+            BLOCKED_DOMAINS = [
+                'api.openai.com',
+                'api.anthropic.com',
+                'generativelanguage.googleapis.com',
+                'api.cohere.ai',
+                'api.perplexity.ai',
+            ]
+
+            # 检查是否为国内被墙的域名
+            is_blocked = any(domain in base_url for domain in BLOCKED_DOMAINS)
+
+            error_detail = (
+                "该终端国内无法访问，建议配置代理或使用国内API"
+                if is_blocked
+                else "Failed to reach the model endpoint"
+            )
+
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to reach the model endpoint",
+                detail=error_detail,
             )
