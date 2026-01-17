@@ -24,6 +24,11 @@ jobs:
         run: |
           echo "IMAGE_NAME=${IMAGE_NAME,,}" >>${GITHUB_ENV}
           echo "FULL_IMAGE_NAME=ghcr.io/${IMAGE_NAME,,}" >>${GITHUB_ENV}
+          
+          # 定义 TCR 镜像地址
+          # ${IMAGE_NAME##*/} 提取的是不带用户名的纯仓库名 (例如 my-repo)，以适配 TCR 格式
+          REPO_PURE_NAME=${IMAGE_NAME##*/}
+          echo "TCR_FULL_IMAGE_NAME=ccr.ccs.tencentyun.com/open-webui-next/${REPO_PURE_NAME,,}" >>${GITHUB_ENV}
         env:
           IMAGE_NAME: '${{ github.repository }}'
 
@@ -40,11 +45,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # [新增] 登录腾讯云 TCR
+      - name: Log in to Tencent TCR
+        uses: docker/login-action@v3
+        with:
+          registry: ccr.ccs.tencentyun.com
+          username: "100004409622"
+          password: ${{ secrets.TCR_PASSWORD }}
+
       - name: Extract metadata for Docker images
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.FULL_IMAGE_NAME }}
+          # [修改] 这里增加了 TCR 地址，插件会自动为两个仓库生成 Tag
+          images: |
+            ${{ env.FULL_IMAGE_NAME }}
+            ${{ env.TCR_FULL_IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -95,7 +111,12 @@ jobs:
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**拉取命令:**" >> $GITHUB_STEP_SUMMARY
+          echo "**拉取命令 (GHCR):**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.FULL_IMAGE_NAME }}:slim" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # [新增] 输出 TCR 拉取命令
+          echo "**拉取命令 (TCR):**" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.TCR_FULL_IMAGE_NAME }}:slim" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
