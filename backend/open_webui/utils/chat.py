@@ -229,8 +229,10 @@ async def generate_chat_completion(
 
     # 私有模型直连：如果是用户私有模型，使用 credential_id 注入 direct 配置
     if form_data.get("is_user_model") and form_data.get("model_item", {}).get("credential_id"):
+        # 移除前端添加的 "user:" 前缀（前端为了区分用户模型和平台模型，给 ID 加了前缀）
+        cred_id = form_data["model_item"]["credential_id"].replace("user:", "")
         cred = UserModelCredentials.get_credential_by_id_and_user_id(
-            form_data["model_item"]["credential_id"], user.id
+            cred_id, user.id
         )
         if not cred:
             raise Exception("User model credential not found")
