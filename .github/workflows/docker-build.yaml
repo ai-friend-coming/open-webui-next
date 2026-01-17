@@ -96,6 +96,7 @@ jobs:
           cache-to: type=registry,ref=${{ steps.cache-meta.outputs.tags }},mode=max
           build-args: |
             BUILD_HASH=${{ github.sha }}
+            BUILD_BRANCH=${{ github.ref_name }}
             USE_SLIM=true
 
       - name: Inspect image
