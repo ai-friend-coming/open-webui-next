@@ -3,6 +3,7 @@
 	import { toast } from 'svelte-sonner';
 	import { mobile, showSidebar, showMobileUserPanel, showMobileChatDrawer, user } from '$lib/stores';
 	import { createUserSuggestionFeedback } from '$lib/apis/evaluations';
+	import { WEBUI_BUILD_HASH, WEBUI_BUILD_BRANCH } from '$lib/constants';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
 
@@ -106,6 +107,11 @@
 
 	<div class="flex-1 flex flex-col min-w-[320px] overflow-hidden">
 		<div class="flex-1 flex flex-col max-w-2xl w-full mx-auto px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+			<!-- 版本信息 -->
+			<div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+				版本号：{WEBUI_BUILD_BRANCH}+{WEBUI_BUILD_HASH.substring(0, 7)}
+			</div>
+
 			<!-- 反馈内容 -->
 			<div class="flex-1 flex flex-col space-y-2 min-h-0">
 				<label class="block text-sm text-gray-600 dark:text-gray-400">

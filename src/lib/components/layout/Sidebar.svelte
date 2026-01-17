@@ -877,7 +877,8 @@
     <div
         class=" {$isApp
             ? ' ml-[4.5rem] md:ml-0'
-            : ''} fixed md:hidden z-40 top-0 right-0 left-0 bottom-0 bg-black/60 w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain"
+            : ''} fixed md:hidden z-40 right-0 left-0 bottom-0 bg-black/60 w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain"
+        style="top: env(safe-area-inset-top, 0);"
         on:mousedown={() => {
             showSidebar.set(!$showSidebar);
         }}
