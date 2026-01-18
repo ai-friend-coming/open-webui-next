@@ -462,6 +462,21 @@ class FirstRechargeBonusLogTable:
         except Exception:
             return False
 
+    def get_by_user_id(self, user_id: str) -> Optional[FirstRechargeBonusLogModel]:
+        """获取用户的首充优惠记录"""
+        try:
+            with get_db() as db:
+                log = (
+                    db.query(FirstRechargeBonusLog)
+                    .filter_by(user_id=user_id)
+                    .first()
+                )
+                if log:
+                    return FirstRechargeBonusLogModel.model_validate(log)
+                return None
+        except Exception:
+            return None
+
     def create(
         self,
         user_id: str,
