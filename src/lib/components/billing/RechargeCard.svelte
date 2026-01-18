@@ -6,7 +6,11 @@
 		createPaymentOrder,
 		createH5PaymentOrder,
 		getPaymentConfig,
-		getPaymentStatus
+		getPaymentStatus,
+		getFirstRechargeBonusConfig,
+		checkFirstRechargeBonusEligibility,
+		type FirstRechargeBonusConfig,
+		type FirstRechargeBonusEligibility
 	} from '$lib/apis/billing';
 	import { getBalance } from '$lib/apis/billing';
 	import { balance } from '$lib/stores';
@@ -35,10 +39,23 @@
 	// 成功弹窗状态
 	let showSuccessModal = false;
 	let successAmount = 0;
+	let successBonusAmount = 0;
+	let successBonusRate = 0;
+
+	// 首充优惠相关状态
+	let firstRechargeBonusConfig: FirstRechargeBonusConfig | null = null;
+	let firstRechargeBonusEligibility: FirstRechargeBonusEligibility | null = null;
+	let showFirstRechargeBanner = false;
 
 	// 计算最终金额
 	$: finalAmount = selectedAmount || (customAmount ? parseFloat(customAmount) : 0);
 	$: isValidAmount = finalAmount >= 0.01 && finalAmount <= 10000;
+
+	// 计算预期首充奖励
+	$: expectedBonus =
+		firstRechargeBonusConfig && showFirstRechargeBanner && finalAmount > 0
+			? Math.min((finalAmount * firstRechargeBonusConfig.rate) / 100, firstRechargeBonusConfig.max_amount)
+			: 0;
 
 	// 检查待支付订单状态（用于移动端从支付宝 App 返回后）
 	const checkPendingOrder = async () => {
@@ -65,7 +82,14 @@
 
 				// 显示成功弹窗
 				successAmount = result.amount;
+				successBonusAmount = result.bonus_amount || 0;
+				successBonusRate = result.bonus_rate || 0;
 				showSuccessModal = true;
+
+				// 如果是首充，隐藏首充横幅
+				if (result.is_first_recharge) {
+					showFirstRechargeBanner = false;
+				}
 
 				// 刷新余额
 				try {
@@ -114,6 +138,25 @@
 			alipayEnabled = config.alipay_enabled;
 		} catch (e) {
 			console.error('获取支付配置失败', e);
+		}
+
+		// 加载首充优惠配置和资格检查
+		try {
+			// 获取首充优惠配置（公开接口）
+			const bonusConfig = await getFirstRechargeBonusConfig();
+			firstRechargeBonusConfig = bonusConfig;
+
+			// 检查用户资格（需要登录）
+			if (localStorage.token) {
+				const eligibility = await checkFirstRechargeBonusEligibility(localStorage.token);
+				firstRechargeBonusEligibility = eligibility;
+
+				// 同时满足以下条件才显示横幅
+				showFirstRechargeBanner =
+					bonusConfig.enabled && eligibility.eligible;
+			}
+		} catch (e) {
+			console.error('获取首充优惠信息失败', e);
 		}
 
 		// 检查是否有待支付订单（页面刷新或返回时）
@@ -171,6 +214,58 @@
 			{$i18n.t('账户充值')}
 		</h3>
 	</div>
+
+	<!-- 首充优惠横幅 -->
+	{#if showFirstRechargeBanner && firstRechargeBonusConfig}
+		<div
+			class="mb-4 p-4 rounded-xl border-2 backdrop-blur-xl
+				bg-gradient-to-br from-amber-50/90 to-orange-50/90 dark:from-amber-900/20 dark:to-orange-900/20
+				border-amber-300/60 dark:border-amber-600/60
+				shadow-lg shadow-amber-500/10 dark:shadow-amber-500/5
+				transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/20"
+		>
+			<div class="flex items-start gap-3">
+				<!-- 礼物图标 -->
+				<div class="flex-shrink-0 mt-0.5">
+					<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md">
+						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+						</svg>
+					</div>
+				</div>
+
+				<!-- 活动内容 -->
+				<div class="flex-1 min-w-0">
+					<div class="flex items-center gap-2 mb-1">
+						<h4 class="text-base font-bold bg-gradient-to-r from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400 bg-clip-text text-transparent">
+							{$i18n.t('🎉 首充优惠')}
+						</h4>
+					</div>
+					<p class="text-sm text-gray-700 dark:text-gray-300 mb-2">
+						{$i18n.t('新用户首次充值享受')}
+						<span class="font-bold text-amber-600 dark:text-amber-400">{firstRechargeBonusConfig.rate}%</span>
+						{$i18n.t('返现')}，
+						{$i18n.t('最高')}
+						<span class="font-bold text-amber-600 dark:text-amber-400">¥{firstRechargeBonusConfig.max_amount.toFixed(2)}</span>
+					</p>
+
+					<!-- 预期奖励提示 -->
+					{#if expectedBonus > 0}
+						<div class="flex items-center gap-1.5 text-xs">
+							<svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+							</svg>
+							<span class="text-gray-600 dark:text-gray-400">
+								{$i18n.t('充值')} ¥{finalAmount.toFixed(2)}，{$i18n.t('您将获得')}
+								<span class="font-bold text-amber-600 dark:text-amber-400">¥{expectedBonus.toFixed(2)}</span>
+								{$i18n.t('奖励')}
+							</span>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	{#if !alipayEnabled}
 		<!-- 支付未配置 -->
@@ -270,4 +365,9 @@
 </div>
 
 <!-- 充值成功弹窗 -->
-<PaymentSuccessModal bind:show={showSuccessModal} amount={successAmount} />
+<PaymentSuccessModal
+	bind:show={showSuccessModal}
+	amount={successAmount}
+	bonusAmount={successBonusAmount}
+	bonusRate={successBonusRate}
+/>

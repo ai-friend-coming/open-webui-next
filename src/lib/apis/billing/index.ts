@@ -351,6 +351,9 @@ export interface OrderStatusResponse {
 	status: string;
 	amount: number;
 	paid_at: number | null;
+	is_first_recharge?: boolean;
+	bonus_amount?: number;
+	bonus_rate?: number;
 }
 
 export interface PaymentOrder {
@@ -362,6 +365,8 @@ export interface PaymentOrder {
 	payment_method: string;
 	paid_at: number | null;
 	created_at: number;
+	is_first_recharge?: boolean; // 是否为首充订单
+	bonus_amount?: number; // 首充奖励金额（元）
 }
 
 export interface PaymentConfig {
@@ -512,6 +517,80 @@ export const getPaymentStatus = async (
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/billing/payment/status/${orderId}`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+// ========== 首充优惠 API ==========
+
+export interface FirstRechargeBonusConfig {
+	enabled: boolean;
+	rate: number; // 返现比例（百分比）
+	max_amount: number; // 最高返现金额（元）
+}
+
+export interface FirstRechargeBonusEligibility {
+	eligible: boolean;
+	reason?: string;
+}
+
+/**
+ * 获取首充优惠配置（公开接口）
+ */
+export const getFirstRechargeBonusConfig = async (): Promise<FirstRechargeBonusConfig> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/first-recharge-bonus/config/public`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json'
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
+ * 检查用户首充资格
+ */
+export const checkFirstRechargeBonusEligibility = async (
+	token: string
+): Promise<FirstRechargeBonusEligibility> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/first-recharge-bonus/eligibility`, {
 		method: 'GET',
 		headers: {
 			'Content-Type': 'application/json',

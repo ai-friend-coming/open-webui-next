@@ -496,6 +496,9 @@ class OrderStatusResponse(BaseModel):
     status: str
     amount: float
     paid_at: Optional[int] = None
+    is_first_recharge: bool = False  # 是否为首充订单
+    bonus_amount: float = 0  # 首充奖励金额（元）
+    bonus_rate: int = 0  # 首充返现比例（百分比）
 
 
 class PaymentOrderResponse(BaseModel):
@@ -509,6 +512,8 @@ class PaymentOrderResponse(BaseModel):
     payment_method: str
     paid_at: Optional[int] = None
     created_at: int
+    is_first_recharge: bool = False  # 是否为首充订单
+    bonus_amount: float = 0  # 首充奖励金额（元）
 
 
 @router.get("/payment/orders", response_model=list[PaymentOrderResponse])
@@ -522,23 +527,45 @@ async def get_user_payment_orders(
 
     需要登录
     """
-    from open_webui.models.billing import PaymentOrders
+    from open_webui.models.billing import PaymentOrders, FirstRechargeBonusLogs
 
     try:
         orders = PaymentOrders.get_by_user_id(user.id, limit=limit, offset=offset)
-        return [
-            PaymentOrderResponse(
-                id=o.id,
-                out_trade_no=o.out_trade_no,
-                trade_no=o.trade_no,
-                amount=o.amount / 10000,  # 毫 → 元
-                status=o.status,
-                payment_method=o.payment_method,
-                paid_at=o.paid_at,
-                created_at=o.created_at,
+
+        # 查询用户的首充记录
+        first_recharge_log = FirstRechargeBonusLogs.get_by_user_id(user.id)
+
+        result = []
+        for o in orders:
+            is_first_recharge = False
+            bonus_amount = 0
+
+            # 检查是否为首充订单
+            if first_recharge_log and o.status == "paid" and o.paid_at:
+                # 通过充值金额和支付时间判断（允许10秒误差）
+                if (
+                    abs(o.amount - first_recharge_log.recharge_amount) < 100  # 金额误差小于0.01元
+                    and abs(o.paid_at - (first_recharge_log.created_at // 1000000000)) < 10
+                ):
+                    is_first_recharge = True
+                    bonus_amount = first_recharge_log.bonus_amount / 10000  # 毫 → 元
+
+            result.append(
+                PaymentOrderResponse(
+                    id=o.id,
+                    out_trade_no=o.out_trade_no,
+                    trade_no=o.trade_no,
+                    amount=o.amount / 10000,  # 毫 → 元
+                    status=o.status,
+                    payment_method=o.payment_method,
+                    paid_at=o.paid_at,
+                    created_at=o.created_at,
+                    is_first_recharge=is_first_recharge,
+                    bonus_amount=bonus_amount,
+                )
             )
-            for o in orders
-        ]
+
+        return result
     except Exception as e:
         log.error(f"获取支付订单失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取支付订单失败: {str(e)}")
@@ -673,7 +700,7 @@ async def get_payment_status(order_id: str, user=Depends(get_verified_user)):
 
     需要登录
     """
-    from open_webui.models.billing import PaymentOrders
+    from open_webui.models.billing import PaymentOrders, FirstRechargeBonusLogs
 
     order = PaymentOrders.get_by_id(order_id)
 
@@ -684,11 +711,31 @@ async def get_payment_status(order_id: str, user=Depends(get_verified_user)):
     if order.user_id != user.id:
         raise HTTPException(status_code=403, detail="无权查询该订单")
 
+    # 检查是否为首充订单
+    is_first_recharge = False
+    bonus_amount = 0
+    bonus_rate = 0
+
+    if order.status == "paid" and order.paid_at:
+        first_recharge_log = FirstRechargeBonusLogs.get_by_user_id(user.id)
+        if first_recharge_log:
+            # 通过充值金额和支付时间判断（允许10秒误差）
+            if (
+                abs(order.amount - first_recharge_log.recharge_amount) < 100
+                and abs(order.paid_at - (first_recharge_log.created_at // 1000000000)) < 10
+            ):
+                is_first_recharge = True
+                bonus_amount = first_recharge_log.bonus_amount / 10000  # 毫 → 元
+                bonus_rate = first_recharge_log.bonus_rate
+
     return OrderStatusResponse(
         order_id=order.id,
         status=order.status,
         amount=order.amount / 10000,  # 毫 → 元
         paid_at=order.paid_at,
+        is_first_recharge=is_first_recharge,
+        bonus_amount=bonus_amount,
+        bonus_rate=bonus_rate,
     )
 
 

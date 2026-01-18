@@ -78,6 +78,24 @@ class EligibilityResponse(BaseModel):
 ####################
 
 
+@router.get("/config/public", response_model=FirstRechargeBonusConfig)
+async def get_first_recharge_bonus_config_public():
+    """
+    获取首充优惠配置（公开接口，无需登录）
+
+    前端用于显示首充优惠活动信息
+    """
+    try:
+        return FirstRechargeBonusConfig(
+            enabled=bool(FIRST_RECHARGE_BONUS_ENABLED.value),
+            rate=float(FIRST_RECHARGE_BONUS_RATE.value),
+            max_amount=float(FIRST_RECHARGE_BONUS_MAX_AMOUNT.value) / 10000,  # 毫 → 元
+        )
+    except Exception as e:
+        log.error(f"获取首充优惠配置失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+
 @router.get("/config", response_model=FirstRechargeBonusConfig)
 async def get_first_recharge_bonus_config(admin=Depends(get_admin_user)):
     """
