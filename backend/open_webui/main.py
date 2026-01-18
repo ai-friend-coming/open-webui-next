@@ -99,6 +99,7 @@ from open_webui.routers import (
     user_models,
     utils,
     scim,
+    sign_in,
 )
 
 from open_webui.routers.retrieval import (
@@ -1361,6 +1362,7 @@ app.include_router(
     prefix="/api/v1/first-recharge-bonus",
     tags=["first_recharge_bonus"],
 )
+app.include_router(sign_in.router, prefix="/api/v1/sign-in", tags=["sign-in"])
 app.include_router(redeem_codes.router, prefix="/api/v1", tags=["redeem_codes"])
 app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"])
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
