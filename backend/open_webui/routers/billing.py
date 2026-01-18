@@ -532,23 +532,25 @@ async def get_user_payment_orders(
     try:
         orders = PaymentOrders.get_by_user_id(user.id, limit=limit, offset=offset)
 
-        # 查询用户的首充记录
-        first_recharge_log = FirstRechargeBonusLogs.get_by_user_id(user.id)
+        # 查询用户的所有首充记录（列表）
+        first_recharge_logs = FirstRechargeBonusLogs.get_by_user_id(user.id)
 
         result = []
         for o in orders:
             is_first_recharge = False
             bonus_amount = 0
 
-            # 检查是否为首充订单
-            if first_recharge_log and o.status == "paid" and o.paid_at:
-                # 通过充值金额和支付时间判断（允许10秒误差）
-                if (
-                    abs(o.amount - first_recharge_log.recharge_amount) < 100  # 金额误差小于0.01元
-                    and abs(o.paid_at - (first_recharge_log.created_at // 1000000000)) < 10
-                ):
-                    is_first_recharge = True
-                    bonus_amount = first_recharge_log.bonus_amount / 10000  # 毫 → 元
+            # 检查是否为首充订单（遍历所有首充记录）
+            if first_recharge_logs and o.status == "paid" and o.paid_at:
+                for log in first_recharge_logs:
+                    # 通过充值金额和支付时间判断（允许10秒误差）
+                    if (
+                        abs(o.amount - log.recharge_amount) < 100  # 金额误差小于0.01元
+                        and abs(o.paid_at - (log.created_at // 1000000000)) < 10
+                    ):
+                        is_first_recharge = True
+                        bonus_amount = log.bonus_amount / 10000  # 毫 → 元
+                        break
 
             result.append(
                 PaymentOrderResponse(
@@ -739,16 +741,18 @@ async def get_payment_status(order_id: str, user=Depends(get_verified_user)):
     bonus_rate = 0
 
     if order.status == "paid" and order.paid_at:
-        first_recharge_log = FirstRechargeBonusLogs.get_by_user_id(user.id)
-        if first_recharge_log:
-            # 通过充值金额和支付时间判断（允许10秒误差）
-            if (
-                abs(order.amount - first_recharge_log.recharge_amount) < 100
-                and abs(order.paid_at - (first_recharge_log.created_at // 1000000000)) < 10
-            ):
-                is_first_recharge = True
-                bonus_amount = first_recharge_log.bonus_amount / 10000  # 毫 → 元
-                bonus_rate = first_recharge_log.bonus_rate
+        first_recharge_logs = FirstRechargeBonusLogs.get_by_user_id(user.id)
+        if first_recharge_logs:
+            for log in first_recharge_logs:
+                # 通过充值金额和支付时间判断（允许10秒误差）
+                if (
+                    abs(order.amount - log.recharge_amount) < 100
+                    and abs(order.paid_at - (log.created_at // 1000000000)) < 10
+                ):
+                    is_first_recharge = True
+                    bonus_amount = log.bonus_amount / 10000  # 毫 → 元
+                    bonus_rate = log.bonus_rate
+                    break
 
     return OrderStatusResponse(
         order_id=order.id,
