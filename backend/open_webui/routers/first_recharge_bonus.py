@@ -73,6 +73,20 @@ class EligibilityResponse(BaseModel):
     reason: Optional[str] = Field(None, description="不符合资格的原因")
 
 
+class TierEligibility(BaseModel):
+    """档位资格"""
+
+    tier_amount: float = Field(..., description="档位金额（元）")
+    eligible: bool = Field(..., description="是否有资格参与")
+
+
+class TiersEligibilityResponse(BaseModel):
+    """所有档位资格检查响应"""
+
+    enabled: bool = Field(..., description="活动是否启用")
+    tiers: list[TierEligibility] = Field(..., description="各档位资格列表")
+
+
 ####################
 # API Endpoints
 ####################
@@ -220,7 +234,7 @@ async def get_first_recharge_bonus_participants(
 @router.get("/eligibility", response_model=EligibilityResponse)
 async def check_first_recharge_bonus_eligibility(user=Depends(get_verified_user)):
     """
-    检查当前用户是否有资格参与首充优惠
+    检查当前用户是否有资格参与首充优惠（任意档位）
 
     需要登录
     """
@@ -229,7 +243,7 @@ async def check_first_recharge_bonus_eligibility(user=Depends(get_verified_user)
         if not FIRST_RECHARGE_BONUS_ENABLED.value:
             return EligibilityResponse(eligible=False, reason="活动未启用")
 
-        # 检查用户是否已参与过
+        # 检查用户是否已参与过任何档位
         has_participated = FirstRechargeBonusLogs.has_participated(user.id)
         if has_participated:
             return EligibilityResponse(eligible=False, reason="您已参与过首充优惠")
@@ -238,3 +252,37 @@ async def check_first_recharge_bonus_eligibility(user=Depends(get_verified_user)
     except Exception as e:
         log.error(f"检查资格失败: {e}")
         raise HTTPException(status_code=500, detail=f"检查资格失败: {str(e)}")
+
+
+@router.get("/eligibility/tiers", response_model=TiersEligibilityResponse)
+async def check_tiers_eligibility(user=Depends(get_verified_user)):
+    """
+    检查当前用户在所有预设档位的首充资格
+
+    需要登录
+    """
+    try:
+        # 预设档位（元）
+        PRESET_TIERS = [10, 50, 100, 200, 500, 1000]
+
+        # 检查活动是否启用
+        if not FIRST_RECHARGE_BONUS_ENABLED.value:
+            return TiersEligibilityResponse(
+                enabled=False,
+                tiers=[TierEligibility(tier_amount=tier, eligible=False) for tier in PRESET_TIERS]
+            )
+
+        # 获取用户已参与的档位（毫）
+        participated_tiers_milli = FirstRechargeBonusLogs.get_participated_tiers(user.id)
+        participated_tiers_yuan = [tier / 10000 for tier in participated_tiers_milli]
+
+        # 检查每个档位的资格
+        tier_eligibilities = []
+        for tier in PRESET_TIERS:
+            eligible = tier not in participated_tiers_yuan
+            tier_eligibilities.append(TierEligibility(tier_amount=tier, eligible=eligible))
+
+        return TiersEligibilityResponse(enabled=True, tiers=tier_eligibilities)
+    except Exception as e:
+        log.error(f"检查档位资格失败: {e}")
+        raise HTTPException(status_code=500, detail=f"检查档位资格失败: {str(e)}")

@@ -553,6 +553,16 @@ export interface FirstRechargeBonusEligibility {
 	reason?: string;
 }
 
+export interface TierEligibility {
+	tier_amount: number; // 档位金额（元）
+	eligible: boolean; // 是否有资格参与
+}
+
+export interface TiersEligibilityResponse {
+	enabled: boolean; // 活动是否启用
+	tiers: TierEligibility[]; // 各档位资格列表
+}
+
 /**
  * 获取首充优惠配置（公开接口）
  */
@@ -583,7 +593,7 @@ export const getFirstRechargeBonusConfig = async (): Promise<FirstRechargeBonusC
 };
 
 /**
- * 检查用户首充资格
+ * 检查用户首充资格（任意档位）
  */
 export const checkFirstRechargeBonusEligibility = async (
 	token: string
@@ -591,6 +601,38 @@ export const checkFirstRechargeBonusEligibility = async (
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/first-recharge-bonus/eligibility`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
+ * 检查所有预设档位的首充资格
+ */
+export const checkTiersEligibility = async (
+	token: string
+): Promise<TiersEligibilityResponse> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/first-recharge-bonus/eligibility/tiers`, {
 		method: 'GET',
 		headers: {
 			'Content-Type': 'application/json',

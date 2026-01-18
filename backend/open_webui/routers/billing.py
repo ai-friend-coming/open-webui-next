@@ -862,17 +862,25 @@ async def alipay_notify(request: Request):
                 # 检查是否需要发放首充优惠
                 bonus_amount = 0
                 is_first_recharge = False
+                matched_tier = None
 
-                if (
-                    FIRST_RECHARGE_BONUS_ENABLED.value
-                    and not FirstRechargeBonusLogs.has_participated(order.user_id)
-                ):
-                    is_first_recharge = True
-                    # 计算奖励金额
-                    rate = float(FIRST_RECHARGE_BONUS_RATE.value) / 100
-                    max_amount = int(FIRST_RECHARGE_BONUS_MAX_AMOUNT.value)
-                    bonus_amount = int(order.amount * rate)
-                    bonus_amount = min(bonus_amount, max_amount)
+                # 预设档位（毫）
+                PRESET_TIERS = [100000, 500000, 1000000, 2000000, 5000000, 10000000]  # 10, 50, 100, 200, 500, 1000元
+
+                # 精确匹配档位
+                if order.amount in PRESET_TIERS:
+                    matched_tier = order.amount
+                    # 检查该档位是否已参与
+                    if (
+                        FIRST_RECHARGE_BONUS_ENABLED.value
+                        and not FirstRechargeBonusLogs.has_participated_tier(order.user_id, matched_tier)
+                    ):
+                        is_first_recharge = True
+                        # 计算奖励金额
+                        rate = float(FIRST_RECHARGE_BONUS_RATE.value) / 100
+                        max_amount = int(FIRST_RECHARGE_BONUS_MAX_AMOUNT.value)
+                        bonus_amount = int(order.amount * rate)
+                        bonus_amount = min(bonus_amount, max_amount)
 
                 # 更新用户余额（充值金额 + 奖励金额）
                 total_amount = order.amount + bonus_amount
@@ -892,11 +900,12 @@ async def alipay_notify(request: Request):
                 db.commit()
 
                 # 如果是首充，记录首充优惠日志和计费日志
-                if is_first_recharge and bonus_amount > 0:
+                if is_first_recharge and bonus_amount > 0 and matched_tier is not None:
                     try:
-                        # 记录首充优惠参与记录
+                        # 记录首充优惠参与记录（包含档位信息）
                         FirstRechargeBonusLogs.create(
                             user_id=order.user_id,
+                            tier_amount=matched_tier,  # 记录档位金额
                             recharge_amount=order.amount,
                             bonus_amount=bonus_amount,
                             bonus_rate=int(FIRST_RECHARGE_BONUS_RATE.value),

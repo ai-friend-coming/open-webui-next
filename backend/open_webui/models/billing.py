@@ -9,7 +9,7 @@ import uuid
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Boolean, Column, String, Integer, BigInteger, Text, func
+from sqlalchemy import Boolean, Column, String, Integer, BigInteger, Text, func, UniqueConstraint
 
 from open_webui.internal.db import Base, get_db
 
@@ -411,16 +411,22 @@ class PaymentOrderTable:
 
 
 class FirstRechargeBonusLog(Base):
-    """首充优惠日志表"""
+    """首充优惠日志表（支持档位独立首充）"""
 
     __tablename__ = "first_recharge_bonus_log"
 
     id = Column(String, primary_key=True)
-    user_id = Column(String, unique=True, nullable=False, index=True)  # 用户ID（唯一索引）
-    recharge_amount = Column(Integer, nullable=False)  # 首充金额（毫）
+    user_id = Column(String, nullable=False, index=True)  # 用户ID
+    tier_amount = Column(Integer, nullable=False)  # 档位金额（毫），如 100元 = 1000000毫
+    recharge_amount = Column(Integer, nullable=False)  # 实际充值金额（毫）
     bonus_amount = Column(Integer, nullable=False)  # 奖励金额（毫）
     bonus_rate = Column(Integer, nullable=False)  # 返现比例（整数百分比，如10表示10%）
     created_at = Column(BigInteger, nullable=False, index=True)  # 参与时间
+
+    __table_args__ = (
+        # 复合唯一索引：每个用户每个档位只能充值一次
+        UniqueConstraint('user_id', 'tier_amount', name='uq_user_tier'),
+    )
 
 
 ####################
@@ -433,7 +439,8 @@ class FirstRechargeBonusLogModel(BaseModel):
 
     id: str
     user_id: str
-    recharge_amount: int  # 毫
+    tier_amount: int  # 毫（档位金额）
+    recharge_amount: int  # 毫（实际充值金额）
     bonus_amount: int  # 毫
     bonus_rate: int  # 整数百分比
     created_at: int
@@ -447,10 +454,23 @@ class FirstRechargeBonusLogModel(BaseModel):
 
 
 class FirstRechargeBonusLogTable:
-    """首充优惠日志数据访问层"""
+    """首充优惠日志数据访问层（支持档位独立首充）"""
+
+    def has_participated_tier(self, user_id: str, tier_amount: int) -> bool:
+        """检查用户是否已参与过指定档位的首充优惠"""
+        try:
+            with get_db() as db:
+                exists = (
+                    db.query(FirstRechargeBonusLog)
+                    .filter_by(user_id=user_id, tier_amount=tier_amount)
+                    .first()
+                )
+                return exists is not None
+        except Exception:
+            return False
 
     def has_participated(self, user_id: str) -> bool:
-        """检查用户是否已参与过首充优惠"""
+        """检查用户是否参与过任何档位的首充优惠（兼容旧接口）"""
         try:
             with get_db() as db:
                 exists = (
@@ -462,24 +482,37 @@ class FirstRechargeBonusLogTable:
         except Exception:
             return False
 
-    def get_by_user_id(self, user_id: str) -> Optional[FirstRechargeBonusLogModel]:
-        """获取用户的首充优惠记录"""
+    def get_participated_tiers(self, user_id: str) -> list[int]:
+        """获取用户已参与首充的所有档位金额列表"""
         try:
             with get_db() as db:
-                log = (
+                logs = (
+                    db.query(FirstRechargeBonusLog.tier_amount)
+                    .filter_by(user_id=user_id)
+                    .all()
+                )
+                return [log.tier_amount for log in logs]
+        except Exception:
+            return []
+
+    def get_by_user_id(self, user_id: str) -> list[FirstRechargeBonusLogModel]:
+        """获取用户的所有首充优惠记录"""
+        try:
+            with get_db() as db:
+                logs = (
                     db.query(FirstRechargeBonusLog)
                     .filter_by(user_id=user_id)
-                    .first()
+                    .order_by(FirstRechargeBonusLog.created_at.desc())
+                    .all()
                 )
-                if log:
-                    return FirstRechargeBonusLogModel.model_validate(log)
-                return None
+                return [FirstRechargeBonusLogModel.model_validate(log) for log in logs]
         except Exception:
-            return None
+            return []
 
     def create(
         self,
         user_id: str,
+        tier_amount: int,
         recharge_amount: int,
         bonus_amount: int,
         bonus_rate: int,
@@ -490,6 +523,7 @@ class FirstRechargeBonusLogTable:
             log = FirstRechargeBonusLog(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
+                tier_amount=tier_amount,
                 recharge_amount=recharge_amount,
                 bonus_amount=bonus_amount,
                 bonus_rate=bonus_rate,

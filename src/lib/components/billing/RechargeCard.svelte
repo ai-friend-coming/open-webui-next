@@ -9,8 +9,10 @@
 		getPaymentStatus,
 		getFirstRechargeBonusConfig,
 		checkFirstRechargeBonusEligibility,
+		checkTiersEligibility,
 		type FirstRechargeBonusConfig,
-		type FirstRechargeBonusEligibility
+		type FirstRechargeBonusEligibility,
+		type TiersEligibilityResponse
 	} from '$lib/apis/billing';
 	import { getBalance } from '$lib/apis/billing';
 	import { balance } from '$lib/stores';
@@ -52,16 +54,33 @@
 	// 首充优惠相关状态
 	let firstRechargeBonusConfig: FirstRechargeBonusConfig | null = null;
 	let firstRechargeBonusEligibility: FirstRechargeBonusEligibility | null = null;
+	let tiersEligibility: TiersEligibilityResponse | null = null;
 	let showFirstRechargeBanner = false;
+
+	// 档位资格映射 {档位金额: 是否有资格}
+	let tierEligibilityMap: Record<number, boolean> = {};
+
+	// 调试信息（开发环境显示）
+	let debugMode = false;
+	$: debugInfo = {
+		configLoaded: !!firstRechargeBonusConfig,
+		enabled: firstRechargeBonusConfig?.enabled ?? false,
+		eligible: firstRechargeBonusEligibility?.eligible ?? false,
+		reason: firstRechargeBonusEligibility?.reason ?? '',
+		showBanner: showFirstRechargeBanner,
+		rate: firstRechargeBonusConfig?.rate ?? 0,
+		maxAmount: firstRechargeBonusConfig?.max_amount ?? 0,
+		tiersEligibility: tiersEligibility,
+	};
 
 	// 计算最终金额
 	$: finalAmount = selectedAmount || (customAmount ? parseFloat(customAmount) : 0);
 	$: isValidAmount = finalAmount >= 0.01 && finalAmount <= 10000;
 
-	// 计算预期首充奖励
+	// 计算预期首充奖励（仅预设档位且有资格时）
 	$: expectedBonus =
-		firstRechargeBonusConfig && showFirstRechargeBanner && finalAmount > 0
-			? Math.min((finalAmount * firstRechargeBonusConfig.rate) / 100, firstRechargeBonusConfig.max_amount)
+		firstRechargeBonusConfig && showFirstRechargeBanner && selectedAmount && tierEligibilityMap[selectedAmount]
+			? Math.min((selectedAmount * firstRechargeBonusConfig.rate) / 100, firstRechargeBonusConfig.max_amount)
 			: 0;
 
 	// 检查待支付订单状态（用于移动端从支付宝 App 返回后）
@@ -155,12 +174,26 @@
 
 			// 检查用户资格（需要登录）
 			if (localStorage.token) {
+				// 检查所有档位的资格（新API）
+				const tiersElig = await checkTiersEligibility(localStorage.token);
+				tiersEligibility = tiersElig;
+
+				// 构建档位资格映射
+				tierEligibilityMap = {};
+				if (tiersElig && tiersElig.tiers) {
+					tiersElig.tiers.forEach(tier => {
+						tierEligibilityMap[tier.tier_amount] = tier.eligible;
+					});
+				}
+
+				// 兼容旧接口：检查用户是否参与过任何档位
 				const eligibility = await checkFirstRechargeBonusEligibility(localStorage.token);
 				firstRechargeBonusEligibility = eligibility;
 
-				// 同时满足以下条件才显示横幅
+				// 同时满足以下条件才显示横幅（至少有一个档位可用）
+				const hasAnyEligibleTier = Object.values(tierEligibilityMap).some(eligible => eligible);
 				showFirstRechargeBanner =
-					bonusConfig.enabled && eligibility.eligible;
+					bonusConfig.enabled && hasAnyEligibleTier;
 			}
 		} catch (e) {
 			console.error('获取首充优惠信息失败', e);
@@ -211,16 +244,91 @@
 <div
 	class="p-5 bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/30 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all duration-300"
 >
-	<div class="flex items-center gap-2.5 mb-4">
-		<div class="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
-			<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-			</svg>
+	<div class="flex items-center justify-between gap-2.5 mb-4">
+		<div class="flex items-center gap-2.5">
+			<div class="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
+				<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+				</svg>
+			</div>
+			<h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+				{$i18n.t('账户充值')}
+			</h3>
 		</div>
-		<h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-			{$i18n.t('账户充值')}
-		</h3>
+		<!-- 调试按钮 -->
+		<button
+			on:click={() => debugMode = !debugMode}
+			class="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+			title="查看首充优惠状态"
+		>
+			🔍 调试
+		</button>
 	</div>
+
+	<!-- 调试面板 -->
+	{#if debugMode}
+		<div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-xs font-mono space-y-1">
+			<div class="font-bold text-gray-900 dark:text-white mb-2">🔍 首充优惠状态</div>
+			<div class="flex justify-between">
+				<span class="text-gray-600 dark:text-gray-300">配置已加载:</span>
+				<span class={debugInfo.configLoaded ? 'text-green-600' : 'text-red-600'}>
+					{debugInfo.configLoaded ? '✅ 是' : '❌ 否'}
+				</span>
+			</div>
+			<div class="flex justify-between">
+				<span class="text-gray-600 dark:text-gray-300">后台已启用:</span>
+				<span class={debugInfo.enabled ? 'text-green-600' : 'text-red-600'}>
+					{debugInfo.enabled ? '✅ 是' : '❌ 否 (需在管理后台开启)'}
+				</span>
+			</div>
+			<div class="flex justify-between">
+				<span class="text-gray-600 dark:text-gray-300">用户符合资格:</span>
+				<span class={debugInfo.eligible ? 'text-green-600' : 'text-red-600'}>
+					{debugInfo.eligible ? '✅ 是' : '❌ 否'}
+				</span>
+			</div>
+			{#if debugInfo.reason}
+				<div class="flex justify-between">
+					<span class="text-gray-600 dark:text-gray-300">原因:</span>
+					<span class="text-amber-600">{debugInfo.reason}</span>
+				</div>
+			{/if}
+			<div class="flex justify-between">
+				<span class="text-gray-600 dark:text-gray-300">显示横幅:</span>
+				<span class={debugInfo.showBanner ? 'text-green-600' : 'text-gray-500'}>
+					{debugInfo.showBanner ? '✅ 是' : '⚪ 否'}
+				</span>
+			</div>
+			<div class="flex justify-between">
+				<span class="text-gray-600 dark:text-gray-300">返现比例:</span>
+				<span class="text-gray-900 dark:text-white">{debugInfo.rate}%</span>
+			</div>
+			<div class="flex justify-between">
+				<span class="text-gray-600 dark:text-gray-300">最高金额:</span>
+				<span class="text-gray-900 dark:text-white">¥{debugInfo.maxAmount.toFixed(2)}</span>
+			</div>
+			<div class="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">
+				<div class="font-bold text-gray-900 dark:text-white mb-1">📊 档位资格详情</div>
+				{#if tiersEligibility && tiersEligibility.tiers}
+					<div class="space-y-0.5">
+						{#each tiersEligibility.tiers as tier}
+							<div class="flex justify-between text-xs">
+								<span class="text-gray-600 dark:text-gray-300">¥{tier.tier_amount}:</span>
+								<span class={tier.eligible ? 'text-green-600' : 'text-gray-500'}>
+									{tier.eligible ? '✅ 可享首充' : '⚪ 已充值过'}
+								</span>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="text-xs text-gray-500">未加载档位信息</div>
+				{/if}
+			</div>
+			<div class="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600 text-amber-600 text-xs">
+				💡 提示：如未启用，请到 管理面板 → 设置 → 首充优惠 中开启
+			</div>
+		</div>
+	{/if}
 
 	<!-- 首充优惠横幅 -->
 	{#if showFirstRechargeBanner && firstRechargeBonusConfig}
@@ -308,8 +416,8 @@
 							customAmount = '';
 						}}
 					>
-						<!-- 首充奖励浮动标签 -->
-						{#if showFirstRechargeBanner && calculateBonus(amount) > 0}
+						<!-- 首充奖励浮动标签（仅当该档位有资格时显示） -->
+						{#if showFirstRechargeBanner && tierEligibilityMap[amount] && calculateBonus(amount) > 0}
 							<div class="absolute -top-2 -right-2 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold
 								bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-lg
 								flex items-center gap-0.5 animate-bounce-subtle whitespace-nowrap z-10">
@@ -331,14 +439,12 @@
 					placeholder={$i18n.t('自定义金额 (0.01-10000)')}
 					class="w-full px-4 py-2.5 border rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
 						focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all
-						{showFirstRechargeBanner
-							? 'border-amber-300/60 dark:border-amber-600/60 bg-gradient-to-r from-amber-50/50 to-white/50 dark:from-amber-900/10 dark:to-gray-700/50'
-							: 'border-gray-200/60 dark:border-gray-600/60 bg-white/50 dark:bg-gray-700/50'}"
+						border-gray-200/60 dark:border-gray-600/60 bg-white/50 dark:bg-gray-700/50"
 				/>
 				{#if showFirstRechargeBanner}
-					<div class="mt-1.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-						<span>✨</span>
-						<span>{$i18n.t('自定义金额同样享受首充')} {firstRechargeBonusConfig?.rate}% {$i18n.t('奖励')}</span>
+					<div class="mt-1.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+						<span>ℹ️</span>
+						<span>{$i18n.t('仅预设档位享受首充优惠')}</span>
 					</div>
 				{/if}
 			</div>
