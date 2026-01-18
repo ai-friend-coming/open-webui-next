@@ -9,7 +9,7 @@ import uuid
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Boolean, Column, String, Integer, BigInteger, Text
+from sqlalchemy import Boolean, Column, String, Integer, BigInteger, Text, func
 
 from open_webui.internal.db import Base, get_db
 
