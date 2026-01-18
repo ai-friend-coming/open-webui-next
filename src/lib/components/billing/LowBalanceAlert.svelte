@@ -3,7 +3,7 @@
 	import { getContext, onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/first-recharge-bonus';
+	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/billing';
 
 	const i18n = getContext('i18n');
 
@@ -14,7 +14,7 @@
 	onMount(async () => {
 		try {
 			const [config, eligibility] = await Promise.all([
-				getFirstRechargeBonusConfig(localStorage.token),
+				getFirstRechargeBonusConfig(),
 				checkFirstRechargeBonusEligibility(localStorage.token)
 			]);
 			bonusConfig = config;
@@ -32,7 +32,7 @@
 		goto('/billing');
 	};
 
-	$: bonusRate = bonusConfig?.bonus_rate ? (bonusConfig.bonus_rate * 100).toFixed(0) : '0';
+	$: bonusRate = bonusConfig?.rate ? bonusConfig.rate.toFixed(0) : '0';
 </script>
 
 {#if ($isLowBalance || $isFrozen) && !dismissed}

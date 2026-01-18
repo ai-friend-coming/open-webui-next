@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/first-recharge-bonus';
+	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/billing';
 
 	let showBadge = false;
 
 	onMount(async () => {
 		try {
 			const [config, eligibility] = await Promise.all([
-				getFirstRechargeBonusConfig(localStorage.token),
+				getFirstRechargeBonusConfig(),
 				checkFirstRechargeBonusEligibility(localStorage.token)
 			]);
 			showBadge = eligibility?.eligible && config?.enabled;

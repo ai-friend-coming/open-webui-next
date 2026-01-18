@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { slide } from 'svelte/transition';
-	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/first-recharge-bonus';
+	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/billing';
 
 	export let messageCount = 0; // 用户发送的消息数量
 	export let showAfterMessages = 5; // 发送多少条消息后显示提示
@@ -14,7 +14,7 @@
 	onMount(async () => {
 		try {
 			const [config, eligibility] = await Promise.all([
-				getFirstRechargeBonusConfig(localStorage.token),
+				getFirstRechargeBonusConfig(),
 				checkFirstRechargeBonusEligibility(localStorage.token)
 			]);
 
@@ -48,7 +48,7 @@
 		localStorage.setItem('firstRechargeTipDismissed', 'true');
 	};
 
-	$: bonusRate = bonusConfig?.bonus_rate ? (bonusConfig.bonus_rate * 100).toFixed(0) : '0';
+	$: bonusRate = bonusConfig?.rate ? bonusConfig.rate.toFixed(0) : '0';
 </script>
 
 {#if showTip && !dismissed}
@@ -60,7 +60,7 @@
 			<div class="tip-icon">💡</div>
 			<div class="tip-text">
 				<span class="tip-label">提示：</span>
-				首次充值可享 <strong>{bonusRate}%</strong> 奖励，最高送 <strong>¥{(bonusConfig?.max_bonus_amount / 10000).toFixed(0)}</strong> 元
+				首次充值可享 <strong>{bonusRate}%</strong> 奖励，最高送 <strong>¥{bonusConfig?.max_amount?.toFixed(0)}</strong> 元
 			</div>
 			<button class="tip-action" on:click={handleRecharge}>
 				去充值

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Modal from '$lib/components/common/Modal.svelte';
-	import { getFirstRechargeBonusConfig } from '$lib/apis/first-recharge-bonus';
+	import { getFirstRechargeBonusConfig } from '$lib/apis/billing';
 	import { user } from '$lib/stores';
 
 	export let show = false;
@@ -12,7 +12,7 @@
 
 	onMount(async () => {
 		try {
-			bonusConfig = await getFirstRechargeBonusConfig(localStorage.token);
+			bonusConfig = await getFirstRechargeBonusConfig();
 			loading = false;
 		} catch (error) {
 			console.error('Failed to load first recharge bonus config:', error);
@@ -31,8 +31,8 @@
 		localStorage.setItem('firstRechargeBonusModalShown', 'true');
 	};
 
-	$: bonusRate = bonusConfig?.bonus_rate ? (bonusConfig.bonus_rate * 100).toFixed(0) : '0';
-	$: maxBonus = bonusConfig?.max_bonus_amount ? (bonusConfig.max_bonus_amount / 10000).toFixed(0) : '0';
+	$: bonusRate = bonusConfig?.rate ? bonusConfig.rate.toFixed(0) : '0';
+	$: maxBonus = bonusConfig?.max_amount ? bonusConfig.max_amount.toFixed(0) : '0';
 </script>
 
 <Modal bind:show size="sm">
@@ -54,7 +54,7 @@
 					首次充值送 {bonusRate}% 奖励
 				</p>
 				<p class="text-sm text-gray-600 dark:text-gray-400">
-					充 100 元送 {(100 * bonusConfig.bonus_rate).toFixed(0)} 元
+					充 100 元送 {(100 * bonusConfig.rate / 100).toFixed(0)} 元
 				</p>
 				<p class="text-xs text-gray-500 dark:text-gray-500">
 					最高可获得 {maxBonus} 元奖励
