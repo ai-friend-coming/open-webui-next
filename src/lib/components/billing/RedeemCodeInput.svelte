@@ -56,7 +56,7 @@
 	</p>
 
 	<!-- 输入框和按钮 -->
-	<div class="flex flex-col sm:flex-row gap-3">
+	<div class="flex flex-row gap-3">
 		<input
 			type="text"
 			bind:value={code}
@@ -69,7 +69,7 @@
 		<button
 			on:click={handleRedeem}
 			disabled={loading || !code.trim()}
-			class="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap shadow-lg hover:shadow-xl sm:w-auto sm:min-w-[120px] w-full hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
+			class="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap shadow-lg hover:shadow-xl min-w-[120px] hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
 		>
 			{#if loading}
 				<Spinner className="size-4" />
