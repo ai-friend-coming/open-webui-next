@@ -623,6 +623,16 @@ async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verifie
 
     log.info(f"创建PC支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
 
+    # 埋点：创建订单
+    from open_webui.utils.posthog import track_payment_order_created
+    track_payment_order_created(
+        user_id=user.id,
+        order_id=order.id,
+        out_trade_no=out_trade_no,
+        amount_yuan=req.amount,
+        payment_type="page",
+    )
+
     return CreateOrderResponse(
         order_id=order.id,
         out_trade_no=out_trade_no,
@@ -683,6 +693,16 @@ async def create_h5_payment_order(req: CreateOrderRequest, user=Depends(get_veri
     )
 
     log.info(f"创建H5支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
+
+    # 埋点：创建订单
+    from open_webui.utils.posthog import track_payment_order_created
+    track_payment_order_created(
+        user_id=user.id,
+        order_id=order.id,
+        out_trade_no=out_trade_no,
+        amount_yuan=req.amount,
+        payment_type="h5",
+    )
 
     return CreateH5OrderResponse(
         order_id=order.id,
@@ -908,6 +928,18 @@ async def alipay_notify(request: Request):
                     f"支付成功: 用户={order.user_id}, 金额={order.amount / 10000:.2f}元, "
                     f"订单={out_trade_no}"
                     + (f", 首充奖励={bonus_amount / 10000:.2f}元" if is_first_recharge else "")
+                )
+
+                # 埋点：支付成功
+                from open_webui.utils.posthog import track_payment_success
+                track_payment_success(
+                    user_id=order.user_id,
+                    order_id=order.id,
+                    out_trade_no=out_trade_no,
+                    trade_no=trade_no,
+                    amount_yuan=order.amount / 10000,
+                    is_first_recharge=is_first_recharge,
+                    bonus_amount_yuan=bonus_amount / 10000 if bonus_amount else 0,
                 )
     except Exception as e:
         log.error(f"支付回调处理失败: {e}")
