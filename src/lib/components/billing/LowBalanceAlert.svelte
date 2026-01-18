@@ -1,15 +1,38 @@
 <script lang="ts">
 	import { isLowBalance, isFrozen, balance, formatCurrency } from '$lib/stores';
-	import { getContext } from 'svelte';
+	import { getContext, onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
+	import { goto } from '$app/navigation';
+	import { getFirstRechargeBonusConfig, checkFirstRechargeBonusEligibility } from '$lib/apis/first-recharge-bonus';
 
 	const i18n = getContext('i18n');
 
 	let dismissed = false;
+	let isFirstRechargeEligible = false;
+	let bonusConfig: any = null;
+
+	onMount(async () => {
+		try {
+			const [config, eligibility] = await Promise.all([
+				getFirstRechargeBonusConfig(localStorage.token),
+				checkFirstRechargeBonusEligibility(localStorage.token)
+			]);
+			bonusConfig = config;
+			isFirstRechargeEligible = eligibility?.eligible && config?.enabled;
+		} catch (error) {
+			console.error('Failed to check first recharge eligibility:', error);
+		}
+	});
 
 	const dismiss = () => {
 		dismissed = true;
 	};
+
+	const handleRecharge = () => {
+		goto('/billing');
+	};
+
+	$: bonusRate = bonusConfig?.bonus_rate ? (bonusConfig.bonus_rate * 100).toFixed(0) : '0';
 </script>
 
 {#if ($isLowBalance || $isFrozen) && !dismissed}
@@ -41,11 +64,21 @@
 				{#if $isFrozen}
 					{$i18n.t('您的账户余额不足，已被冻结。请联系管理员充值。')}
 				{:else}
-					{$i18n.t('当前余额')}: {formatCurrency($balance?.balance || 0)}，{$i18n.t(
-						'请及时充值以免影响使用。'
-					)}
+					{$i18n.t('当前余额')}: {formatCurrency($balance?.balance || 0)}
+					{#if isFirstRechargeEligible}
+						<span class="first-recharge-highlight">
+							🎁 首充送 {bonusRate}% 奖励
+						</span>
+					{:else}
+						，{$i18n.t('请及时充值以免影响使用。')}
+					{/if}
 				{/if}
 			</div>
+			{#if isFirstRechargeEligible && !$isFrozen}
+				<button class="recharge-btn" on:click={handleRecharge}>
+					立即充值领取奖励
+				</button>
+			{/if}
 		</div>
 		<button class="alert-close" on:click={dismiss}>
 			<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -152,5 +185,51 @@
 	:global(.dark) .alert-close:hover {
 		background: rgba(255, 255, 255, 0.1);
 		color: #fde68a;
+	}
+
+	.first-recharge-highlight {
+		display: inline-block;
+		margin-left: 0.5rem;
+		padding: 0.25rem 0.75rem;
+		background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+		color: white;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.875rem;
+		animation: pulse 2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+			transform: scale(1);
+		}
+		50% {
+			opacity: 0.9;
+			transform: scale(1.02);
+		}
+	}
+
+	.recharge-btn {
+		margin-top: 0.75rem;
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+		color: white;
+		border: none;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 2px 4px rgba(251, 191, 36, 0.3);
+	}
+
+	.recharge-btn:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(251, 191, 36, 0.4);
+	}
+
+	.recharge-btn:active {
+		transform: translateY(0);
 	}
 </style>
