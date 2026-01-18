@@ -22,11 +22,28 @@ depends_on = None
 
 def upgrade():
     """升级数据库"""
-    # 1. 删除旧的唯一索引
-    with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-        batch_op.drop_constraint('uq_first_recharge_bonus_log_user_id', type_='unique')
+    # 检测数据库类型
+    bind = op.get_bind()
+    dialect_name = bind.engine.dialect.name
 
-    # 2. 添加 tier_amount 字段（默认值为 recharge_amount，表示将现有记录视为该金额的档位）
+    # 1. 删除旧的唯一索引（如果存在）
+    # PostgreSQL 和 SQLite 的约束名称可能不同
+    try:
+        if dialect_name == 'postgresql':
+            # PostgreSQL 可能使用不同的约束名称
+            op.drop_constraint('uq_first_recharge_bonus_log_user_id', 'first_recharge_bonus_log', type_='unique')
+        elif dialect_name == 'sqlite':
+            # SQLite 使用 batch_alter_table
+            with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
+                batch_op.drop_constraint('uq_first_recharge_bonus_log_user_id', type_='unique')
+        else:
+            # 其他数据库
+            op.drop_constraint('uq_first_recharge_bonus_log_user_id', 'first_recharge_bonus_log', type_='unique')
+    except Exception as e:
+        print(f"Warning: Could not drop old constraint: {e}")
+        # 约束可能不存在，继续执行
+
+    # 2. 添加 tier_amount 字段
     op.add_column('first_recharge_bonus_log',
                   sa.Column('tier_amount', sa.Integer(), nullable=True))
 
@@ -38,27 +55,37 @@ def upgrade():
     """)
 
     # 4. 将 tier_amount 设置为 NOT NULL
-    with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-        batch_op.alter_column('tier_amount', nullable=False)
+    if dialect_name == 'sqlite':
+        # SQLite 需要使用 batch_alter_table
+        with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
+            batch_op.alter_column('tier_amount', nullable=False)
+    else:
+        # PostgreSQL 和其他数据库
+        op.alter_column('first_recharge_bonus_log', 'tier_amount',
+                       existing_type=sa.Integer(),
+                       nullable=False)
 
     # 5. 创建新的复合唯一索引
-    with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-        batch_op.create_index(
-            'idx_user_tier',
-            ['user_id', 'tier_amount'],
-            unique=True
-        )
+    op.create_index('idx_user_tier', 'first_recharge_bonus_log',
+                    ['user_id', 'tier_amount'], unique=True)
 
 
 def downgrade():
     """回滚数据库"""
+    # 检测数据库类型
+    bind = op.get_bind()
+    dialect_name = bind.engine.dialect.name
+
     # 1. 删除复合唯一索引
-    with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-        batch_op.drop_index('idx_user_tier')
+    op.drop_index('idx_user_tier', table_name='first_recharge_bonus_log')
 
     # 2. 删除 tier_amount 字段
     op.drop_column('first_recharge_bonus_log', 'tier_amount')
 
     # 3. 恢复原来的 user_id 唯一索引
-    with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-        batch_op.create_unique_constraint('uq_first_recharge_bonus_log_user_id', ['user_id'])
+    if dialect_name == 'sqlite':
+        with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
+            batch_op.create_unique_constraint('uq_first_recharge_bonus_log_user_id', ['user_id'])
+    else:
+        op.create_unique_constraint('uq_first_recharge_bonus_log_user_id',
+                                   'first_recharge_bonus_log', ['user_id'])
