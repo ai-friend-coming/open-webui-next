@@ -699,6 +699,62 @@ export const getImportOrigin = (_chats) => {
 	return 'webui';
 };
 
+/**
+ * 在消息树中找到最长路径（用于多分支聊天导入）
+ * @param messagesMap - 消息映射表 {id: message}
+ * @param rootId - 起始节点ID
+ * @returns 最长路径的消息ID数组
+ */
+export const findLongestPathInTree = (
+	messagesMap: Record<string, any>,
+	rootId: string
+): string[] => {
+	// 使用记忆化递归计算深度
+	const getDepth = (nodeId: string, memo: Map<string, number> = new Map()): number => {
+		if (memo.has(nodeId)) return memo.get(nodeId)!;
+
+		const node = messagesMap[nodeId];
+		if (!node || !node.childrenIds || node.childrenIds.length === 0) {
+			memo.set(nodeId, 1);
+			return 1;
+		}
+
+		const maxChildDepth = Math.max(
+			...node.childrenIds.map((childId) => getDepth(childId, memo))
+		);
+		const depth = 1 + maxChildDepth;
+		memo.set(nodeId, depth);
+		return depth;
+	};
+
+	// 选择最长路径
+	const selectLongestPath = (nodeId: string, path: string[] = []): string[] => {
+		path.push(nodeId);
+		const node = messagesMap[nodeId];
+
+		if (!node || !node.childrenIds || node.childrenIds.length === 0) {
+			return path;
+		}
+
+		// 找到深度最大的子节点
+		const memo = new Map<string, number>();
+		let maxDepth = 0;
+		let selectedChild = node.childrenIds[0]; // 默认第一个
+
+		for (const childId of node.childrenIds) {
+			const depth = getDepth(childId, memo);
+			if (depth > maxDepth) {
+				maxDepth = depth;
+				selectedChild = childId;
+			}
+		}
+
+		return selectLongestPath(selectedChild, path);
+	};
+
+	return selectLongestPath(rootId, []);
+};
+
 export const getUserPosition = async (raw = false) => {
 	// Get the user's location using the Geolocation API
 	const position = await new Promise((resolve, reject) => {
@@ -812,11 +868,55 @@ const convertOpenAIMessages = (convo) => {
 		}
 
 		const validChildren: string[] = [];
-		for (const childId of node.children || []) {
-			const childAcceptedId = traverse(childId, parentValidId);
+		const children = node.children || [];
+
+		if (children.length === 0) {
+			// 无子节点
+		} else if (children.length === 1) {
+			// 单分支：直接遍历
+			const childAcceptedId = traverse(children[0], parentValidId);
 			if (acceptedId && childAcceptedId && childAcceptedId !== acceptedId) {
 				validChildren.push(childAcceptedId);
 			}
+		} else {
+			// 多分支：只遍历最长路径
+			// 先构建临时映射以计算深度
+			const tempMap: Record<string, any> = {};
+			const buildTempMap = (nodeId: string) => {
+				const n = mapping[nodeId];
+				if (!n) return;
+				tempMap[nodeId] = {
+					id: nodeId,
+					childrenIds: n.children || []
+				};
+				(n.children || []).forEach(buildTempMap);
+			};
+			children.forEach(buildTempMap);
+
+			// 找到最长路径的第一个子节点
+			let maxDepth = 0;
+			let selectedChild = children[0];
+			for (const childId of children) {
+				const depth = calculateDepth(childId, tempMap);
+				if (depth > maxDepth) {
+					maxDepth = depth;
+					selectedChild = childId;
+				}
+			}
+
+			const childAcceptedId = traverse(selectedChild, parentValidId);
+			if (acceptedId && childAcceptedId && childAcceptedId !== acceptedId) {
+				validChildren.push(childAcceptedId);
+			}
+		}
+
+		// 辅助函数：计算深度
+		function calculateDepth(nodeId: string, map: Record<string, any>): number {
+			const node = map[nodeId];
+			if (!node || !node.childrenIds || node.childrenIds.length === 0) {
+				return 1;
+			}
+			return 1 + Math.max(...node.childrenIds.map((cid) => calculateDepth(cid, map)));
 		}
 
 		if (acceptedId) {
@@ -1028,9 +1128,17 @@ const convertDeepseekMessages = (convo) => {
             lastValidId = node.id; // 更新有效节点指针
         }
 
-        // 移动到下一个节点 (这里假设是单线性对话，取第一个 child)
-        // DeepSeek 的对话通常是线性的，如果有分支，这里需要更复杂的树形处理
-        currentNodeId = node.childrenIds[0]; 
+        // 移动到下一个节点
+        // 如果有多个分支，选择最长路径
+        if (node.childrenIds.length === 0) {
+            break;
+        } else if (node.childrenIds.length === 1) {
+            currentNodeId = node.childrenIds[0];
+        } else {
+            // 多分支：选择最长路径的下一个节点
+            const longestPath = findLongestPathInTree(mapping, currentNodeId);
+            currentNodeId = longestPath[1]; // 下一个节点（跳过当前节点）
+        } 
     }
 
     const history = {};

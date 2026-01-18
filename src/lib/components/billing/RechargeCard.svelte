@@ -36,6 +36,13 @@
 	let alipayEnabled = false;
 	let checkingPayment = false; // 正在检查支付状态
 
+	// 计算每个档位的首充奖励金额
+	const calculateBonus = (amount: number): number => {
+		if (!firstRechargeBonusConfig || !showFirstRechargeBanner) return 0;
+		const bonus = (amount * firstRechargeBonusConfig.rate) / 100;
+		return Math.min(bonus, firstRechargeBonusConfig.max_amount);
+	};
+
 	// 成功弹窗状态
 	let showSuccessModal = false;
 	let successAmount = 0;
@@ -292,7 +299,7 @@
 			<div class="grid grid-cols-3 gap-2.5">
 				{#each amountOptions as amount}
 					<button
-						class="py-2.5 px-3 rounded-xl border text-sm font-semibold transition-all duration-200
+						class="relative py-2.5 px-3 rounded-xl border text-sm font-semibold transition-all duration-200
 							{selectedAmount === amount
 							? 'border-indigo-500 bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 dark:from-indigo-900/40 dark:to-purple-900/40 dark:text-indigo-300 shadow-md scale-105'
 							: 'border-gray-200/60 dark:border-gray-600/60 hover:border-indigo-300 dark:hover:border-indigo-500 text-gray-700 dark:text-gray-300 hover:shadow-md hover:scale-102 bg-white/50 dark:bg-gray-700/50'}"
@@ -301,23 +308,82 @@
 							customAmount = '';
 						}}
 					>
-						¥{amount}
+						<!-- 首充奖励浮动标签 -->
+						{#if showFirstRechargeBanner && calculateBonus(amount) > 0}
+							<div class="absolute -top-2 -right-2 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold
+								bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-lg
+								flex items-center gap-0.5 animate-bounce-subtle whitespace-nowrap z-10">
+								<span class="text-[9px] sm:text-[10px]">🎁</span>
+								<span>+¥{calculateBonus(amount).toFixed(0)}</span>
+							</div>
+						{/if}
+						<span class="relative z-0">¥{amount}</span>
 					</button>
 				{/each}
 			</div>
 
 			<!-- 自定义金额 -->
-			<div>
+			<div class="relative">
 				<input
 					type="number"
 					bind:value={customAmount}
 					on:input={() => (selectedAmount = null)}
 					placeholder={$i18n.t('自定义金额 (0.01-10000)')}
-					class="w-full px-4 py-2.5 border border-gray-200/60 dark:border-gray-600/60 rounded-xl
-						bg-white/50 dark:bg-gray-700/50 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
-						focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all"
+					class="w-full px-4 py-2.5 border rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
+						focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all
+						{showFirstRechargeBanner
+							? 'border-amber-300/60 dark:border-amber-600/60 bg-gradient-to-r from-amber-50/50 to-white/50 dark:from-amber-900/10 dark:to-gray-700/50'
+							: 'border-gray-200/60 dark:border-gray-600/60 bg-white/50 dark:bg-gray-700/50'}"
 				/>
+				{#if showFirstRechargeBanner}
+					<div class="mt-1.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+						<span>✨</span>
+						<span>{$i18n.t('自定义金额同样享受首充')} {firstRechargeBonusConfig?.rate}% {$i18n.t('奖励')}</span>
+					</div>
+				{/if}
 			</div>
+
+			<!-- 实时计算展示卡片 -->
+			{#if showFirstRechargeBanner && finalAmount > 0 && expectedBonus > 0}
+				<div class="p-4 rounded-xl bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-900/20 dark:to-orange-900/20
+					border border-amber-200/50 dark:border-amber-600/30 backdrop-blur-sm space-y-2.5">
+					<!-- 充值金额 -->
+					<div class="flex items-center justify-between text-sm">
+						<span class="text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+							<svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+							</svg>
+							{$i18n.t('充值金额')}
+						</span>
+						<span class="font-semibold text-gray-900 dark:text-gray-100">¥{finalAmount.toFixed(2)}</span>
+					</div>
+
+					<!-- 首充奖励 -->
+					<div class="flex items-center justify-between text-sm">
+						<span class="text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+							<span class="text-base">🎁</span>
+							{$i18n.t('首充奖励')} ({firstRechargeBonusConfig.rate}%)
+						</span>
+						<span class="font-bold text-amber-600 dark:text-amber-400">+¥{expectedBonus.toFixed(2)}</span>
+					</div>
+
+					<!-- 分隔线 -->
+					<div class="border-t border-amber-200/50 dark:border-amber-600/30"></div>
+
+					<!-- 实际到账 -->
+					<div class="flex items-center justify-between">
+						<span class="text-gray-700 dark:text-gray-300 flex items-center gap-1.5 font-medium">
+							<svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+							</svg>
+							{$i18n.t('实际到账')}
+						</span>
+						<span class="text-lg font-bold bg-gradient-to-r from-green-600 to-emerald-600 dark:from-green-400 dark:to-emerald-400 bg-clip-text text-transparent">
+							¥{(finalAmount + expectedBonus).toFixed(2)}
+						</span>
+					</div>
+				</div>
+			{/if}
 
 			<!-- 充值按钮 -->
 			<button
@@ -371,3 +437,18 @@
 	bonusAmount={successBonusAmount}
 	bonusRate={successBonusRate}
 />
+
+<style>
+	@keyframes bounce-subtle {
+		0%, 100% {
+			transform: translateY(0) scale(1);
+		}
+		50% {
+			transform: translateY(-2px) scale(1.02);
+		}
+	}
+
+	.animate-bounce-subtle {
+		animation: bounce-subtle 2s ease-in-out infinite;
+	}
+</style>
