@@ -624,7 +624,7 @@ async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verifie
     log.info(f"创建PC支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
 
     # 埋点：创建订单
-    from open_webui.utils.posthog import track_payment_order_created
+    from open_webui.utils.posthog import track_payment_order_created, flush
     track_payment_order_created(
         user_id=user.id,
         order_id=order.id,
@@ -632,6 +632,7 @@ async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verifie
         amount_yuan=req.amount,
         payment_type="page",
     )
+    flush()  # 立即发送到 PostHog
 
     return CreateOrderResponse(
         order_id=order.id,
@@ -695,7 +696,7 @@ async def create_h5_payment_order(req: CreateOrderRequest, user=Depends(get_veri
     log.info(f"创建H5支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
 
     # 埋点：创建订单
-    from open_webui.utils.posthog import track_payment_order_created
+    from open_webui.utils.posthog import track_payment_order_created, flush
     track_payment_order_created(
         user_id=user.id,
         order_id=order.id,
@@ -703,6 +704,7 @@ async def create_h5_payment_order(req: CreateOrderRequest, user=Depends(get_veri
         amount_yuan=req.amount,
         payment_type="h5",
     )
+    flush()  # 立即发送到 PostHog
 
     return CreateH5OrderResponse(
         order_id=order.id,
@@ -931,7 +933,7 @@ async def alipay_notify(request: Request):
                 )
 
                 # 埋点：支付成功
-                from open_webui.utils.posthog import track_payment_success
+                from open_webui.utils.posthog import track_payment_success, flush
                 track_payment_success(
                     user_id=order.user_id,
                     order_id=order.id,
@@ -941,6 +943,7 @@ async def alipay_notify(request: Request):
                     is_first_recharge=is_first_recharge,
                     bonus_amount_yuan=bonus_amount / 10000 if bonus_amount else 0,
                 )
+                flush()  # 立即发送到 PostHog
     except Exception as e:
         log.error(f"支付回调处理失败: {e}")
         # 即使余额更新失败，也返回 success，避免支付宝重复回调
