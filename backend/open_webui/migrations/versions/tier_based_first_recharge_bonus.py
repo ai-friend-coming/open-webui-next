@@ -31,14 +31,14 @@ def upgrade():
     try:
         if dialect_name == 'postgresql':
             # PostgreSQL 可能使用不同的约束名称
-            op.drop_constraint('uq_first_recharge_bonus_log_user_id', 'first_recharge_bonus_log', type_='unique')
+            op.drop_constraint('uq_first_recharge_bonus_user_id', 'first_recharge_bonus_log', type_='unique')
         elif dialect_name == 'sqlite':
             # SQLite 使用 batch_alter_table
             with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-                batch_op.drop_constraint('uq_first_recharge_bonus_log_user_id', type_='unique')
+                batch_op.drop_constraint('uq_first_recharge_bonus_user_id', type_='unique')
         else:
             # 其他数据库
-            op.drop_constraint('uq_first_recharge_bonus_log_user_id', 'first_recharge_bonus_log', type_='unique')
+            op.drop_constraint('uq_first_recharge_bonus_user_id', 'first_recharge_bonus_log', type_='unique')
     except Exception as e:
         print(f"Warning: Could not drop old constraint: {e}")
         # 约束可能不存在，继续执行
@@ -85,7 +85,7 @@ def downgrade():
     # 3. 恢复原来的 user_id 唯一索引
     if dialect_name == 'sqlite':
         with op.batch_alter_table('first_recharge_bonus_log') as batch_op:
-            batch_op.create_unique_constraint('uq_first_recharge_bonus_log_user_id', ['user_id'])
+            batch_op.create_unique_constraint('uq_first_recharge_bonus_user_id', ['user_id'])
     else:
-        op.create_unique_constraint('uq_first_recharge_bonus_log_user_id',
+        op.create_unique_constraint('uq_first_recharge_bonus_user_id',
                                    'first_recharge_bonus_log', ['user_id'])

@@ -225,7 +225,7 @@ down_revision = None  # 或实际存在的版本号
 
 **错误信息**：
 ```
-constraint "uq_first_recharge_bonus_log_user_id" of relation "first_recharge_bonus_log" does not exist
+constraint "uq_first_recharge_bonus_user_id" of relation "first_recharge_bonus_log" does not exist
 ```
 
 **解决方案**：
@@ -237,7 +237,7 @@ constraint "uq_first_recharge_bonus_log_user_id" of relation "first_recharge_bon
 ```sql
 -- PostgreSQL
 ALTER TABLE first_recharge_bonus_log
-DROP CONSTRAINT IF EXISTS uq_first_recharge_bonus_log_user_id;
+DROP CONSTRAINT IF EXISTS uq_first_recharge_bonus_user_id;
 
 -- 然后重新运行迁移
 ```
