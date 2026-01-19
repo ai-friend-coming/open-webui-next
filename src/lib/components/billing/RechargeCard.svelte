@@ -15,7 +15,7 @@
 		type TiersEligibilityResponse
 	} from '$lib/apis/billing';
 	import { getBalance } from '$lib/apis/billing';
-	import { balance } from '$lib/stores';
+	import { balance, user } from '$lib/stores';
 	import PaymentSuccessModal from './PaymentSuccessModal.svelte';
 
 	const i18n = getContext('i18n');
@@ -30,7 +30,7 @@
 	};
 
 	// 预设金额选项
-	const amountOptions = [10, 50, 100, 200, 500, 1000];
+	const amountOptions = [10, 50, 500];
 
 	let selectedAmount: number | null = null;
 	let customAmount = '';
@@ -430,24 +430,20 @@
 				{/each}
 			</div>
 
-			<!-- 自定义金额 -->
-			<div class="relative">
-				<input
-					type="number"
-					bind:value={customAmount}
-					on:input={() => (selectedAmount = null)}
-					placeholder={$i18n.t('自定义金额 (0.01-10000)')}
-					class="w-full px-4 py-2.5 border rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
-						focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all
-						border-gray-200/60 dark:border-gray-600/60 bg-white/50 dark:bg-gray-700/50"
-				/>
-				{#if showFirstRechargeBanner}
-					<div class="mt-1.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-						<span>ℹ️</span>
-						<span>{$i18n.t('仅预设档位享受首充优惠')}</span>
-					</div>
-				{/if}
-			</div>
+			<!-- 自定义金额（仅管理员可见） -->
+			{#if $user?.role === 'admin'}
+				<div class="relative">
+					<input
+						type="number"
+						bind:value={customAmount}
+						on:input={() => (selectedAmount = null)}
+						placeholder={$i18n.t('自定义金额 (0.01-10000)')}
+						class="w-full px-4 py-2.5 border rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
+							focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all
+							border-gray-200/60 dark:border-gray-600/60 bg-white/50 dark:bg-gray-700/50"
+					/>
+				</div>
+			{/if}
 
 			<!-- 实时计算展示卡片 -->
 			{#if showFirstRechargeBanner && finalAmount > 0 && expectedBonus > 0}
