@@ -44,7 +44,7 @@ export interface PublicConfig {
 export const signIn = async (token: string): Promise<SignInResponse> => {
 	let error = null;
 
-	const res = await fetch(`${WEBUI_API_BASE_URL}/sign-in`, {
+	const res = await fetch(`${WEBUI_API_BASE_URL}/sign-in/`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
