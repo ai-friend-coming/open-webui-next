@@ -5,6 +5,7 @@
 
 	const i18n = getContext('i18n');
 
+	let enabled = true;
 	let rebateRate = 5;
 	let loading = false;
 	let saving = false;
@@ -17,6 +18,7 @@
 		loading = true;
 		try {
 			const config = await getInviteConfig();
+			enabled = config.enabled;
 			rebateRate = config.rebate_rate;
 		} catch (error) {
 			console.error('Failed to load invite config:', error);
@@ -34,7 +36,7 @@
 
 		saving = true;
 		try {
-			await updateInviteConfig(localStorage.token, rebateRate);
+			await updateInviteConfig(localStorage.token, enabled, rebateRate);
 			toast.success($i18n.t('配置已保存'));
 		} catch (error) {
 			console.error('Failed to save invite config:', error);
@@ -51,6 +53,22 @@
 			<div class=" mb-1 text-sm font-medium">{$i18n.t('邀请返现配置')}</div>
 
 			<div class="flex flex-col gap-4">
+				<!-- 启用/禁用开关 -->
+				<div>
+					<label class="flex items-center gap-2 mb-2 cursor-pointer">
+						<input
+							bind:checked={enabled}
+							type="checkbox"
+							class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+							disabled={loading || saving}
+						/>
+						<span class="font-medium">{$i18n.t('启用邀请返现')}</span>
+					</label>
+					<div class="text-xs text-gray-500 dark:text-gray-400 ml-6">
+						{$i18n.t('关闭后，新的充值将不会触发邀请返现')}
+					</div>
+				</div>
+
 				<!-- 返现比例设置 -->
 				<div>
 					<label class="flex items-center gap-2 mb-2">
@@ -62,7 +80,7 @@
 							max="100"
 							step="1"
 							class="w-24 px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-							disabled={loading || saving}
+							disabled={loading || saving || !enabled}
 						/>
 						<span class="text-gray-600 dark:text-gray-400">%</span>
 					</label>

@@ -22,6 +22,13 @@ log = logging.getLogger(__name__)
 # 配置项
 # ============================================================================
 
+# 邀请返现是否启用（默认启用）
+INVITE_REBATE_ENABLED = PersistentConfig(
+    "INVITE_REBATE_ENABLED",
+    "invite.rebate_enabled",
+    True,
+)
+
 # 邀请返现比例（百分比，默认5%）
 INVITE_REBATE_RATE = PersistentConfig(
     "INVITE_REBATE_RATE",
@@ -54,6 +61,11 @@ def process_invite_rebate(
         bool: 是否成功发放返现
     """
     try:
+        # 检查邀请返现功能是否启用
+        if not INVITE_REBATE_ENABLED.value:
+            log.debug("Invite rebate is disabled, skipping")
+            return False
+
         with get_db() as db:
             # 1. 查询被邀请人的邀请关系
             invitee = db.query(User).filter(User.id == invitee_id).first()

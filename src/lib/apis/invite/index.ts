@@ -33,6 +33,7 @@ export interface InviteUser {
 }
 
 export interface InviteConfig {
+	enabled: boolean; // 是否启用邀请返现
 	rebate_rate: number; // 返现比例（百分比）
 }
 
@@ -176,6 +177,7 @@ export const getInviteConfig = async (): Promise<InviteConfig> => {
  */
 export const updateInviteConfig = async (
 	token: string,
+	enabled: boolean,
 	rebate_rate: number
 ): Promise<InviteConfig> => {
 	let error = null;
@@ -186,7 +188,7 @@ export const updateInviteConfig = async (
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
 		},
-		body: JSON.stringify({ rebate_rate })
+		body: JSON.stringify({ enabled, rebate_rate })
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
