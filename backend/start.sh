@@ -79,6 +79,81 @@ if ! "$PYTHON_CMD" -m alembic upgrade head; then
     echo "Please check your database connection and migration files."
 fi
 
+# Auto-fix missing invite codes (in case migration backfill failed)
+echo "Checking for users without invite codes..."
+"$PYTHON_CMD" << 'EOF'
+import sys
+from sqlalchemy import create_engine, text
+from open_webui.env import DATABASE_URL
+
+try:
+    from open_webui.utils.invite import generate_invite_code
+
+    engine = create_engine(DATABASE_URL)
+
+    with engine.connect() as conn:
+        # Check if invite_code column exists
+        result = conn.execute(text("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'user' AND column_name = 'invite_code'
+        """))
+
+        if not result.fetchone():
+            print("INFO: invite_code column does not exist yet, skipping auto-fix")
+            sys.exit(0)
+
+        # Check for users without invite codes
+        result = conn.execute(text('SELECT COUNT(*) FROM "user" WHERE invite_code IS NULL'))
+        count = result.scalar()
+
+        if count == 0:
+            print(f"INFO: All users have invite codes (checked {count} users)")
+            sys.exit(0)
+
+        print(f"INFO: Found {count} users without invite codes, generating...")
+
+        # Get users without invite codes
+        result = conn.execute(text('SELECT id FROM "user" WHERE invite_code IS NULL'))
+        users = result.fetchall()
+
+        # Generate invite codes
+        generated_codes = set()
+        for user_row in users:
+            user_id = user_row[0]
+
+            # Generate unique invite code
+            for attempt in range(10):
+                invite_code = generate_invite_code(6 if attempt < 5 else 8)
+
+                # Check if exists
+                existing = conn.execute(
+                    text('SELECT COUNT(*) FROM "user" WHERE invite_code = :code'),
+                    {"code": invite_code}
+                ).scalar()
+
+                if existing == 0 and invite_code not in generated_codes:
+                    generated_codes.add(invite_code)
+                    break
+            else:
+                # Use 8-char code if still conflicting
+                invite_code = generate_invite_code(8)
+
+            # Update user
+            conn.execute(
+                text('UPDATE "user" SET invite_code = :code WHERE id = :user_id'),
+                {"code": invite_code, "user_id": user_id}
+            )
+
+        conn.commit()
+        print(f"SUCCESS: Generated invite codes for {len(users)} users")
+
+except Exception as e:
+    print(f"WARNING: Failed to auto-fix invite codes: {e}")
+    # Don't fail the startup, just log the warning
+    sys.exit(0)
+EOF
+
 # If script is called with arguments, use them; otherwise use default workers
 if [ "$#" -gt 0 ]; then
     ARGS=("$@")

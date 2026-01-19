@@ -44,7 +44,12 @@ Running database migrations...
 INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
 INFO  [alembic.runtime.migration] Will assume transactional DDL.
 INFO  [alembic.runtime.migration] Running upgrade add_sign_in_001 -> m1n2o3p4q5r6, Add invite system
+Checking for users without invite codes...
+INFO: Found 15 users without invite codes, generating...
+SUCCESS: Generated invite codes for 15 users
 ```
+
+**🆕 自动修复功能**：即使迁移的 backfill 逻辑失败，容器启动时也会自动检查并为缺少邀请码的用户生成邀请码。
 
 ### 方式 2: Docker 重启
 

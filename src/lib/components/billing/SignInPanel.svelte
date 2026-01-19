@@ -231,17 +231,10 @@
 						<!-- 已签到 -->
 						<div class="mb-4">
 							<div class="py-6 px-8 bg-gray-100 dark:bg-gray-800/50 rounded-xl border-2 border-gray-200 dark:border-gray-700">
-								<p class="text-base font-medium text-gray-500 dark:text-gray-400 mb-4">
+								<p class="text-base font-medium text-gray-500 dark:text-gray-400 mb-2">
 									✓ 今日已领取
 								</p>
-								<a
-									href="/billing"
-									class="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-medium rounded-lg transition-all duration-200 hover:scale-105 shadow-md"
-								>
-									<span>💰</span>
-									<span>去使用余额</span>
-								</a>
-								<p class="text-xs text-gray-400 dark:text-gray-500 mt-3">
+								<p class="text-xs text-gray-400 dark:text-gray-500">
 									明天再来签到吧~
 								</p>
 							</div>
