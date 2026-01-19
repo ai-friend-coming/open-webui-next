@@ -122,7 +122,7 @@
 
 	const signInHandler = async () => {
 		const sessionUser = await userSignIn(email, password).catch((error) => {
-			toast.error(`${error}`);
+			toast.error($i18n.t(`${error}`));
 			return null;
 		});
 
@@ -155,7 +155,7 @@
 				verificationCode,
 				inviteCode || undefined
 			).catch((error) => {
-				toast.error(`${error}`);
+				toast.error($i18n.t(`${error}`));
 				return null;
 			});
 		} else {
@@ -167,7 +167,7 @@
 				verificationCode,
 				inviteCode || undefined
 			).catch((error) => {
-				toast.error(`${error}`);
+				toast.error($i18n.t(`${error}`));
 				return null;
 			});
 		}
@@ -193,12 +193,12 @@
 				return;
 			}
 			res = await resetPasswordWithSms(phone, verificationCode, password).catch((error) => {
-				toast.error(`${error}`);
+				toast.error($i18n.t(`${error}`));
 				return null;
 			});
 		} else {
 			res = await resetPassword(email, verificationCode, password).catch((error) => {
-				toast.error(`${error}`);
+				toast.error($i18n.t(`${error}`));
 				return null;
 			});
 		}
@@ -211,7 +211,7 @@
 
 	const ldapSignInHandler = async () => {
 		const sessionUser = await ldapUserSignIn(ldapUsername, password).catch((error) => {
-			toast.error(`${error}`);
+			toast.error($i18n.t(`${error}`));
 			return null;
 		});
 		await setSessionUser(sessionUser);
@@ -270,21 +270,21 @@
 		if (useSmsVerification) {
 			res = mode === 'reset'
 				? await sendResetSmsCode(phone).catch((error) => {
-						toast.error(`${error}`);
+						toast.error($i18n.t(`${error}`));
 						return null;
 					})
 				: await sendSignupSmsCode(phone).catch((error) => {
-						toast.error(`${error}`);
+						toast.error($i18n.t(`${error}`));
 						return null;
 					});
 		} else {
 			res = mode === 'reset'
 				? await sendResetCode(email).catch((error) => {
-						toast.error(`${error}`);
+						toast.error($i18n.t(`${error}`));
 						return null;
 					})
 				: await sendSignupCode(email).catch((error) => {
-						toast.error(`${error}`);
+						toast.error($i18n.t(`${error}`));
 						return null;
 					});
 		}
@@ -332,7 +332,7 @@
 		}
 
 		const sessionUser = await getSessionUser(token).catch((error) => {
-			toast.error(`${error}`);
+			toast.error($i18n.t(`${error}`));
 			return null;
 		});
 
@@ -392,7 +392,7 @@
 
 		const error = $page.url.searchParams.get('error');
 		if (error) {
-			toast.error(error);
+			toast.error($i18n.t(error));
 		}
 
 		await oauthCallbackHandler();
