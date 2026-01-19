@@ -5,7 +5,6 @@
 
 	const i18n = getContext('i18n');
 
-	let enabled = true;
 	let rebateRate = 5;
 	let loading = false;
 	let saving = false;
@@ -18,7 +17,6 @@
 		loading = true;
 		try {
 			const config = await getInviteConfig();
-			enabled = config.enabled;
 			rebateRate = config.rebate_rate;
 		} catch (error) {
 			console.error('Failed to load invite config:', error);
@@ -36,7 +34,7 @@
 
 		saving = true;
 		try {
-			await updateInviteConfig(localStorage.token, enabled, rebateRate);
+			await updateInviteConfig(localStorage.token, rebateRate);
 			toast.success($i18n.t('配置已保存'));
 		} catch (error) {
 			console.error('Failed to save invite config:', error);
@@ -53,22 +51,6 @@
 			<div class=" mb-1 text-sm font-medium">{$i18n.t('邀请返现配置')}</div>
 
 			<div class="flex flex-col gap-4">
-				<!-- 启用/禁用开关 -->
-				<div>
-					<label class="flex items-center gap-2 mb-2 cursor-pointer">
-						<input
-							bind:checked={enabled}
-							type="checkbox"
-							class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-							disabled={loading || saving}
-						/>
-						<span class="font-medium">{$i18n.t('启用邀请返现')}</span>
-					</label>
-					<div class="text-xs text-gray-500 dark:text-gray-400 ml-6">
-						{$i18n.t('关闭后，新的充值将不会触发邀请返现')}
-					</div>
-				</div>
-
 				<!-- 返现比例设置 -->
 				<div>
 					<label class="flex items-center gap-2 mb-2">
@@ -80,7 +62,7 @@
 							max="100"
 							step="1"
 							class="w-24 px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-							disabled={loading || saving || !enabled}
+							disabled={loading || saving}
 						/>
 						<span class="text-gray-600 dark:text-gray-400">%</span>
 					</label>
@@ -95,6 +77,7 @@
 						{$i18n.t('邀请系统说明')}
 					</div>
 					<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1 list-disc list-inside">
+						<li>{$i18n.t('邀请返现功能永久有效，无需额外开启')}</li>
 						<li>{$i18n.t('每个用户注册时自动生成唯一邀请码')}</li>
 						<li>{$i18n.t('新用户注册时可填写邀请码建立邀请关系')}</li>
 						<li>{$i18n.t('被邀请用户每次充值，邀请人立即获得返现')}</li>

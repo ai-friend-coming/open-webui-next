@@ -498,7 +498,6 @@ async def get_banners(
 
 
 class InviteConfigModel(BaseModel):
-    enabled: bool  # 是否启用邀请返现
     rebate_rate: int  # 返现比例（百分比，如5表示5%）
 
 
@@ -508,13 +507,13 @@ async def get_invite_config():
     获取邀请返现配置（公开接口）
 
     返回：
-    - enabled: 是否启用邀请返现
     - rebate_rate: 返现比例（百分比）
+
+    注：邀请返现功能永久有效
     """
-    from open_webui.billing.invite import INVITE_REBATE_ENABLED, INVITE_REBATE_RATE
+    from open_webui.billing.invite import INVITE_REBATE_RATE
 
     return {
-        "enabled": INVITE_REBATE_ENABLED.value,
         "rebate_rate": INVITE_REBATE_RATE.value,
     }
 
@@ -528,10 +527,11 @@ async def set_invite_config(
     更新邀请返现配置（仅管理员）
 
     参数：
-    - enabled: 是否启用邀请返现
     - rebate_rate: 返现比例（百分比，0-100）
+
+    注：邀请返现功能永久有效，仅可配置返现比例
     """
-    from open_webui.billing.invite import INVITE_REBATE_ENABLED, INVITE_REBATE_RATE
+    from open_webui.billing.invite import INVITE_REBATE_RATE
 
     # 验证返现比例范围
     if not (0 <= form_data.rebate_rate <= 100):
@@ -541,14 +541,10 @@ async def set_invite_config(
         )
 
     # 更新配置
-    INVITE_REBATE_ENABLED.value = form_data.enabled
-    INVITE_REBATE_ENABLED.save()
-
     INVITE_REBATE_RATE.value = form_data.rebate_rate
     INVITE_REBATE_RATE.save()
 
     return {
-        "enabled": INVITE_REBATE_ENABLED.value,
         "rebate_rate": INVITE_REBATE_RATE.value,
     }
 
