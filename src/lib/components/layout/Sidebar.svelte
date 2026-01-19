@@ -342,62 +342,86 @@
             return 'user';
         };
 
-        const traverse = (id, parentValidId) => {
-            const node = mapping[id];
-            if (!node) return parentValidId;
+        // 使用迭代代替递归，避免栈溢出（处理超长聊天记录）
+        const traverseIterative = (startId) => {
+            // 使用栈来模拟递归，每个栈帧包含：节点ID、父ID、处理阶段
+            const stack = [{ id: startId, parentValidId: null, stage: 'process' }];
+            const childrenMap = new Map(); // 存储每个节点的子节点ID
 
-            const msg = node.message;
-            const frags = extractFragments(msg);
-            const role = inferRoleFromFragments(frags, baseRole(msg?.author)) ?? baseRole(msg?.author);
-            const content = extractContent(msg, frags);
-            const modelId = msg?.model || msg?.metadata?.model_slug || null;
-            const effectiveModelId = modelId || (role === 'user' ? 'user' : null);
+            while (stack.length > 0) {
+                const frame = stack.pop();
+                const { id, parentValidId, stage } = frame;
 
-            let acceptedId = null;
+                const node = mapping[id];
+                if (!node) continue;
 
-            // 跳过 OpenAI/ChatGPT 中标记为隐藏的消息
-            const isHidden = msg?.metadata?.is_visually_hidden_from_conversation === true;
+                if (stage === 'process') {
+                    // 第一阶段：处理当前节点
+                    const msg = node.message;
+                    const frags = extractFragments(msg);
+                    const role = inferRoleFromFragments(frags, baseRole(msg?.author)) ?? baseRole(msg?.author);
+                    const content = extractContent(msg, frags);
+                    const modelId = msg?.model || msg?.metadata?.model_slug || null;
+                    const effectiveModelId = modelId || (role === 'user' ? 'user' : null);
 
-            // Accept nodes with content; skip empty system messages and hidden messages
-            if (msg && effectiveModelId && content && !isHidden) {
-                const messageId = msg.id || id;
-                acceptedId = messageId;
+                    let acceptedId = null;
+                    let currentParentValidId = parentValidId;
 
-                messages[messageId] = {
-                    id: messageId,
-                    parentId: parentValidId,
-                    childrenIds: [],
-                    role,
-                    content,
-                    model: effectiveModelId,
-                    done: true,
-                    context: null,
-                    timestamp: msg.create_time || convo.create_time || Date.now() / 1000
-                };
+                    // 跳过 OpenAI/ChatGPT 中标记为隐藏的消息
+                    const isHidden = msg?.metadata?.is_visually_hidden_from_conversation === true;
 
-                lastValidId = messageId;
-                parentValidId = messageId;
-            }
+                    // Accept nodes with content; skip empty system messages and hidden messages
+                    if (msg && effectiveModelId && content && !isHidden) {
+                        const messageId = msg.id || id;
+                        acceptedId = messageId;
 
-            const validChildren = [];
-            for (const childId of node.children || []) {
-                const childAcceptedId = traverse(childId, parentValidId);
-                if (acceptedId && childAcceptedId && childAcceptedId !== acceptedId) {
-                    validChildren.push(childAcceptedId);
+                        messages[messageId] = {
+                            id: messageId,
+                            parentId: parentValidId,
+                            childrenIds: [],
+                            role,
+                            content,
+                            model: effectiveModelId,
+                            done: true,
+                            context: null,
+                            timestamp: msg.create_time || convo.create_time || Date.now() / 1000
+                        };
+
+                        lastValidId = messageId;
+                        currentParentValidId = messageId;
+                    }
+
+                    // 如果有子节点，推入"收集子节点"阶段的帧
+                    if (node.children && node.children.length > 0) {
+                        stack.push({ id, parentValidId, acceptedId, stage: 'collect', currentParentValidId });
+
+                        // 按相反顺序推入子节点（因为栈是LIFO）
+                        for (let i = node.children.length - 1; i >= 0; i--) {
+                            stack.push({ id: node.children[i], parentValidId: currentParentValidId, stage: 'process' });
+                        }
+                    }
+                } else if (stage === 'collect') {
+                    // 第二阶段：收集子节点处理结果
+                    const { acceptedId, currentParentValidId } = frame;
+
+                    if (acceptedId) {
+                        const validChildren = [];
+                        for (const childId of node.children || []) {
+                            // 检查子节点是否被接受
+                            if (messages[childId] && messages[childId].parentId === currentParentValidId) {
+                                validChildren.push(childId);
+                            }
+                        }
+                        messages[acceptedId].childrenIds = validChildren;
+                    }
                 }
             }
-
-            if (acceptedId) {
-                messages[acceptedId].childrenIds = validChildren;
-            }
-
-            return acceptedId ?? parentValidId;
         };
 
         // Pick a root (prefer parent null)
         const roots = Object.keys(mapping).filter((key) => mapping[key]?.parent === null);
         const startId = roots[0] || Object.keys(mapping)[0];
-        traverse(startId, null);
+        traverseIterative(startId);
 
         return {
             history: {
