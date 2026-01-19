@@ -77,8 +77,7 @@ def upgrade() -> None:
             {"code": invite_code, "user_id": user_id}
         )
 
-    conn.commit()
-    print(f"Successfully generated invite codes for {len(users)} users")
+    # 注意: 不要手动调用 conn.commit()，Alembic 会自动管理事务
 
     # 2. 创建邀请返现日志表
     op.create_table(
