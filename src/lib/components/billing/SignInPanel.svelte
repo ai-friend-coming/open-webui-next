@@ -16,13 +16,14 @@
 
 	// 签到动画状态
 	let isSigningIn = false;
-	let diceRolling = false;
 	let reward: number | null = null;
 	let showReward = false;
 
-	// 色子动画
-	let diceValue = 1;
-	let diceRotation = 0;
+	// 扭蛋机动画状态
+	let machineShaking = false;
+	let capsuleFalling = false;
+	let capsuleOpening = false;
+	let coinsFlying = false;
 
 	// 加载公开配置
 	const loadPublicConfig = async () => {
@@ -52,29 +53,39 @@
 		if (!status || status.has_signed_today) return;
 
 		isSigningIn = true;
-		diceRolling = true;
 		reward = null;
 		showReward = false;
 
-		// 开始色子动画
-		const rollInterval = setInterval(() => {
-			diceValue = Math.floor(Math.random() * 6) + 1;
-			diceRotation = Math.random() * 360;
-		}, 100);
-
 		try {
-			// 等待动画持续一段时间（1.5秒）
-			await new Promise((resolve) => setTimeout(resolve, 1500));
+			// 步骤1: 扭蛋机摇晃 (800ms)
+			machineShaking = true;
+			await new Promise((resolve) => setTimeout(resolve, 800));
+			machineShaking = false;
 
-			// 执行签到 API 调用
+			// 步骤2: 扭蛋掉落 (600ms)
+			capsuleFalling = true;
+			await new Promise((resolve) => setTimeout(resolve, 600));
+
+			// 执行签到 API 调用（在动画进行时）
 			const response = await signIn(localStorage.token);
 
-			// 停止色子动画
-			clearInterval(rollInterval);
-			diceRolling = false;
+			// 步骤3: 扭蛋打开 (400ms)
+			capsuleOpening = true;
+			await new Promise((resolve) => setTimeout(resolve, 400));
+
+			// 步骤4: 金币飞出 (600ms)
+			coinsFlying = true;
+			await new Promise((resolve) => setTimeout(resolve, 600));
 
 			// 设置最终奖励
 			reward = response.amount;
+
+			// 重置动画状态
+			capsuleFalling = false;
+			capsuleOpening = false;
+			coinsFlying = false;
+
+			// 显示奖励弹窗
 			showReward = true;
 
 			// 重新加载状态
@@ -83,8 +94,11 @@
 			// 显示成功消息
 			toast.success(response.message);
 		} catch (error: any) {
-			clearInterval(rollInterval);
-			diceRolling = false;
+			// 重置所有动画状态
+			machineShaking = false;
+			capsuleFalling = false;
+			capsuleOpening = false;
+			coinsFlying = false;
 			toast.error(error || '签到失败，请稍后重试');
 		} finally {
 			isSigningIn = false;
@@ -176,19 +190,9 @@
 					</div>
 				</div>
 
-				<!-- 色子和签到按钮 -->
+				<!-- 扭蛋机和签到按钮 -->
 				<div class="text-center">
-					{#if diceRolling}
-						<!-- 色子动画 -->
-						<div class="mb-6 flex items-center justify-center">
-							<div
-								class="text-8xl transform transition-transform duration-100"
-								style="transform: rotate({diceRotation}deg);"
-							>
-								{#if diceValue === 1}🎲{:else if diceValue === 2}🎲{:else if diceValue === 3}🎲{:else if diceValue === 4}🎲{:else if diceValue === 5}🎲{:else}🎲{/if}
-							</div>
-						</div>
-					{:else if status.has_signed_today}
+					{#if status.has_signed_today}
 						<!-- 已签到 -->
 						<div class="mb-4">
 							<div class="text-6xl mb-3">✅</div>
@@ -200,11 +204,48 @@
 							</p>
 						</div>
 					{:else}
-						<!-- 未签到 - 显示色子 -->
-						<div class="mb-4">
-							<div class="text-7xl mb-3 hover:scale-110 transition-transform cursor-pointer" on:click={handleSignIn}>
-								🎲
+						<!-- 扭蛋机容器 -->
+						<div class="mb-6 flex items-center justify-center min-h-[280px] relative">
+							<!-- 扭蛋机 -->
+							<div class="gashapon-machine {machineShaking ? 'shaking' : ''}">
+								<!-- 扭蛋机顶部玻璃球 -->
+								<div class="machine-globe">
+									<div class="glass-shine"></div>
+									<!-- 扭蛋们 -->
+									<div class="capsules-container">
+										<div class="capsule-mini" style="top: 20%; left: 30%; background: linear-gradient(135deg, #ff6b9d 0%, #c94b7f 100%);"></div>
+										<div class="capsule-mini" style="top: 40%; left: 60%; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div>
+										<div class="capsule-mini" style="top: 60%; left: 25%; background: linear-gradient(135deg, #ffd93d 0%, #ffb800 100%);"></div>
+										<div class="capsule-mini" style="top: 35%; left: 70%; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);"></div>
+										<div class="capsule-mini" style="top: 70%; left: 55%; background: linear-gradient(135deg, #c471f5 0%, #fa71cd 100%);"></div>
+									</div>
+								</div>
+
+								<!-- 扭蛋机底座 -->
+								<div class="machine-base">
+									<div class="machine-opening"></div>
+								</div>
+
+								<!-- 扭蛋机旋钮 -->
+								<div class="machine-knob"></div>
 							</div>
+
+							<!-- 掉落的扭蛋 -->
+							{#if capsuleFalling || capsuleOpening || coinsFlying}
+								<div class="falling-capsule {capsuleFalling ? 'falling' : ''} {capsuleOpening ? 'opening' : ''}">
+									<div class="capsule-half capsule-top"></div>
+									<div class="capsule-half capsule-bottom"></div>
+
+									<!-- 金币飞出效果 -->
+									{#if coinsFlying}
+										<div class="coin coin-1">💰</div>
+										<div class="coin coin-2">💰</div>
+										<div class="coin coin-3">💰</div>
+										<div class="coin coin-4">🪙</div>
+										<div class="coin coin-5">🪙</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 
 						<!-- 签到按钮 -->
@@ -216,10 +257,10 @@
 							{#if isSigningIn}
 								<span class="flex items-center gap-2">
 									<Spinner className="size-5" />
-									掷色子中...
+									扭蛋中...
 								</span>
 							{:else}
-								🎉 点击签到
+								🎁 转动扭蛋
 							{/if}
 						</button>
 					{/if}
@@ -267,16 +308,292 @@
 {/if}
 
 <style>
-	@keyframes bounce {
+	/* 扭蛋机主体 */
+	.gashapon-machine {
+		position: relative;
+		width: 180px;
+		height: 240px;
+		transition: transform 0.1s;
+	}
+
+	/* 摇晃动画 */
+	.gashapon-machine.shaking {
+		animation: shake 0.1s infinite;
+	}
+
+	@keyframes shake {
+		0%, 100% { transform: translateX(0) rotate(0deg); }
+		25% { transform: translateX(-3px) rotate(-2deg); }
+		75% { transform: translateX(3px) rotate(2deg); }
+	}
+
+	/* 玻璃球容器 */
+	.machine-globe {
+		position: relative;
+		width: 180px;
+		height: 180px;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 240, 255, 0.8) 100%);
+		border-radius: 50%;
+		border: 4px solid #ff6b9d;
+		box-shadow:
+			inset 0 -20px 40px rgba(255, 107, 157, 0.2),
+			0 8px 20px rgba(255, 107, 157, 0.3);
+		overflow: hidden;
+	}
+
+	/* 玻璃反光效果 */
+	.glass-shine {
+		position: absolute;
+		top: 15%;
+		left: 20%;
+		width: 40px;
+		height: 60px;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.6), transparent);
+		border-radius: 50%;
+		transform: rotate(-30deg);
+	}
+
+	/* 扭蛋容器 */
+	.capsules-container {
+		position: absolute;
+		width: 100%;
+		height: 100%;
+	}
+
+	/* 小扭蛋 */
+	.capsule-mini {
+		position: absolute;
+		width: 24px;
+		height: 30px;
+		border-radius: 50%;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	/* 底座 */
+	.machine-base {
+		position: relative;
+		width: 160px;
+		height: 60px;
+		margin: 0 auto;
+		background: linear-gradient(180deg, #ff6b9d 0%, #ff527a 100%);
+		border-radius: 0 0 20px 20px;
+		box-shadow: 0 4px 12px rgba(255, 107, 157, 0.4);
+	}
+
+	/* 出口 */
+	.machine-opening {
+		position: absolute;
+		bottom: 8px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 50px;
+		height: 15px;
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 8px;
+	}
+
+	/* 旋钮 */
+	.machine-knob {
+		position: absolute;
+		right: -10px;
+		top: 140px;
+		width: 35px;
+		height: 35px;
+		background: linear-gradient(135deg, #ffd93d 0%, #ffb800 100%);
+		border-radius: 50%;
+		border: 3px solid #ff8c00;
+		box-shadow: 0 3px 8px rgba(255, 140, 0, 0.4);
+	}
+
+	/* 掉落的扭蛋 */
+	.falling-capsule {
+		position: absolute;
+		width: 50px;
+		height: 60px;
+		top: 200px;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.falling-capsule.falling {
+		animation: fall 0.6s ease-in forwards;
+	}
+
+	@keyframes fall {
+		0% {
+			top: 160px;
+			opacity: 1;
+		}
+		100% {
+			top: 250px;
+			opacity: 1;
+		}
+	}
+
+	/* 扭蛋两半 */
+	.capsule-half {
+		position: absolute;
+		width: 50px;
+		height: 30px;
+		border-radius: 25px 25px 0 0;
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+	}
+
+	.capsule-top {
+		top: 0;
+		background: linear-gradient(135deg, #ff6b9d 0%, #c94b7f 100%);
+		z-index: 2;
+	}
+
+	.capsule-bottom {
+		bottom: 0;
+		background: linear-gradient(135deg, #ffd93d 0%, #ffb800 100%);
+		border-radius: 0 0 25px 25px;
+		z-index: 1;
+	}
+
+	/* 扭蛋打开动画 */
+	.falling-capsule.opening .capsule-top {
+		animation: openTop 0.4s ease-out forwards;
+	}
+
+	.falling-capsule.opening .capsule-bottom {
+		animation: openBottom 0.4s ease-out forwards;
+	}
+
+	@keyframes openTop {
+		0% {
+			transform: translateY(0) rotate(0deg);
+			opacity: 1;
+		}
+		100% {
+			transform: translateY(-30px) rotate(-20deg);
+			opacity: 0;
+		}
+	}
+
+	@keyframes openBottom {
+		0% {
+			transform: translateY(0) rotate(0deg);
+			opacity: 1;
+		}
+		100% {
+			transform: translateY(30px) rotate(20deg);
+			opacity: 0;
+		}
+	}
+
+	/* 金币 */
+	.coin {
+		position: absolute;
+		font-size: 24px;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		opacity: 0;
+	}
+
+	.coin-1 {
+		animation: flyOut1 0.6s ease-out;
+	}
+
+	.coin-2 {
+		animation: flyOut2 0.6s ease-out 0.1s;
+	}
+
+	.coin-3 {
+		animation: flyOut3 0.6s ease-out 0.2s;
+	}
+
+	.coin-4 {
+		animation: flyOut4 0.6s ease-out 0.15s;
+	}
+
+	.coin-5 {
+		animation: flyOut5 0.6s ease-out 0.25s;
+	}
+
+	@keyframes flyOut1 {
+		0% {
+			transform: translate(-50%, -50%) scale(0);
+			opacity: 0;
+		}
+		50% {
+			opacity: 1;
+		}
+		100% {
+			transform: translate(-80px, -60px) scale(1.2);
+			opacity: 0;
+		}
+	}
+
+	@keyframes flyOut2 {
+		0% {
+			transform: translate(-50%, -50%) scale(0);
+			opacity: 0;
+		}
+		50% {
+			opacity: 1;
+		}
+		100% {
+			transform: translate(80px, -70px) scale(1.2);
+			opacity: 0;
+		}
+	}
+
+	@keyframes flyOut3 {
+		0% {
+			transform: translate(-50%, -50%) scale(0);
+			opacity: 0;
+		}
+		50% {
+			opacity: 1;
+		}
+		100% {
+			transform: translate(0px, -90px) scale(1.2);
+			opacity: 0;
+		}
+	}
+
+	@keyframes flyOut4 {
+		0% {
+			transform: translate(-50%, -50%) scale(0);
+			opacity: 0;
+		}
+		50% {
+			opacity: 1;
+		}
+		100% {
+			transform: translate(-60px, -80px) scale(1);
+			opacity: 0;
+		}
+	}
+
+	@keyframes flyOut5 {
+		0% {
+			transform: translate(-50%, -50%) scale(0);
+			opacity: 0;
+		}
+		50% {
+			opacity: 1;
+		}
+		100% {
+			transform: translate(60px, -85px) scale(1);
+			opacity: 0;
+		}
+	}
+
+	/* 奖励弹窗动画 */
+	.animate-bounce {
+		animation: modalBounce 0.5s ease-in-out 2;
+	}
+
+	@keyframes modalBounce {
 		0%, 100% {
 			transform: translateY(0);
 		}
 		50% {
 			transform: translateY(-20px);
 		}
-	}
-
-	.animate-bounce {
-		animation: bounce 0.5s ease-in-out 2;
 	}
 </style>
