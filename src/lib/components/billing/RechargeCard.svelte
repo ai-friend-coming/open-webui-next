@@ -31,7 +31,7 @@
 	};
 
 	// 预设金额选项（从后端动态加载）
-	let amountOptions: number[] = [10, 50, 500]; // 默认值，将从后端加载
+	let amountOptions: number[] = [10, 50, 100, 200, 500, 1000]; // 默认值，和后端保持一致
 
 	let selectedAmount: number | null = null;
 	let customAmount = '';
@@ -172,9 +172,12 @@
 			const tiers = await getRechargeTiers(localStorage.token);
 			if (tiers && tiers.length > 0) {
 				amountOptions = tiers;
+			} else {
+				console.warn('充值档位为空，使用默认值');
 			}
 		} catch (e) {
-			console.error('获取充值档位失败', e);
+			console.error('获取充值档位失败，使用默认值', e);
+			// 继续使用默认值，不影响页面正常显示
 		}
 
 		// 加载首充优惠配置和资格检查

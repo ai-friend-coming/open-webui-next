@@ -449,15 +449,21 @@ export const setBanners = async (token: string, banners: Banner[]) => {
 	return res;
 };
 
-export const getRechargeTiers = async (token: string): Promise<number[]> => {
+export const getRechargeTiers = async (token?: string): Promise<number[]> => {
 	let error = null;
+
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json'
+	};
+
+	// 仅在 token 存在时添加 Authorization header
+	if (token) {
+		headers['Authorization'] = `Bearer ${token}`;
+	}
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/configs/recharge/tiers`, {
 		method: 'GET',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
-		}
+		headers
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();

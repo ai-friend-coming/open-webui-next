@@ -135,9 +135,43 @@
 				<h3 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 dark:from-pink-400 dark:to-purple-400 mb-2">
 					✨ 每日签到 ✨
 				</h3>
-				<p class="text-sm text-gray-600 dark:text-gray-300">
+				<p class="text-sm text-gray-600 dark:text-gray-300 mb-3">
 					每天签到领取随机奖励哦~
 				</p>
+
+				<!-- 签到进度条 -->
+				{#if status}
+					<div class="flex items-center justify-center gap-2 mt-3">
+						{#each Array(5) as _, i}
+							{@const dayNum = i + 1}
+							{@const isSigned = dayNum <= (status.continuous_days % 5 || (status.continuous_days > 0 && status.continuous_days % 5 === 0 ? 5 : 0))}
+							{@const isToday = dayNum === (status.continuous_days % 5 || (status.continuous_days > 0 && status.continuous_days % 5 === 0 ? 5 : 0)) && status.has_signed_today}
+
+							<div class="flex flex-col items-center gap-1">
+								<div class="relative">
+									{#if isToday}
+										<!-- 今天刚签到 -->
+										<div class="w-9 h-9 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 border-2 border-yellow-300 flex items-center justify-center text-lg animate-pulse shadow-lg">
+											🎁
+										</div>
+									{:else if isSigned}
+										<!-- 已签到 -->
+										<div class="w-9 h-9 rounded-full bg-gradient-to-br from-pink-500 to-purple-500 border-2 border-pink-400 flex items-center justify-center shadow-md">
+											<svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+												<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+											</svg>
+										</div>
+									{:else}
+										<!-- 未签到 -->
+										<div class="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
+											<span class="text-xs text-gray-400 dark:text-gray-500">{dayNum}</span>
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
 			{#if statusLoading}
@@ -180,8 +214,9 @@
 
 						<!-- 累计奖励 -->
 						<div>
-							<div class="text-2xl font-bold text-green-600 dark:text-green-400">
-								¥{status.total_amount.toFixed(2)}
+							<div class="text-2xl font-bold text-red-600 dark:text-red-400 flex items-center justify-center gap-1">
+								<span class="text-xl">🧧</span>
+								<span>¥{status.total_amount.toFixed(2)}</span>
 							</div>
 							<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
 								累计奖励
@@ -195,13 +230,21 @@
 					{#if status.has_signed_today}
 						<!-- 已签到 -->
 						<div class="mb-4">
-							<div class="text-6xl mb-3">✅</div>
-							<p class="text-lg font-semibold text-gray-700 dark:text-gray-300">
-								今天已经签到啦~
-							</p>
-							<p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-								明天再来吧！
-							</p>
+							<div class="py-6 px-8 bg-gray-100 dark:bg-gray-800/50 rounded-xl border-2 border-gray-200 dark:border-gray-700">
+								<p class="text-base font-medium text-gray-500 dark:text-gray-400 mb-4">
+									✓ 今日已领取
+								</p>
+								<a
+									href="/billing"
+									class="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-medium rounded-lg transition-all duration-200 hover:scale-105 shadow-md"
+								>
+									<span>💰</span>
+									<span>去使用余额</span>
+								</a>
+								<p class="text-xs text-gray-400 dark:text-gray-500 mt-3">
+									明天再来签到吧~
+								</p>
+							</div>
 						</div>
 					{:else}
 						<!-- 扭蛋机容器 -->
