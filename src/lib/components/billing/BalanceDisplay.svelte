@@ -29,11 +29,7 @@
 			</div>
 		{/if}
 
-		{#if $isFrozen}
-			<div class="status-badge frozen mt-2">
-				{$i18n.t('账户已冻结')}
-			</div>
-		{:else if $isLowBalance}
+		{#if $isFrozen || $isLowBalance}
 			<div class="status-badge warning mt-2">
 				{$i18n.t('余额不足')}
 			</div>
@@ -108,7 +104,7 @@
 	}
 
 	.balance-amount.frozen {
-		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
@@ -166,13 +162,13 @@
 	}
 
 	.status-badge.frozen {
-		background: rgba(239, 68, 68, 0.2);
-		color: #ef4444;
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: rgba(251, 191, 36, 0.2);
+		color: #f59e0b;
+		border: 1px solid rgba(251, 191, 36, 0.3);
 	}
 
 	:global(.dark) .status-badge.frozen {
-		background: rgba(239, 68, 68, 0.15);
-		color: #f87171;
+		background: rgba(251, 191, 36, 0.15);
+		color: #fbbf24;
 	}
 </style>

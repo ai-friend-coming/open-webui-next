@@ -483,8 +483,8 @@
 						<td class="px-3 py-1 min-w-[8rem] w-32">
 							<div class="flex items-center gap-2">
 								{#if user.billing_status === 'frozen'}
-									<span class="text-xs px-1.5 py-0.5 rounded-full w-fit bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-										{$i18n.t('冻结')}
+									<span class="text-xs px-1.5 py-0.5 rounded-full w-fit bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+										{$i18n.t('余额不足')}
 									</span>
 								{:else}
 									<span class="text-xs px-1.5 py-0.5 rounded-full w-fit bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
