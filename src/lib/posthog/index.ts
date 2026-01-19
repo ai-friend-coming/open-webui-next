@@ -56,22 +56,28 @@ export const initPosthog = () => {
  * 【埋点数据】
  *   - 用户属性 (通过 identify 设置):
  *       - email: string - 用户邮箱
+ *       - phone: string - 用户手机号
  *       - name: string - 用户名称
+ *       - role: string - 用户角色 (admin/user/pending)
  *
  * @param sessionUser - 登录成功后的用户会话信息
  */
 export const signInTracking = (sessionUser: {
 	id: string;
-	email: string;
+	email?: string;
+	phone?: string;
 	name: string;
+	role?: string;
 }) => {
 	if (typeof window === 'undefined' || !sessionUser) {
 		return;
 	}
 
 	posthog.identify(sessionUser.id, {
-		email: sessionUser.email,
-		name: sessionUser.name
+		...(sessionUser.email && { email: sessionUser.email }),
+		...(sessionUser.phone && { phone: sessionUser.phone }),
+		name: sessionUser.name,
+		...(sessionUser.role && { role: sessionUser.role })
 	});
 	posthog.capture('user_logged_in');
 };
