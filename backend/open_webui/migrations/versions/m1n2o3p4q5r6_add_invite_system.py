@@ -1,7 +1,7 @@
 """Add invite system
 
 Revision ID: m1n2o3p4q5r6
-Revises: l6m7n8o9p0q1
+Revises: add_sign_in_001
 Create Date: 2026-01-19 10:00:00.000000
 
 添加推广邀请系统表和字段
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'm1n2o3p4q5r6'
-down_revision: Union[str, None] = 'l6m7n8o9p0q1'
+down_revision: Union[str, None] = 'add_sign_in_001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -56,8 +56,8 @@ def upgrade() -> None:
     op.create_table(
         'invite_stats',
         sa.Column('user_id', sa.String(), nullable=False),
-        sa.Column('total_invitees', sa.Integer(), default=0, nullable=False),
-        sa.Column('total_rebate_amount', sa.Integer(), default=0, nullable=False),
+        sa.Column('total_invitees', sa.Integer(), server_default='0', nullable=False),
+        sa.Column('total_rebate_amount', sa.Integer(), server_default='0', nullable=False),
         sa.Column('last_rebate_at', sa.BigInteger(), nullable=True),
         sa.Column('updated_at', sa.BigInteger(), nullable=False),
         sa.PrimaryKeyConstraint('user_id')

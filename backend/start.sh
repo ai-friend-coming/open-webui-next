@@ -72,6 +72,13 @@ fi
 PYTHON_CMD=$(command -v python3 || command -v python)
 UVICORN_WORKERS="${UVICORN_WORKERS:-1}"
 
+# Run database migrations
+echo "Running database migrations..."
+if ! "$PYTHON_CMD" -m alembic upgrade head; then
+    echo "Warning: Database migration failed. The application may not function correctly."
+    echo "Please check your database connection and migration files."
+fi
+
 # If script is called with arguments, use them; otherwise use default workers
 if [ "$#" -gt 0 ]; then
     ARGS=("$@")
