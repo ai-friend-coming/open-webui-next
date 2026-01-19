@@ -19,8 +19,21 @@ from open_webui.models.users import User
 from open_webui.models.billing import BillingLog, ModelPricings, RechargeLog
 from open_webui.internal.db import get_db
 from open_webui.billing.ratio import DEFAULT_PRICING
+from open_webui.config import PersistentConfig
 
 log = logging.getLogger(__name__)
+
+
+# ============================================================================
+# 配置项
+# ============================================================================
+
+# 充值档位（毫），默认 [10, 50, 100, 200, 500, 1000] 元
+RECHARGE_TIERS = PersistentConfig(
+    "RECHARGE_TIERS",
+    "billing.recharge_tiers",
+    [100000, 500000, 1000000, 2000000, 5000000, 10000000],
+)
 
 
 # ============================================================================

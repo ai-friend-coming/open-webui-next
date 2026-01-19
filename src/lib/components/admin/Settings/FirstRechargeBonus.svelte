@@ -12,6 +12,7 @@
 		type FirstRechargeBonusStats,
 		type ParticipantItem
 	} from '$lib/apis/first-recharge-bonus';
+	import { getRechargeTiers } from '$lib/apis/configs';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -39,6 +40,10 @@
 	let participantsLoading = false;
 	let currentPage = 0;
 	let pageSize = 50;
+
+	// 充值档位
+	let rechargeTiers: number[] = [];
+	let tiersLoading = false;
 
 	// 加载配置
 	const loadConfig = async () => {
@@ -97,6 +102,18 @@
 		}
 	};
 
+	// 加载充值档位
+	const loadTiers = async () => {
+		tiersLoading = true;
+		try {
+			rechargeTiers = await getRechargeTiers(localStorage.token);
+		} catch (error) {
+			toast.error(`加载充值档位失败: ${error}`);
+		} finally {
+			tiersLoading = false;
+		}
+	};
+
 	// 分页变化时重新加载
 	$: if (currentPage !== undefined) {
 		loadParticipants();
@@ -113,6 +130,7 @@
 		loadConfig();
 		loadStats();
 		loadParticipants();
+		loadTiers();
 	});
 </script>
 
@@ -184,6 +202,35 @@
 					<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
 						例如：设置 50 表示最高返现 50 元
 					</p>
+				</div>
+
+				<!-- 可用充值档位 -->
+				<div class="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+					<div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						当前充值档位
+					</div>
+					{#if tiersLoading}
+						<div class="flex items-center gap-2">
+							<Spinner className="size-4" />
+							<span class="text-xs text-gray-500 dark:text-gray-400">加载中...</span>
+						</div>
+					{:else if rechargeTiers.length > 0}
+						<div class="flex flex-wrap gap-2">
+							{#each rechargeTiers as tier}
+								<div class="px-3 py-1 bg-white dark:bg-gray-800 rounded-md border border-blue-200 dark:border-blue-800">
+									<span class="text-sm font-mono text-gray-900 dark:text-gray-100">{tier}</span>
+									<span class="text-xs text-gray-600 dark:text-gray-400 ml-1">元</span>
+								</div>
+							{/each}
+						</div>
+						<p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+							首充优惠仅对以上档位金额生效，其他金额不参与活动
+						</p>
+					{:else}
+						<p class="text-xs text-gray-500 dark:text-gray-400">
+							未配置充值档位，请前往"充值档位"设置页面配置
+						</p>
+					{/if}
 				</div>
 
 				<!-- 保存按钮 -->

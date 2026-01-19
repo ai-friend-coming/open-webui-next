@@ -15,6 +15,7 @@
 		type TiersEligibilityResponse
 	} from '$lib/apis/billing';
 	import { getBalance } from '$lib/apis/billing';
+	import { getRechargeTiers } from '$lib/apis/configs';
 	import { balance, user } from '$lib/stores';
 	import PaymentSuccessModal from './PaymentSuccessModal.svelte';
 
@@ -29,8 +30,8 @@
 		);
 	};
 
-	// 预设金额选项
-	const amountOptions = [10, 50, 500];
+	// 预设金额选项（从后端动态加载）
+	let amountOptions: number[] = [10, 50, 500]; // 默认值，将从后端加载
 
 	let selectedAmount: number | null = null;
 	let customAmount = '';
@@ -164,6 +165,16 @@
 			alipayEnabled = config.alipay_enabled;
 		} catch (e) {
 			console.error('获取支付配置失败', e);
+		}
+
+		// 加载充值档位配置
+		try {
+			const tiers = await getRechargeTiers(localStorage.token);
+			if (tiers && tiers.length > 0) {
+				amountOptions = tiers;
+			}
+		} catch (e) {
+			console.error('获取充值档位失败', e);
 		}
 
 		// 加载首充优惠配置和资格检查

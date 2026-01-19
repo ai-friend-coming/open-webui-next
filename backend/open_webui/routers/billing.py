@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from open_webui.models.users import Users, User
 from open_webui.models.billing import ModelPricings, BillingLogs, RechargeLogs, BillingLog
+from open_webui.billing.core import RECHARGE_TIERS
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.billing import recharge_user
 from open_webui.internal.db import get_db, SQLALCHEMY_DATABASE_URL
@@ -868,11 +869,8 @@ async def alipay_notify(request: Request):
                 is_first_recharge = False
                 matched_tier = None
 
-                # 预设档位（毫）
-                PRESET_TIERS = [100000, 500000, 1000000, 2000000, 5000000, 10000000]  # 10, 50, 100, 200, 500, 1000元
-
-                # 精确匹配档位
-                if order.amount in PRESET_TIERS:
+                # 精确匹配档位（使用动态配置的档位）
+                if order.amount in RECHARGE_TIERS.value:
                     matched_tier = order.amount
                     # 检查该档位是否已参与
                     if (

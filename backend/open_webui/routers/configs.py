@@ -545,3 +545,74 @@ async def set_invite_config(
     return {
         "rebate_rate": INVITE_REBATE_RATE.value,
     }
+
+
+############################
+# Recharge Tiers Config
+############################
+
+
+class RechargeTiersConfigModel(BaseModel):
+    tiers: list[float]  # 充值档位（元），如 [10, 50, 100, 200, 500, 1000]
+
+
+@router.get("/recharge/tiers", response_model=RechargeTiersConfigModel)
+async def get_recharge_tiers():
+    """
+    获取充值档位配置（公开接口）
+
+    返回：
+    - tiers: 充值档位列表（元）
+    """
+    from open_webui.billing.core import RECHARGE_TIERS
+
+    return {
+        "tiers": [tier / 10000 for tier in RECHARGE_TIERS.value],  # 毫转元
+    }
+
+
+@router.post("/recharge/tiers", response_model=RechargeTiersConfigModel)
+async def set_recharge_tiers(
+    form_data: RechargeTiersConfigModel,
+    user=Depends(get_admin_user),
+):
+    """
+    更新充值档位配置（仅管理员）
+
+    参数：
+    - tiers: 充值档位列表（元），如 [10, 50, 100, 200, 500, 1000]
+    """
+    from open_webui.billing.core import RECHARGE_TIERS
+
+    tiers = form_data.tiers
+
+    # 验证档位
+    if not tiers:
+        raise HTTPException(
+            status_code=400,
+            detail="Tiers cannot be empty",
+        )
+
+    if len(tiers) > 20:
+        raise HTTPException(
+            status_code=400,
+            detail="Too many tiers (max 20)",
+        )
+
+    for tier in tiers:
+        if tier < 0.01 or tier > 100000:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tier amount: {tier} (must be between 0.01 and 100000)",
+            )
+
+    # 去重并排序
+    tiers_mils = sorted(list(set([int(tier * 10000) for tier in tiers])))
+
+    # 更新配置
+    RECHARGE_TIERS.value = tiers_mils
+    RECHARGE_TIERS.save()
+
+    return {
+        "tiers": [tier / 10000 for tier in RECHARGE_TIERS.value],
+    }

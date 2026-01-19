@@ -448,3 +448,61 @@ export const setBanners = async (token: string, banners: Banner[]) => {
 
 	return res;
 };
+
+export const getRechargeTiers = async (token: string): Promise<number[]> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/configs/recharge/tiers`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.then((data) => data.tiers)
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const setRechargeTiers = async (token: string, tiers: number[]) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/configs/recharge/tiers`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			tiers: tiers
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
