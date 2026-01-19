@@ -564,10 +564,21 @@ async def get_recharge_tiers():
     返回：
     - tiers: 充值档位列表（元）
     """
-    from open_webui.billing.core import RECHARGE_TIERS
+    from open_webui.config import Config
+    from open_webui.internal.db import get_db
+
+    # 每次从数据库读取最新配置，避免多 worker 进程内存不一致
+    with get_db() as db:
+        config_entry = db.query(Config).order_by(Config.id.desc()).first()
+
+        if config_entry and "billing" in config_entry.data and "recharge_tiers" in config_entry.data["billing"]:
+            tiers_mils = config_entry.data["billing"]["recharge_tiers"]
+        else:
+            # 如果数据库没有配置，使用默认值
+            tiers_mils = [100000, 500000, 1000000, 2000000, 5000000, 10000000]
 
     return {
-        "tiers": [tier / 10000 for tier in RECHARGE_TIERS.value],  # 毫转元
+        "tiers": [tier / 10000 for tier in tiers_mils],  # 毫转元
     }
 
 
@@ -613,6 +624,7 @@ async def set_recharge_tiers(
     RECHARGE_TIERS.value = tiers_mils
     RECHARGE_TIERS.save()
 
+    # 返回保存的值（确保与数据库一致）
     return {
-        "tiers": [tier / 10000 for tier in RECHARGE_TIERS.value],
+        "tiers": [tier / 10000 for tier in tiers_mils],
     }

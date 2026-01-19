@@ -856,12 +856,21 @@ async def alipay_notify(request: Request):
         from open_webui.models.users import User as UserModel
         from open_webui.models.billing import FirstRechargeBonusLogs, BillingLog
         from open_webui.config import (
+            Config,
             FIRST_RECHARGE_BONUS_ENABLED,
             FIRST_RECHARGE_BONUS_RATE,
             FIRST_RECHARGE_BONUS_MAX_AMOUNT,
         )
 
         with get_db() as db:
+            # 从数据库读取最新充值档位配置（避免多 worker 进程内存不一致）
+            config_entry = db.query(Config).order_by(Config.id.desc()).first()
+            if config_entry and "billing" in config_entry.data and "recharge_tiers" in config_entry.data["billing"]:
+                recharge_tiers = config_entry.data["billing"]["recharge_tiers"]
+            else:
+                # 默认档位
+                recharge_tiers = [100000, 500000, 1000000, 2000000, 5000000, 10000000]
+
             user = db.query(UserModel).filter_by(id=order.user_id).first()
             if user:
                 # 检查是否需要发放首充优惠
@@ -870,7 +879,7 @@ async def alipay_notify(request: Request):
                 matched_tier = None
 
                 # 精确匹配档位（使用动态配置的档位）
-                if order.amount in RECHARGE_TIERS.value:
+                if order.amount in recharge_tiers:
                     matched_tier = order.amount
                     # 检查该档位是否已参与
                     if (
