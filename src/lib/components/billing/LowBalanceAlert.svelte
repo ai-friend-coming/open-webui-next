@@ -36,45 +36,29 @@
 </script>
 
 {#if ($isLowBalance || $isFrozen) && !dismissed}
-	<div class="alert backdrop-blur-xl rounded-xl border shadow-lg" class:frozen={$isFrozen} transition:slide>
+	<div class="alert backdrop-blur-xl rounded-xl border shadow-lg" transition:slide>
 		<div class="alert-icon">
-			{#if $isFrozen}
-				<div class="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-					<svg class="w-5 h-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-					</svg>
-				</div>
-			{:else}
-				<div class="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-					<svg class="w-5 h-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-					</svg>
-				</div>
-			{/if}
+			<div class="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+				<svg class="w-5 h-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+				</svg>
+			</div>
 		</div>
 		<div class="alert-content">
 			<div class="alert-title">
-				{#if $isFrozen}
-					{$i18n.t('账户已冻结')}
-				{:else}
-					{$i18n.t('余额不足')}
-				{/if}
+				{$i18n.t('余额不足')}
 			</div>
 			<div class="alert-message">
-				{#if $isFrozen}
-					{$i18n.t('您的账户余额不足，已被冻结。请联系管理员充值。')}
+				{$i18n.t('当前余额')}: {formatCurrency($balance?.balance || 0)}
+				{#if isFirstRechargeEligible}
+					<span class="first-recharge-highlight">
+						🎁 首充送 {bonusRate}% 奖励
+					</span>
 				{:else}
-					{$i18n.t('当前余额')}: {formatCurrency($balance?.balance || 0)}
-					{#if isFirstRechargeEligible}
-						<span class="first-recharge-highlight">
-							🎁 首充送 {bonusRate}% 奖励
-						</span>
-					{:else}
-						，{$i18n.t('请及时充值以免影响使用。')}
-					{/if}
+					，{$i18n.t('请及时充值以免影响使用。')}
 				{/if}
 			</div>
-			{#if isFirstRechargeEligible && !$isFrozen}
+			{#if isFirstRechargeEligible}
 				<button class="recharge-btn" on:click={handleRecharge}>
 					立即充值领取奖励
 				</button>
@@ -99,19 +83,9 @@
 		margin-bottom: 1.5rem;
 	}
 
-	.alert.frozen {
-		background: rgba(254, 226, 226, 0.9);
-		border-color: rgba(239, 68, 68, 0.3);
-	}
-
 	:global(.dark) .alert {
 		background: rgba(120, 53, 15, 0.3);
 		border-color: rgba(251, 191, 36, 0.2);
-	}
-
-	:global(.dark) .alert.frozen {
-		background: rgba(127, 29, 29, 0.3);
-		border-color: rgba(239, 68, 68, 0.2);
 	}
 
 	.alert-icon {
@@ -129,16 +103,8 @@
 		font-size: 0.95rem;
 	}
 
-	.alert.frozen .alert-title {
-		color: #7f1d1d;
-	}
-
 	:global(.dark) .alert-title {
 		color: #fbbf24;
-	}
-
-	:global(.dark) .alert.frozen .alert-title {
-		color: #f87171;
 	}
 
 	.alert-message {
@@ -147,16 +113,8 @@
 		line-height: 1.5;
 	}
 
-	.alert.frozen .alert-message {
-		color: #7f1d1d;
-	}
-
 	:global(.dark) .alert-message {
 		color: #fde68a;
-	}
-
-	:global(.dark) .alert.frozen .alert-message {
-		color: #fecaca;
 	}
 
 	.alert-close {
