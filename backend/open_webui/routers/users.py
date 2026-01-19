@@ -566,3 +566,80 @@ async def delete_user_by_id(user_id: str, user=Depends(get_admin_user)):
 @router.get("/{user_id}/groups")
 async def get_user_groups_by_id(user_id: str, user=Depends(get_admin_user)):
     return Groups.get_groups_by_member_id(user_id)
+
+
+############################
+# Invite System APIs
+############################
+
+
+@router.get("/invite/info")
+async def get_invite_info(user=Depends(get_verified_user)):
+    """
+    获取当前用户的邀请信息
+
+    返回：
+    - invite_code: 邀请码
+    - total_invitees: 总邀请人数
+    - total_rebate_amount: 累计返现金额（毫）
+    - rebate_rate: 返现比例（百分比）
+    """
+    from open_webui.billing.invite import get_invite_info as get_info
+
+    info = get_info(user.id)
+    if not info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite info not found",
+        )
+
+    return info
+
+
+@router.get("/invite/rebate-logs")
+async def get_rebate_logs(
+    skip: int = 0,
+    limit: int = 50,
+    user=Depends(get_verified_user)
+):
+    """
+    获取当前用户的返现记录列表
+
+    参数：
+    - skip: 跳过条数
+    - limit: 每页数量
+
+    返回：
+    - logs: 返现记录列表
+    - total: 总记录数
+    """
+    from open_webui.models.invite import InviteRebateLogs
+
+    logs = InviteRebateLogs.get_rebate_logs_by_inviter(user.id, skip, limit)
+    total = InviteRebateLogs.count_rebate_logs_by_inviter(user.id)
+
+    return {
+        "logs": logs,
+        "total": total,
+    }
+
+
+@router.get("/invite/invitees")
+async def get_invitees(
+    skip: int = 0,
+    limit: int = 50,
+    user=Depends(get_verified_user)
+):
+    """
+    获取当前用户邀请的用户列表
+
+    参数：
+    - skip: 跳过条数
+    - limit: 每页数量
+
+    返回：
+    - users: 用户列表
+    - total: 总人数
+    """
+    result = Users.get_invitees_by_inviter_id(user.id, skip, limit)
+    return result

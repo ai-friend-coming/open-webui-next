@@ -1,4 +1,5 @@
 import time
+import logging
 from typing import Optional
 
 from open_webui.internal.db import Base, JSONField, get_db
@@ -8,6 +9,7 @@ from open_webui.env import DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL
 from open_webui.models.chats import Chats
 from open_webui.models.groups import Groups
 from open_webui.utils.misc import throttle
+from open_webui.utils.invite import generate_unique_invite_code
 
 
 from pydantic import BaseModel, ConfigDict
@@ -15,6 +17,8 @@ from sqlalchemy import BigInteger, Column, String, Text, Date, Integer
 from sqlalchemy import or_
 
 import datetime
+
+log = logging.getLogger(__name__)
 
 ####################
 # User DB Schema
@@ -54,6 +58,10 @@ class User(Base):
     total_consumed = Column(Integer, default=0, nullable=False)  # 累计消费（毫，1元=10000毫）
     billing_status = Column(String(20), default="active", nullable=False)  # active/frozen
 
+    # 邀请相关字段
+    invite_code = Column(String(8), unique=True, nullable=True, index=True)  # 用户专属邀请码
+    invited_by = Column(String, nullable=True, index=True)  # 邀请人的 user_id
+
 
 class UserSettings(BaseModel):
     ui: Optional[dict] = {}
@@ -90,6 +98,10 @@ class UserModel(BaseModel):
     balance: Optional[int] = 0  # 毫
     total_consumed: Optional[int] = 0  # 毫
     billing_status: Optional[str] = "active"
+
+    # 邀请相关字段
+    invite_code: Optional[str] = None  # 用户专属邀请码
+    invited_by: Optional[str] = None  # 邀请人的 user_id
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -175,8 +187,25 @@ class UsersTable:
         role: str = "pending",
         oauth_sub: Optional[str] = None,
         phone: Optional[str] = None,
+        invited_by_code: Optional[str] = None,
     ) -> Optional[UserModel]:
         with get_db() as db:
+            # 验证邀请码并获取邀请人ID
+            invited_by = None
+            if invited_by_code:
+                inviter = db.query(User).filter(User.invite_code == invited_by_code).first()
+                if inviter:
+                    invited_by = inviter.id
+                    log.info(f"User {id} invited by {invited_by} (code: {invited_by_code})")
+                else:
+                    log.warning(f"Invalid invite code: {invited_by_code}")
+
+            # 生成唯一邀请码
+            def check_invite_code_exists(code: str) -> bool:
+                return db.query(User).filter(User.invite_code == code).first() is not None
+
+            invite_code = generate_unique_invite_code(check_invite_code_exists)
+
             user = UserModel(
                 **{
                     "id": id,
@@ -191,6 +220,8 @@ class UsersTable:
                     "created_at": int(time.time()),
                     "updated_at": int(time.time()),
                     "oauth_sub": oauth_sub,
+                    "invite_code": invite_code,
+                    "invited_by": invited_by,
                 }
             )
             result = User(**user.model_dump())
@@ -486,6 +517,31 @@ class UsersTable:
                 return UserModel.model_validate(user)
             else:
                 return None
+
+    def get_user_by_invite_code(self, invite_code: str) -> Optional[UserModel]:
+        """根据邀请码查找用户"""
+        try:
+            with get_db() as db:
+                user = db.query(User).filter(User.invite_code == invite_code).first()
+                return UserModel.model_validate(user) if user else None
+        except Exception:
+            return None
+
+    def get_invitees_by_inviter_id(
+        self, inviter_id: str, skip: int = 0, limit: int = 50
+    ) -> dict:
+        """获取邀请人的被邀请用户列表"""
+        with get_db() as db:
+            query = db.query(User).filter(User.invited_by == inviter_id)
+            query = query.order_by(User.created_at.desc())
+
+            total = query.count()
+            users = query.offset(skip).limit(limit).all()
+
+            return {
+                "users": [UserModel.model_validate(user) for user in users],
+                "total": total,
+            }
 
 
 Users = UsersTable()

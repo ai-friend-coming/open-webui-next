@@ -87,6 +87,7 @@ class SignupForm(BaseModel):
     password: str
     profile_image_url: Optional[str] = "/user.png"
     code: str
+    invite_code: Optional[str] = None  # 邀请码（可选）
 
 
 class SignupCodeForm(BaseModel):
@@ -124,6 +125,7 @@ class SignupSMSForm(BaseModel):
     password: str
     profile_image_url: Optional[str] = "/user.png"
     sms_code: str
+    invite_code: Optional[str] = None  # 邀请码（可选）
 
 
 class ResetPasswordSMSForm(BaseModel):
@@ -142,6 +144,7 @@ class AuthsTable:
         role: str = "pending",
         oauth_sub: Optional[str] = None,
         phone: Optional[str] = None,
+        invited_by_code: Optional[str] = None,
     ) -> Optional[UserModel]:
         with get_db() as db:
             log.info("insert_new_auth")
@@ -155,7 +158,7 @@ class AuthsTable:
             db.add(result)
 
             user = Users.insert_new_user(
-                id, name, email, profile_image_url, role, oauth_sub, phone
+                id, name, email, profile_image_url, role, oauth_sub, phone, invited_by_code
             )
 
             db.commit()

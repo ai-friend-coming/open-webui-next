@@ -291,7 +291,8 @@ export const userSignUp = async (
 	email: string,
 	password: string,
 	profile_image_url: string,
-	code: string
+	code: string,
+	invite_code?: string
 ) => {
 	let error = null;
 
@@ -306,7 +307,8 @@ export const userSignUp = async (
 			email: email,
 			password: password,
 			profile_image_url: profile_image_url,
-			code
+			code,
+			invite_code
 		})
 	})
 		.then(async (res) => {
@@ -445,7 +447,8 @@ export const userSignUpWithSms = async (
 	phone: string,
 	password: string,
 	profile_image_url: string,
-	sms_code: string
+	sms_code: string,
+	invite_code?: string
 ) => {
 	let error = null;
 
@@ -460,7 +463,8 @@ export const userSignUpWithSms = async (
 			phone,
 			password,
 			profile_image_url,
-			sms_code
+			sms_code,
+			invite_code
 		})
 	})
 		.then(async (res) => {

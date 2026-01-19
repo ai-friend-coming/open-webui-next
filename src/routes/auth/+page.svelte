@@ -58,6 +58,9 @@
 	let phone = '';
 	let useSmsVerification = false; // 切换邮箱/短信验证模式
 
+	// 邀请码
+	let inviteCode = '';
+
 	// 独立的冷却时间（避免切换模式时绕过冷却）
 	let emailSendCodeCooldown = 0;
 	let smsSendCodeCooldown = 0;
@@ -149,7 +152,8 @@
 				phone,
 				password,
 				generateInitialsImage(name),
-				verificationCode
+				verificationCode,
+				inviteCode || undefined
 			).catch((error) => {
 				toast.error(`${error}`);
 				return null;
@@ -160,7 +164,8 @@
 				email,
 				password,
 				generateInitialsImage(name),
-				verificationCode
+				verificationCode,
+				inviteCode || undefined
 			).catch((error) => {
 				toast.error(`${error}`);
 				return null;
@@ -377,6 +382,12 @@
 		const presetMode = $page.url.searchParams.get('mode');
 		if (presetMode === 'signup' || presetMode === 'signin' || presetMode === 'reset') {
 			mode = presetMode;
+		}
+
+		// 从 URL 参数读取邀请码
+		const urlInviteCode = $page.url.searchParams.get('invite');
+		if (urlInviteCode) {
+			inviteCode = urlInviteCode;
 		}
 
 		const error = $page.url.searchParams.get('error');
@@ -754,6 +765,22 @@
 										{/if}
 
 										{#if mode === 'signup'}
+											<!-- 邀请码输入框 -->
+											<div>
+												<label
+													class="text-sm font-semibold text-gray-700 dark:text-gray-200"
+													for="invite-code"
+													>{$i18n.t('邀请码（可选）')}</label
+												>
+												<input
+													bind:value={inviteCode}
+													type="text"
+													id="invite-code"
+													class="my-0.5 w-full text-sm px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500"
+													placeholder={$i18n.t('输入邀请码')}
+													maxlength="8"
+												/>
+											</div>
 											<div class="mt-3 flex flex-wrap items-center text-sm text-left text-gray-700 dark:text-gray-300 gap-2">
 												<button
 													type="button"

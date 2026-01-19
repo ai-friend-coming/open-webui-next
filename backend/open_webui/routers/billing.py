@@ -903,6 +903,18 @@ async def alipay_notify(request: Request):
                 db.add(recharge_log)
                 db.commit()
 
+                # 处理邀请返现（充值成功后立即发放）
+                try:
+                    from open_webui.billing.invite import process_invite_rebate
+                    process_invite_rebate(
+                        invitee_id=order.user_id,
+                        recharge_amount=order.amount,
+                        recharge_log_id=recharge_log.id,
+                    )
+                except Exception as e:
+                    log.error(f"邀请返现处理失败: {e}")
+                    # 不影响充值流程，继续执行
+
                 # 如果是首充，记录首充优惠日志和计费日志
                 if is_first_recharge and bonus_amount > 0 and matched_tier is not None:
                     try:

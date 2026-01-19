@@ -490,3 +490,58 @@ async def get_banners(
     user=Depends(get_verified_user),
 ):
     return request.app.state.config.BANNERS
+
+
+############################
+# Invite Rebate Config
+############################
+
+
+class InviteConfigModel(BaseModel):
+    rebate_rate: int  # 返现比例（百分比，如5表示5%）
+
+
+@router.get("/invite/config", response_model=InviteConfigModel)
+async def get_invite_config():
+    """
+    获取邀请返现配置（公开接口）
+
+    返回：
+    - rebate_rate: 返现比例（百分比）
+    """
+    from open_webui.billing.invite import INVITE_REBATE_RATE
+
+    return {
+        "rebate_rate": INVITE_REBATE_RATE.value,
+    }
+
+
+@router.post("/invite/config", response_model=InviteConfigModel)
+async def set_invite_config(
+    form_data: InviteConfigModel,
+    user=Depends(get_admin_user),
+):
+    """
+    更新邀请返现配置（仅管理员）
+
+    参数：
+    - rebate_rate: 返现比例（百分比，0-100）
+    """
+    from open_webui.billing.invite import INVITE_REBATE_RATE
+
+    rebate_rate = form_data.rebate_rate
+
+    # 验证返现比例范围
+    if not (0 <= rebate_rate <= 100):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Rebate rate must be between 0 and 100",
+        )
+
+    # 更新配置
+    INVITE_REBATE_RATE.value = rebate_rate
+    INVITE_REBATE_RATE.save()
+
+    return {
+        "rebate_rate": INVITE_REBATE_RATE.value,
+    }

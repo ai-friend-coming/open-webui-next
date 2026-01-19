@@ -11,6 +11,7 @@
 	import RechargeCard from '$lib/components/billing/RechargeCard.svelte';
 	import RedeemCodeInput from '$lib/components/billing/RedeemCodeInput.svelte';
 	import SignInPanel from '$lib/components/billing/SignInPanel.svelte';
+	import InvitePanel from '$lib/components/billing/InvitePanel.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
 	import { toast } from 'svelte-sonner';
@@ -109,6 +110,9 @@
 
 					<!-- 统计图表 -->
 					<BillingStatsChart />
+
+					<!-- 邀请面板 -->
+					<InvitePanel />
 
 					<!-- 充值记录 -->
 					<PaymentOrdersTable />

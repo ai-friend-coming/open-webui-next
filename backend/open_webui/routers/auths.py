@@ -766,6 +766,7 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
             form_data.name,
             form_data.profile_image_url,
             role,
+            invited_by_code=form_data.invite_code,
         )
 
         if user:
@@ -1026,6 +1027,7 @@ async def signup_with_sms(request: Request, response: Response, form_data: Signu
             profile_image_url=form_data.profile_image_url,
             role=role,
             phone=phone,
+            invited_by_code=form_data.invite_code,
         )
 
         if user:
