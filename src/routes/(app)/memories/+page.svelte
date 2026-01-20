@@ -6,7 +6,8 @@
 	import {
 		deleteMemoriesByUserId,
 		deleteMemoryById,
-		getMemories
+		getMemories,
+		deleteAllMem0Memories
 	} from '$lib/apis/memories';
 	import { trackMemoryDeleted } from '$lib/posthog';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -26,6 +27,7 @@
 	let showEditMemoryModal = false;
 	let selectedMemory = null;
 	let showClearConfirmDialog = false;
+	let showDeleteImplicitMemoriesDialog = false;
 
 	const loadMemories = async () => {
 		loading = true;
@@ -67,6 +69,21 @@
 			toast.success($i18n.t('Memory deleted successfully'));
 			await loadMemories();
 		}
+	};
+
+	const handleDeleteAllImplicitMemories = async () => {
+		try {
+			const result = await deleteAllMem0Memories(localStorage.token);
+			if (result) {
+				toast.success($i18n.t('All implicit memories deleted successfully'));
+			} else {
+				toast.error($i18n.t('Failed to delete implicit memories'));
+			}
+		} catch (error) {
+			console.error('Error deleting implicit memories:', error);
+			toast.error($i18n.t('Failed to delete implicit memories'));
+		}
+		showDeleteImplicitMemoriesDialog = false;
 	};
 
 	onMount(() => {
@@ -171,34 +188,60 @@
 							{$i18n.t('Add Memory')}
 						</div>
 					</button>
-					<!-- <button
-						class="px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition"
-						on:click={() => {
-							if ($memories.length > 0) {
-								showClearConfirmDialog = true;
-							} else {
-								toast.error($i18n.t('No memories to clear'));
-							}
-						}}
-					>
-						<div class="flex items-center gap-2">
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								class="w-4 h-4"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-								/>
-							</svg>
-							{$i18n.t('Clear memory')}
-						</div>
-					</button> -->
+				</div>
+			</div>
+
+			<!-- Delete Implicit Memories Card -->
+			<div class="mb-6 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/10 dark:to-orange-900/10 border border-red-200 dark:border-red-800/30 rounded-2xl p-5 shadow-sm">
+				<div class="flex items-start gap-4">
+					<div class="flex-shrink-0 w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke-width="1.5"
+							stroke="currentColor"
+							class="w-6 h-6 text-red-600 dark:text-red-400"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+							/>
+						</svg>
+					</div>
+					<div class="flex-1 min-w-0">
+						<h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
+							删除所有隐式记忆
+						</h3>
+						<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+							隐式记忆是 AI 在对话过程中自动学习和记录的信息。删除后，AI 将无法访问之前对话中积累的个性化理解。
+						</p>
+						<button
+							class="px-4 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl transition shadow-sm"
+							on:click={() => {
+								showDeleteImplicitMemoriesDialog = true;
+							}}
+						>
+							<div class="flex items-center gap-2">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke-width="2"
+									stroke="currentColor"
+									class="w-4 h-4"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+									/>
+								</svg>
+								删除隐式记忆
+							</div>
+						</button>
+					</div>
 				</div>
 			</div>
 
@@ -328,6 +371,17 @@
 	on:confirm={onClearConfirmed}
 	on:cancel={() => {
 		showClearConfirmDialog = false;
+	}}
+/>
+
+<ConfirmDialog
+	title="删除所有隐式记忆"
+	message="确定要删除所有隐式记忆吗？隐式记忆是 AI 在对话中自动学习的个性化信息，删除后将无法恢复。这不会影响显式记忆（手动添加的记忆）。"
+	confirmLabel="删除隐式记忆"
+	show={showDeleteImplicitMemoriesDialog}
+	on:confirm={handleDeleteAllImplicitMemories}
+	on:cancel={() => {
+		showDeleteImplicitMemoriesDialog = false;
 	}}
 />
 
