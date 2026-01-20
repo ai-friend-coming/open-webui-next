@@ -26,7 +26,8 @@ def init_posthog():
     if _initialized:
         return
 
-    posthog.project_api_key = POSTHOG_API_KEY
+    # PostHog 7.x 使用 api_key 而非 project_api_key
+    posthog.api_key = POSTHOG_API_KEY
     posthog.host = POSTHOG_HOST
     # 禁用自动捕获个人信息
     posthog.disabled = False
