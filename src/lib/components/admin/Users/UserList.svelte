@@ -664,8 +664,8 @@
 		ⓘ {$i18n.t("Click on the user role button to change a user's role.")}
 	</div>
 
-	{#if total > 30}
-		<Pagination bind:page count={total} perPage={30} />
+	{#if total > 500}
+		<Pagination bind:page count={total} perPage={500} />
 	{/if}
 {/if}
 

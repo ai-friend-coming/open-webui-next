@@ -67,7 +67,7 @@ async def get_active_users(
 ############################
 
 
-PAGE_ITEM_COUNT = 30
+PAGE_ITEM_COUNT = 500
 
 
 @router.get("/", response_model=UserListResponse)
