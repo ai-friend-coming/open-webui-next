@@ -83,6 +83,36 @@
 			orderBy = key;
 			direction = 'asc';
 		}
+
+		// 前端排序：当日交互和平均交互
+		if (key === 'daily_interaction' || key === 'average_interaction') {
+			if (!users) return;
+
+			const today = new Date().toISOString().split('T')[0];
+
+			users = [...users].sort((a, b) => {
+				let aValue = 0;
+				let bValue = 0;
+
+				if (key === 'daily_interaction') {
+					const aDailyInteraction = a.info?.daily_interaction || {};
+					const bDailyInteraction = b.info?.daily_interaction || {};
+					aValue = aDailyInteraction.date === today ? (aDailyInteraction.count || 0) : 0;
+					bValue = bDailyInteraction.date === today ? (bDailyInteraction.count || 0) : 0;
+				} else if (key === 'average_interaction') {
+					const aHistory = a.info?.interaction_history || {};
+					const bHistory = b.info?.interaction_history || {};
+
+					const aCounts = Object.values(aHistory).filter(v => v > 0);
+					const bCounts = Object.values(bHistory).filter(v => v > 0);
+
+					aValue = aCounts.length > 0 ? aCounts.reduce((sum, v) => sum + v, 0) / aCounts.length : 0;
+					bValue = bCounts.length > 0 ? bCounts.reduce((sum, v) => sum + v, 0) / bCounts.length : 0;
+				}
+
+				return direction === 'asc' ? aValue - bValue : bValue - aValue;
+			});
+		}
 	};
 
 	const getUserList = async () => {
@@ -108,7 +138,10 @@
 	}
 
 	$: if (query !== null && orderBy && direction) {
-		getUserList();
+		// 前端排序的字段不需要调用后端API
+		if (orderBy !== 'daily_interaction' && orderBy !== 'average_interaction') {
+			getUserList();
+		}
 	}
 </script>
 
@@ -354,8 +387,36 @@
 						</div>
 					</th>
 
+					<th
+						scope="col"
+						class="px-2.5 py-2 cursor-pointer select-none"
+						on:click={() => setSortKey('total_recharged')}
+					>
+						<div class="flex gap-1.5 items-center">
+							{$i18n.t('充值总额')}
+
+							{#if orderBy === 'total_recharged'}
+								<span class="font-normal">
+									{#if direction === 'asc'}
+										<ChevronUp className="size-2" />
+									{:else}
+										<ChevronDown className="size-2" />
+									{/if}
+								</span>
+							{:else}
+								<span class="invisible">
+									<ChevronUp className="size-2" />
+								</span>
+							{/if}
+						</div>
+					</th>
+
 					<!-- 当日交互次数列 -->
-					<th scope="col" class="px-2.5 py-2 text-center">
+					<th
+						scope="col"
+						class="px-2.5 py-2 cursor-pointer select-none text-center"
+						on:click={() => setSortKey('daily_interaction')}
+					>
 						<div class="flex gap-1.5 items-center justify-center">
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -366,11 +427,29 @@
 								<path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4.414a1 1 0 0 0-.707.293L.854 15.146A.5.5 0 0 1 0 14.793V2z"/>
 							</svg>
 							{$i18n.t('当日交互')}
+
+							{#if orderBy === 'daily_interaction'}
+								<span class="font-normal">
+									{#if direction === 'asc'}
+										<ChevronUp className="size-2" />
+									{:else}
+										<ChevronDown className="size-2" />
+									{/if}
+								</span>
+							{:else}
+								<span class="invisible">
+									<ChevronUp className="size-2" />
+								</span>
+							{/if}
 						</div>
 					</th>
 
 					<!-- 平均交互列 -->
-					<th scope="col" class="px-2.5 py-2 text-center">
+					<th
+						scope="col"
+						class="px-2.5 py-2 cursor-pointer select-none text-center"
+						on:click={() => setSortKey('average_interaction')}
+					>
 						<div class="flex gap-1.5 items-center justify-center">
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -382,6 +461,20 @@
 								<path d="M8 3.5a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3a.5.5 0 0 1 .5-.5z"/>
 							</svg>
 							{$i18n.t('平均交互')}
+
+							{#if orderBy === 'average_interaction'}
+								<span class="font-normal">
+									{#if direction === 'asc'}
+										<ChevronUp className="size-2" />
+									{:else}
+										<ChevronDown className="size-2" />
+									{/if}
+								</span>
+							{:else}
+								<span class="invisible">
+									<ChevronUp className="size-2" />
+								</span>
+							{/if}
 						</div>
 					</th>
 
@@ -503,6 +596,12 @@
 							</div>
 						</td>
 
+
+						<td class="px-3 py-1 min-w-[8rem] w-32">
+							<span class="text-gray-700 dark:text-gray-300">
+								¥{(Number(user.total_recharged || 0) / 10000).toFixed(2)}
+							</span>
+						</td>
 						<!-- 当日交互次数单元格 -->
 						<td class="px-3 py-1 text-center">
 							{#if user.info}
@@ -664,8 +763,8 @@
 		ⓘ {$i18n.t("Click on the user role button to change a user's role.")}
 	</div>
 
-	{#if total > 30}
-		<Pagination bind:page count={total} perPage={30} />
+	{#if total > 500}
+		<Pagination bind:page count={total} perPage={500} />
 	{/if}
 {/if}
 

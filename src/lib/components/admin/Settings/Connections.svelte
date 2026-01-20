@@ -7,7 +7,7 @@
 	import { getOllamaConfig, updateOllamaConfig } from '$lib/apis/ollama';
 	import { getOpenAIConfig, updateOpenAIConfig, getOpenAIModels } from '$lib/apis/openai';
 	import { getModels as _getModels, getBackendConfig } from '$lib/apis';
-	import { getConnectionsConfig, setConnectionsConfig } from '$lib/apis/configs';
+	import { getConnectionsConfig, setConnectionsConfig, getGlobalAPIConfig, setGlobalAPIConfig } from '$lib/apis/configs';
 
 	import { config, models, settings, user } from '$lib/stores';
 
@@ -19,6 +19,7 @@
 	import OpenAIConnection from './Connections/OpenAIConnection.svelte';
 	import AddConnectionModal from '$lib/components/AddConnectionModal.svelte';
 	import OllamaConnection from './Connections/OllamaConnection.svelte';
+	import GlobalAPIModal from './GlobalAPIModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -45,9 +46,16 @@
 
 	let connectionsConfig = null;
 
+	let globalAPIConfig = {
+		GLOBAL_API_KEY: '',
+		GLOBAL_API_BASE_URL: '',
+		GLOBAL_API_MODEL_ID: ''
+	};
+
 	let pipelineUrls = {};
 	let showAddOpenAIConnectionModal = false;
 	let showAddOllamaConnectionModal = false;
+	let showGlobalAPIModal = false;
 
 	const updateOpenAIHandler = async () => {
 		if (ENABLE_OPENAI_API !== null) {
@@ -118,6 +126,17 @@
 		}
 	};
 
+	const updateGlobalAPIHandler = async (config) => {
+		globalAPIConfig = config;
+		const res = await setGlobalAPIConfig(localStorage.token, globalAPIConfig).catch((error) => {
+			toast.error(`${error}`);
+		});
+
+		if (res) {
+			toast.success($i18n.t('Global API settings updated'));
+		}
+	};
+
 	const addOpenAIConnectionHandler = async (connection) => {
 		OPENAI_API_BASE_URLS = [...OPENAI_API_BASE_URLS, connection.url];
 		OPENAI_API_KEYS = [...OPENAI_API_KEYS, connection.key];
@@ -150,6 +169,9 @@
 				})(),
 				(async () => {
 					connectionsConfig = await getConnectionsConfig(localStorage.token);
+				})(),
+				(async () => {
+					globalAPIConfig = await getGlobalAPIConfig(localStorage.token);
 				})()
 			]);
 
@@ -213,6 +235,12 @@
 	ollama
 	bind:show={showAddOllamaConnectionModal}
 	onSubmit={addOllamaConnectionHandler}
+/>
+
+<GlobalAPIModal
+	bind:show={showGlobalAPIModal}
+	bind:config={globalAPIConfig}
+	onSubmit={updateGlobalAPIHandler}
 />
 
 <form class="flex flex-col h-full justify-between text-sm" on:submit|preventDefault={submitHandler}>
@@ -408,6 +436,23 @@
 						)}
 					</div>
 				</div>
+
+			<hr class="border-gray-100 dark:border-gray-850 my-2" />
+
+			<div class="my-2">
+				<div class="flex justify-between items-center">
+					<div class="text-base font-medium">{$i18n.t('Summary API Configuration')}</div>
+					<button
+						class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg"
+						type="button"
+						on:click={() => {
+							showGlobalAPIModal = true;
+						}}
+					>
+						{$i18n.t('Configure')}
+					</button>
+				</div>
+			</div>
 			</div>
 		{:else}
 			<div class="flex h-full justify-center">

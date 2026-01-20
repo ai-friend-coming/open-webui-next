@@ -127,6 +127,10 @@ from open_webui.config import (
     OPENAI_API_BASE_URLS,
     OPENAI_API_KEYS,
     OPENAI_API_CONFIGS,
+    # Global API
+    GLOBAL_API_KEY,
+    GLOBAL_API_BASE_URL,
+    GLOBAL_API_MODEL_ID,
     # Direct Connections
     ENABLE_DIRECT_CONNECTIONS,
     # Model list
@@ -705,6 +709,16 @@ app.state.config.OPENAI_API_KEYS = OPENAI_API_KEYS
 app.state.config.OPENAI_API_CONFIGS = OPENAI_API_CONFIGS
 
 app.state.OPENAI_MODELS = {}
+
+########################################
+#
+# GLOBAL API
+#
+########################################
+
+app.state.config.GLOBAL_API_KEY = GLOBAL_API_KEY
+app.state.config.GLOBAL_API_BASE_URL = GLOBAL_API_BASE_URL
+app.state.config.GLOBAL_API_MODEL_ID = GLOBAL_API_MODEL_ID
 
 ########################################
 #
