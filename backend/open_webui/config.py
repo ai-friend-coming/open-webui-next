@@ -3643,3 +3643,22 @@ LDAP_ATTRIBUTE_FOR_GROUPS = PersistentConfig(
     "ldap.server.attribute_for_groups",
     os.environ.get("LDAP_ATTRIBUTE_FOR_GROUPS", "memberOf"),
 )
+
+# Global API Configuration
+GLOBAL_API_KEY = PersistentConfig(
+    "GLOBAL_API_KEY",
+    "global_api.key",
+    os.environ.get("GLOBAL_API_KEY", ""),
+)
+
+GLOBAL_API_BASE_URL = PersistentConfig(
+    "GLOBAL_API_BASE_URL",
+    "global_api.base_url",
+    os.environ.get("GLOBAL_API_BASE_URL", ""),
+)
+
+GLOBAL_API_MODEL_ID = PersistentConfig(
+    "GLOBAL_API_MODEL_ID",
+    "global_api.model_id",
+    os.environ.get("GLOBAL_API_MODEL_ID", ""),
+)
