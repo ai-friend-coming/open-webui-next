@@ -13,7 +13,7 @@ from open_webui.utils.invite import generate_unique_invite_code
 
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Column, String, Text, Date, Integer
+from sqlalchemy import BigInteger, Column, String, Text, Date, Integer, func
 from sqlalchemy import or_
 
 import datetime
@@ -98,6 +98,7 @@ class UserModel(BaseModel):
     balance: Optional[int] = 0  # 毫
     total_consumed: Optional[int] = 0  # 毫
     billing_status: Optional[str] = "active"
+    total_recharged: Optional[int] = 0  # 累计充值金额（毫）
 
     # 邀请相关字段
     invite_code: Optional[str] = None  # 用户专属邀请码
@@ -279,8 +280,27 @@ class UsersTable:
         skip: Optional[int] = None,
         limit: Optional[int] = None,
     ) -> dict:
+        from open_webui.models.billing import PaymentOrder
+
         with get_db() as db:
-            query = db.query(User)
+            # 创建子查询计算每个用户的充值总额
+            recharge_subquery = (
+                db.query(
+                    PaymentOrder.user_id,
+                    func.sum(PaymentOrder.amount).label('total_recharged')
+                )
+                .filter(PaymentOrder.status == 'paid')
+                .group_by(PaymentOrder.user_id)
+                .subquery()
+            )
+
+            # 左连接子查询
+            query = db.query(User).outerjoin(
+                recharge_subquery, User.id == recharge_subquery.c.user_id
+            )
+            query = query.add_columns(
+                func.coalesce(recharge_subquery.c.total_recharged, 0).label('total_recharged')
+            )
 
             if filter:
                 query_key = filter.get("query")
@@ -334,6 +354,11 @@ class UsersTable:
                         query = query.order_by(User.balance.asc())
                     else:
                         query = query.order_by(User.balance.desc())
+                elif order_by == "total_recharged":
+                    if direction == "asc":
+                        query = query.order_by(func.coalesce(recharge_subquery.c.total_recharged, 0).asc())
+                    else:
+                        query = query.order_by(func.coalesce(recharge_subquery.c.total_recharged, 0).desc())
 
             else:
                 query = query.order_by(User.created_at.desc())
@@ -343,9 +368,17 @@ class UsersTable:
             if limit:
                 query = query.limit(limit)
 
-            users = query.all()
+            results = query.all()
+            users = []
+            for row in results:
+                user_obj = row[0]  # User 对象
+                total_recharged = row[1] if len(row) > 1 else 0  # total_recharged 值
+                user_model = UserModel.model_validate(user_obj)
+                user_model.total_recharged = total_recharged
+                users.append(user_model)
+
             return {
-                "users": [UserModel.model_validate(user) for user in users],
+                "users": users,
                 "total": db.query(User).count(),
             }
 
