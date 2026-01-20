@@ -38,6 +38,12 @@ try:
 except ImportError:
     print("dotenv not installed, skipping...")
 
+# 设置 tiktoken 缓存目录（必须在任何模块导入 tiktoken 之前设置）
+# Docker 环境通过 Dockerfile 设置，本地开发使用临时目录
+if "TIKTOKEN_CACHE_DIR" not in os.environ:
+    import tempfile
+    os.environ["TIKTOKEN_CACHE_DIR"] = os.path.join(tempfile.gettempdir(), "tiktoken_cache")
+
 DOCKER = os.environ.get("DOCKER", "False").lower() == "true"
 
 # device type embedding models - "cpu" (default), "cuda" (nvidia gpu required) or "mps" (apple silicon) - choosing this right can lead to better performance

@@ -176,6 +176,18 @@ def estimate_prompt_tokens(messages: list, model_id: str) -> int:
         int: 预估的 prompt tokens 数量
     """
     try:
+        import os
+        import tempfile
+
+        # 确保 tiktoken 缓存目录可写（解决本地开发时 /app 不存在的问题）
+        cache_dir = os.environ.get("TIKTOKEN_CACHE_DIR")
+        if not cache_dir or not os.path.exists(os.path.dirname(cache_dir) if cache_dir != "/" else cache_dir):
+            cache_dir = os.path.join(tempfile.gettempdir(), "tiktoken_cache")
+            os.environ["TIKTOKEN_CACHE_DIR"] = cache_dir
+
+        # 确保缓存目录存在
+        os.makedirs(cache_dir, exist_ok=True)
+
         import tiktoken
 
         # 选择 encoding（GPT-4/3.5/Claude 都用 cl100k_base）
@@ -217,7 +229,7 @@ def estimate_prompt_tokens(messages: list, model_id: str) -> int:
 
     except Exception as e:
         # tiktoken 失败时降级为字符估算
-        log.warning(f"tiktoken 预估失败，降级为字符估算: {e}")
+        log.warning(f"tiktoken 预估失败，降级为字符估算: {e}", exc_info=True)
         return _estimate_prompt_tokens_fallback(messages, model_id)
 
 
@@ -307,8 +319,8 @@ def estimate_completion_tokens(content: str, model_id: str) -> int:
 CACHE_TOKEN_RATIO = 0.1
 
 # 信任额度阈值（毫）：余额超过此值的用户跳过预扣费
-# 默认 0.1 元 = 1000 毫
-TRUST_QUOTA_THRESHOLD = 1000
+# 默认 3 元 = 30000 毫（防止余额刚超过阈值但不足以支付实际费用）
+TRUST_QUOTA_THRESHOLD = 30000
 
 
 def check_trust_quota(user_id: str) -> bool:

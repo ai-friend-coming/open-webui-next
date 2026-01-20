@@ -4,6 +4,11 @@ import mimetypes
 import os
 import shutil
 import asyncio
+import tempfile
+
+# 设置 tiktoken 缓存目录（必须在导入 tiktoken 之前）
+if "TIKTOKEN_CACHE_DIR" not in os.environ:
+    os.environ["TIKTOKEN_CACHE_DIR"] = os.path.join(tempfile.gettempdir(), "tiktoken_cache")
 
 import re
 import uuid

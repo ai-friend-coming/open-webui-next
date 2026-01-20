@@ -2706,6 +2706,8 @@ RAG_TEXT_SPLITTER = PersistentConfig(
 
 
 TIKTOKEN_CACHE_DIR = os.environ.get("TIKTOKEN_CACHE_DIR", f"{CACHE_DIR}/tiktoken")
+# 设置环境变量，确保 tiktoken 导入时能读取到正确的缓存目录
+os.environ["TIKTOKEN_CACHE_DIR"] = TIKTOKEN_CACHE_DIR
 TIKTOKEN_ENCODING_NAME = PersistentConfig(
     "TIKTOKEN_ENCODING_NAME",
     "rag.tiktoken_encoding_name",
