@@ -3662,3 +3662,15 @@ GLOBAL_API_MODEL_ID = PersistentConfig(
     "global_api.model_id",
     os.environ.get("GLOBAL_API_MODEL_ID", ""),
 )
+
+GLOBAL_API_INPUT_PRICE = PersistentConfig(
+    "GLOBAL_API_INPUT_PRICE",
+    "global_api.input_price",
+    int(os.environ.get("GLOBAL_API_INPUT_PRICE", "0")),
+)
+
+GLOBAL_API_OUTPUT_PRICE = PersistentConfig(
+    "GLOBAL_API_OUTPUT_PRICE",
+    "global_api.output_price",
+    int(os.environ.get("GLOBAL_API_OUTPUT_PRICE", "0")),
+)

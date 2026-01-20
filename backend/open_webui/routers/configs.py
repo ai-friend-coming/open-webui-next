@@ -104,6 +104,8 @@ class GlobalAPIConfigForm(BaseModel):
     GLOBAL_API_KEY: str
     GLOBAL_API_BASE_URL: str
     GLOBAL_API_MODEL_ID: str
+    GLOBAL_API_INPUT_PRICE: Optional[int] = 0
+    GLOBAL_API_OUTPUT_PRICE: Optional[int] = 0
 
 
 @router.get("/global_api", response_model=GlobalAPIConfigForm)
@@ -112,6 +114,8 @@ async def get_global_api_config(request: Request, user=Depends(get_admin_user)):
         "GLOBAL_API_KEY": request.app.state.config.GLOBAL_API_KEY,
         "GLOBAL_API_BASE_URL": request.app.state.config.GLOBAL_API_BASE_URL,
         "GLOBAL_API_MODEL_ID": request.app.state.config.GLOBAL_API_MODEL_ID,
+        "GLOBAL_API_INPUT_PRICE": request.app.state.config.GLOBAL_API_INPUT_PRICE,
+        "GLOBAL_API_OUTPUT_PRICE": request.app.state.config.GLOBAL_API_OUTPUT_PRICE,
     }
 
 
@@ -124,11 +128,15 @@ async def set_global_api_config(
     request.app.state.config.GLOBAL_API_KEY = form_data.GLOBAL_API_KEY
     request.app.state.config.GLOBAL_API_BASE_URL = form_data.GLOBAL_API_BASE_URL
     request.app.state.config.GLOBAL_API_MODEL_ID = form_data.GLOBAL_API_MODEL_ID
+    request.app.state.config.GLOBAL_API_INPUT_PRICE = form_data.GLOBAL_API_INPUT_PRICE
+    request.app.state.config.GLOBAL_API_OUTPUT_PRICE = form_data.GLOBAL_API_OUTPUT_PRICE
 
     return {
         "GLOBAL_API_KEY": request.app.state.config.GLOBAL_API_KEY,
         "GLOBAL_API_BASE_URL": request.app.state.config.GLOBAL_API_BASE_URL,
         "GLOBAL_API_MODEL_ID": request.app.state.config.GLOBAL_API_MODEL_ID,
+        "GLOBAL_API_INPUT_PRICE": request.app.state.config.GLOBAL_API_INPUT_PRICE,
+        "GLOBAL_API_OUTPUT_PRICE": request.app.state.config.GLOBAL_API_OUTPUT_PRICE,
     }
 
 
