@@ -333,8 +333,8 @@ def check_trust_quota(user_id: str) -> bool:
         balance, _, status = balance_info
 
         # 账户冻结不享受信任额度
-        if status == "frozen":
-            return False
+        # if status == "frozen":
+        #     return False
 
         # 余额超过阈值才享受信任额度
         return balance >= TRUST_QUOTA_THRESHOLD
@@ -503,8 +503,8 @@ def deduct_balance(
             raise HTTPException(status_code=404, detail="用户不存在")
 
         # 2. 检查账户状态
-        if user.billing_status == "frozen":
-            raise HTTPException(status_code=403, detail="账户已冻结，请联系管理员充值")
+        # if user.billing_status == "frozen":
+        #     raise HTTPException(status_code=403, detail="账户已冻结，请联系管理员充值")
 
         # 3. 计算费用（毫）
         if custom_input_price is not None or custom_output_price is not None:
@@ -548,9 +548,9 @@ def deduct_balance(
         user.total_consumed = (user.total_consumed or 0) + cost
 
         # 6. 余额不足时冻结账户（< 0.01元 = 100毫）
-        if user.balance < 100:
-            user.billing_status = "frozen"
-            log.warning(f"用户 {user_id} 余额不足，账户已冻结")
+        # if user.balance < 100:
+        #     user.billing_status = "frozen"
+        #     log.warning(f"用户 {user_id} 余额不足，账户已冻结")
 
         # 7. 记录日志
         billing_log = BillingLog(
@@ -621,8 +621,8 @@ def deduct_balance_with_usage(
             raise HTTPException(status_code=404, detail="用户不存在")
 
         # 2. 检查账户状态
-        if user.billing_status == "frozen":
-            raise HTTPException(status_code=403, detail="账户已冻结，请联系管理员充值")
+        # if user.billing_status == "frozen":
+        #     raise HTTPException(status_code=403, detail="账户已冻结，请联系管理员充值")
 
         # 3. 使用完整 UsageInfo 计算费用
         cost = calculate_cost_with_usage(model_id, usage_info)
@@ -640,9 +640,9 @@ def deduct_balance_with_usage(
         user.total_consumed = (user.total_consumed or 0) + cost
 
         # 6. 余额不足时冻结账户
-        if user.balance < 100:
-            user.billing_status = "frozen"
-            log.warning(f"用户 {user_id} 余额不足，账户已冻结")
+        # if user.balance < 100:
+        #     user.billing_status = "frozen"
+        #     log.warning(f"用户 {user_id} 余额不足，账户已冻结")
 
         # 7. 记录日志（包含完整 token 信息）
         billing_log = BillingLog(
@@ -712,9 +712,9 @@ def recharge_user(
         user.balance = balance_before + amount
 
         # 4. 账户状态自动管理（< 0.01元 = 100毫）
-        if user.balance < 100:
-            user.billing_status = "frozen"
-        elif user.balance >= 100:
+        # if user.balance < 100:
+        #     user.billing_status = "frozen"
+        if user.balance >= 100:
             user.billing_status = "active"
 
         # 5. 记录充值日志
@@ -794,8 +794,8 @@ def precharge_balance(
         if not user:
             raise HTTPException(status_code=404, detail="用户不存在")
 
-        if user.billing_status == "frozen":
-            raise HTTPException(status_code=403, detail="账户已冻结")
+        # if user.billing_status == "frozen":
+        #     raise HTTPException(status_code=403, detail="账户已冻结")
 
         # 2. 计算最大可能费用
         max_cost = calculate_cost(model_id, estimated_prompt_tokens, max_completion_tokens)
@@ -890,7 +890,7 @@ def settle_precharge_with_usage(
                     f"balance={user.balance / 10000:.4f}元"
                 )
                 user.balance = 0
-                user.billing_status = "frozen"
+                # user.billing_status = "frozen"
             else:
                 user.balance -= additional_cost
             refund_amount = -additional_cost
@@ -999,7 +999,7 @@ def settle_precharge(
                 )
                 # 扣除所有余额，标记账户冻结
                 user.balance = 0
-                user.billing_status = "frozen"
+                # user.billing_status = "frozen"
             else:
                 user.balance -= additional_cost
             refund_amount = -additional_cost
@@ -1069,12 +1069,12 @@ def check_user_balance_threshold(
 
         balance, _, status = balance_info
 
-        # 检查账户状态
-        if status == "frozen":
-            raise HTTPException(
-                status_code=403,
-                detail="账户已冻结，请联系管理员充值"
-            )
+        # # 检查账户状态
+        # if status == "frozen":
+        #     raise HTTPException(
+        #         status_code=403,
+        #         detail="账户已冻结，请联系管理员充值"
+        #     )
 
         # 检查余额阈值
         if balance < threshold:
@@ -1091,3 +1091,35 @@ def check_user_balance_threshold(
     except Exception as e:
         # 其他异常仅记录日志，不阻断请求
         log.error(f"计费预检查异常: {e}")
+
+
+def convert_billing_exception_to_customized_error(e: Exception) -> "CustmizedError":
+    """
+    将计费相关的 HTTPException 转换为 CustmizedError
+
+    Args:
+        e: HTTPException 实例
+
+    Returns:
+        CustmizedError: 包含用户友好错误信息的自定义异常
+    """
+    from open_webui.utils.chat_error_boundary import CustmizedError
+
+    if not isinstance(e, HTTPException):
+        return CustmizedError("计费系统错误", cause=e)
+
+    # 根据状态码映射用户友好的错误信息
+    if e.status_code == 402:
+        # 余额不足 - 保留原始详细信息
+        user_message = f"{e.detail}\n\n请前往【计费中心】充值后继续使用。"
+    elif e.status_code == 403:
+        # 账户冻结
+        user_message = f"{e.detail}\n\n请联系管理员处理。"
+    elif e.status_code == 404:
+        # 用户不存在
+        user_message = "用户信息异常，请重新登录。"
+    else:
+        # 其他计费错误
+        user_message = f"计费系统错误：{e.detail}"
+
+    return CustmizedError(user_message, cause=e)

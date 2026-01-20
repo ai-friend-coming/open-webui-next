@@ -596,19 +596,26 @@ async def summarize(
         if not is_user_model and (prompt_tokens > 0 or completion_tokens > 0):
             from open_webui.billing.core import deduct_balance
 
-            cost, balance = deduct_balance(
-                user_id=user_id,
-                model_id=model_id,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                log_type="deduct_summary"  # 标记为摘要扣费
-            )
+            try:
+                cost, balance = deduct_balance(
+                    user_id=user_id,
+                    model_id=model_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    log_type="deduct_summary"  # 标记为摘要扣费
+                )
 
-            log.info(
-                f"摘要生成计费成功: user={user_id} model={model_id} "
-                f"tokens={prompt_tokens}+{completion_tokens} "
-                f"cost={cost / 10000:.4f}元 balance={balance / 10000:.4f}元"
-            )
+                log.info(
+                    f"摘要生成计费成功: user={user_id} model={model_id} "
+                    f"tokens={prompt_tokens}+{completion_tokens} "
+                    f"cost={cost / 10000:.4f}元 balance={balance / 10000:.4f}元"
+                )
+            except Exception as e:
+                from fastapi import HTTPException
+                if isinstance(e, HTTPException) and e.status_code in (402, 403, 404):
+                    from open_webui.billing.core import convert_billing_exception_to_customized_error
+                    raise convert_billing_exception_to_customized_error(e)
+                raise
 
         # 6. 解析 JSON 并提取摘要
         summary, table = _parse_response(payload)

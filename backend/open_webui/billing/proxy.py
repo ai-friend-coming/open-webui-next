@@ -111,6 +111,13 @@ async def chat_with_billing(
 
     except Exception as e:
         # 错误时全额退款
-        log.error(f"[Billing] 请求失败，执行退款: {e}") 
+        log.error(f"[Billing] 请求失败，执行退款: {e}")
         await billing.refund()
+
+        # 转换计费相关的 HTTPException 为 CustmizedError
+        from fastapi import HTTPException
+        if isinstance(e, HTTPException) and e.status_code in (402, 403, 404):
+            from open_webui.billing.core import convert_billing_exception_to_customized_error
+            raise convert_billing_exception_to_customized_error(e)
+
         raise

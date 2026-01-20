@@ -1118,8 +1118,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         # 检查余额（默认阈值0.01元 = 100毫）
         check_user_balance_threshold(user.id, threshold=100)
 
-    except HTTPException:
-        # 重新抛出业务异常（余额不足/账户冻结）
+    except HTTPException as e:
+        # 转换计费相关的 HTTPException 为 CustmizedError
+        if e.status_code in (402, 403, 404):
+            from open_webui.billing.core import convert_billing_exception_to_customized_error
+            raise convert_billing_exception_to_customized_error(e)
+        # 其他 HTTPException 直接抛出
         raise
     except Exception as e:
         # 其他异常仅记录日志，不阻断请求

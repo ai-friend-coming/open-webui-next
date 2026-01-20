@@ -145,22 +145,29 @@ def _charge_mem0(user_id: str, model_id: str, type: str = "search"):
     """
     为 mem0 操作扣费。
     """
-    if type == "search":
-        deduct_balance(
-            user_id=user_id,
-            model_id=model_id,
-            prompt_tokens=1,
-            completion_tokens=0,
-            log_type="RAG",
-        )
-    else:
-        deduct_balance(
-            user_id=user_id,
-            model_id=model_id,
-            prompt_tokens=7,
-            completion_tokens=0,
-            log_type="RAG",
-        )
+    try:
+        if type == "search":
+            deduct_balance(
+                user_id=user_id,
+                model_id=model_id,
+                prompt_tokens=1,
+                completion_tokens=0,
+                log_type="RAG",
+            )
+        else:
+            deduct_balance(
+                user_id=user_id,
+                model_id=model_id,
+                prompt_tokens=7,
+                completion_tokens=0,
+                log_type="RAG",
+            )
+    except Exception as e:
+        from fastapi import HTTPException
+        if isinstance(e, HTTPException) and e.status_code in (402, 403, 404):
+            from open_webui.billing.core import convert_billing_exception_to_customized_error
+            raise convert_billing_exception_to_customized_error(e)
+        raise
 
 async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str]:
     """

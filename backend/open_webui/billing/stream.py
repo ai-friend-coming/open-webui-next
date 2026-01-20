@@ -90,6 +90,12 @@ class BillingStreamWrapper:
             await self.billing.settle()
         except Exception as e:
             log.error(f"[Billing] 结算失败: {e}")
+            # 转换计费相关的 HTTPException 为 CustmizedError
+            from fastapi import HTTPException
+            if isinstance(e, HTTPException) and e.status_code in (402, 403, 404):
+                from open_webui.billing.core import convert_billing_exception_to_customized_error
+                raise convert_billing_exception_to_customized_error(e)
+            # 其他异常不重新抛出，避免影响已发送的流
 
     def _parse_usage(self, chunk: Union[bytes, str]) -> None:
         """
