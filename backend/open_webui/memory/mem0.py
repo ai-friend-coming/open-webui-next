@@ -281,14 +281,26 @@ async def mem0_delete(user_id: str, chat_id: str) -> bool:
     try:
         log.info(f"[mem: delete]mem0_delete called with user_id: {user_id}, chat_id: {chat_id}")
 
-        # 使用 session_id 过滤，只删除该聊天窗口的记忆，而不是用户所有记忆
-        memory_client.delete(
-            filters={
-                "user_id": user_id,
-                "session_id": chat_id  # 修复：添加 session_id 过滤
-            }
+        # 先搜索该会话的所有记忆
+        search_result = memory_client.search(
+            query="",
+            user_id=user_id,
+            filters={"session_id": chat_id}
         )
-        log.info(f"[mem: delete]Successfully deleted memories for chat_id: {chat_id}")
+
+        # 获取记忆列表
+        memories = search_result.get("results", [])
+
+        # 逐个删除
+        deleted_count = 0
+        for memory in memories:
+            try:
+                memory_client.delete(memory_id=memory["id"])
+                deleted_count += 1
+            except Exception as e:
+                log.warning(f"[mem: delete]Failed to delete memory {memory['id']}: {e}")
+
+        log.info(f"[mem: delete]Successfully deleted {deleted_count} memories for chat_id: {chat_id}")
         return True
     except Exception as e:
         log.error(f"[mem: delete] mem0_delete failed: {e}")
@@ -313,15 +325,29 @@ async def mem0_delete_by_message_content(user_id: str, chat_id: str, message_con
 
         log.info(f"[mem: delete]mem0_delete_by_message_content called with user_id: {user_id}, chat_id: {chat_id}, hash: {message_hash[:16]}...")
 
-        # 使用多重过滤：user_id + session_id + message_hash
-        memory_client.delete(
+        # 先搜索匹配的记忆
+        search_result = memory_client.search(
+            query="",
+            user_id=user_id,
             filters={
-                "user_id": user_id,
                 "session_id": chat_id,
-                "message_hash": message_hash  # 精确匹配消息哈希
+                "message_hash": message_hash
             }
         )
-        log.info(f"[mem: delete]Successfully deleted memory for message_hash: {message_hash[:16]}...")
+
+        # 获取记忆列表
+        memories = search_result.get("results", [])
+
+        # 逐个删除
+        deleted_count = 0
+        for memory in memories:
+            try:
+                memory_client.delete(memory_id=memory["id"])
+                deleted_count += 1
+            except Exception as e:
+                log.warning(f"[mem: delete]Failed to delete memory {memory['id']}: {e}")
+
+        log.info(f"[mem: delete]Successfully deleted {deleted_count} memory(ies) for message_hash: {message_hash[:16]}...")
         return True
     except Exception as e:
         log.error(f"[mem: delete] mem0_delete_by_message_content failed: {e}")
@@ -341,12 +367,9 @@ async def mem0_delete_all(user_id: str) -> bool:
     try:
         log.info(f"[mem: delete all]mem0_delete_all called with user_id: {user_id}")
 
-        # 只使用 user_id 过滤，删除该用户的所有记忆
-        memory_client.delete(
-            filters={
-                "user_id": user_id
-            }
-        )
+        # 使用 delete_all() 方法删除该用户的所有记忆
+        memory_client.delete_all(user_id=user_id)
+
         log.info(f"[mem: delete all]Successfully deleted all memories for user_id: {user_id}")
         return True
     except Exception as e:
