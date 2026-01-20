@@ -126,15 +126,6 @@
 					<span class="text-gray-900 dark:text-white">{$i18n.t('Memory')}</span>
 				</button>
 
-				<!-- Archived Chats -->
-				<button
-					class="flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-					on:click={() => handleAction(() => showArchivedChats.set(true))}
-				>
-					<ArchiveBox className="size-5 text-gray-600 dark:text-gray-400" strokeWidth="1.5" />
-					<span class="text-gray-900 dark:text-white">{$i18n.t('Archived Chats')}</span>
-				</button>
-
 				<!-- Admin Only -->
 				{#if $user?.role === 'admin'}
 					<div class="h-px bg-gray-100 dark:bg-gray-800 mx-4 my-1" />
