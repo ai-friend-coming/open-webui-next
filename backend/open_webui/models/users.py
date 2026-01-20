@@ -225,7 +225,7 @@ class UsersTable:
                     "invited_by": invited_by,
                 }
             )
-            result = User(**user.model_dump())
+            result = User(**user.model_dump(exclude={"total_recharged"}))
             db.add(result)
             db.commit()
             db.refresh(result)
