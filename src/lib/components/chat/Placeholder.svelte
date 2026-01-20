@@ -67,6 +67,25 @@
 	}
 
 	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
+
+	// 温馨问候语列表
+	const greetings = [
+		'你好，要聊聊吗，{name}',
+		'嗨 {name}，今天想聊什么呢',
+		'{name}，有什么我可以帮你的吗',
+		'很高兴见到你，{name}',
+		'你好呀 {name}，我在这里',
+		'{name}，有什么想分享吗',
+		'很开心能帮到你，{name}',
+		'{name}，尽管问我吧',
+		'你来啦，{name}',
+		'{name}，有什么新鲜事吗',
+		'{name}，让我陪你聊聊',
+		'{name}，我一直在等你'
+	];
+
+	// 随机选择一条问候语
+	let selectedGreeting = greetings[Math.floor(Math.random() * greetings.length)];
 </script>
 
 <div class="m-auto w-full max-w-6xl px-2 @2xl:px-20 translate-y-6 py-24 text-center">
@@ -140,19 +159,9 @@
 						class=" text-3xl @sm:text-3xl line-clamp-1 flex items-center"
 						in:fade={{ duration: 100 }}
 					>
-						{#if models[selectedModelIdx]?.name}
-							<Tooltip
-								content={models[selectedModelIdx]?.name}
-								placement="top"
-								className=" flex items-center "
-							>
-								<span class="line-clamp-1">
-									{models[selectedModelIdx]?.name}
-								</span>
-							</Tooltip>
-						{:else}
-							{$i18n.t('Hello, {{name}}', { name: $user?.name })}
-						{/if}
+						<span class="line-clamp-1">
+							{selectedGreeting.replace('{name}', $user?.name ?? '朋友')}
+						</span>
 					</div>
 				</div>
 
