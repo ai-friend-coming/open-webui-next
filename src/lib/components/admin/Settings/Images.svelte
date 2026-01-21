@@ -27,7 +27,7 @@
 
 	let config = null;
 	let imageGenerationConfig = null;
-	let imageCaptionConfig = { enabled: false, model: '' };
+	let imageCaptionConfig = { enabled: false, model: '', billing_ratio: 1.0 };
 
 	let models = null;
 
@@ -365,6 +365,27 @@
 						{$i18n.t('Select a vision model to automatically describe uploaded images')}
 					</div>
 				</div>
+
+			<div class=" py-1">
+				<div class=" mb-2 text-sm font-medium">{$i18n.t('Billing Ratio')}</div>
+				<div class="flex w-full">
+					<div class="flex-1">
+						<input
+							type="number"
+							class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+							placeholder="1.0"
+							bind:value={imageCaptionConfig.billing_ratio}
+							min="0.1"
+							max="10"
+							step="0.1"
+							required
+						/>
+					</div>
+				</div>
+				<div class="text-xs text-gray-500 mt-1">
+					{$i18n.t('Billing multiplier for caption generation (e.g., 1.5 = 150% of normal cost)')}
+				</div>
+			</div>
 			{/if}
 		</div>
 		<hr class=" border-gray-100 dark:border-gray-850" />

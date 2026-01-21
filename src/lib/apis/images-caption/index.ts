@@ -61,7 +61,7 @@ export const generateImageCaption = async (token: string = '', imageUrl: string)
 
 export const updateImageCaptionConfig = async (
 	token: string = '',
-	config: { enabled: boolean; model: string }
+	config: { enabled: boolean; model: string; billing_ratio?: number }
 ) => {
 	let error = null;
 
@@ -72,7 +72,11 @@ export const updateImageCaptionConfig = async (
 			'Content-Type': 'application/json',
 			...(token && { authorization: `Bearer ${token}` })
 		},
-		body: JSON.stringify(config)
+		body: JSON.stringify({
+			enabled: config.enabled,
+			model: config.model,
+			billing_ratio: config.billing_ratio ?? 1.0
+		})
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();

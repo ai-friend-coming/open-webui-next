@@ -36,6 +36,27 @@ export interface InviteConfig {
 	rebate_rate: number; // 返现比例（百分比）
 }
 
+export interface InviteRelationship {
+	inviter: {
+		id: string;
+		name: string;
+		email: string | null;
+		invite_code: string;
+	};
+	invitees: Array<{
+		id: string;
+		name: string;
+		email: string | null;
+		created_at: number;
+	}>;
+}
+
+export interface InviteRelationshipsResponse {
+	relationships: InviteRelationship[];
+	total_inviters: number;
+	total_invitees: number;
+}
+
 // ========== API函数 ==========
 
 /**
@@ -187,6 +208,38 @@ export const updateInviteConfig = async (
 			Authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify({ rebate_rate })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
+ * 获取所有用户的邀请关系（管理员专用）
+ */
+export const getAllInviteRelationships = async (
+	token: string
+): Promise<InviteRelationshipsResponse> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/users/invite/relationships`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();

@@ -3386,6 +3386,12 @@ IMAGE_CAPTION_MODEL = PersistentConfig(
     os.getenv("IMAGE_CAPTION_MODEL", ""),
 )
 
+IMAGE_CAPTION_BILLING_RATIO = PersistentConfig(
+    "IMAGE_CAPTION_BILLING_RATIO",
+    "image_caption.billing_ratio",
+    float(os.getenv("IMAGE_CAPTION_BILLING_RATIO", "1.0")),
+)
+
 ####################################
 # Audio
 ####################################

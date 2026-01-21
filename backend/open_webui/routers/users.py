@@ -643,3 +643,56 @@ async def get_invitees(
     """
     result = Users.get_invitees_by_inviter_id(user.id, skip, limit)
     return result
+
+
+@router.get("/invite/relationships")
+async def get_all_invite_relationships(
+    user=Depends(get_admin_user)
+):
+    """
+    获取所有用户的邀请关系（管理员专用）
+
+    返回：
+    - relationships: 邀请关系列表，每项包含 inviter 和 invitees
+    """
+    from open_webui.internal.db import get_db
+    from open_webui.models.users import User
+
+    with get_db() as db:
+        # 获取所有有邀请人的用户
+        users_with_inviters = db.query(User).filter(User.invited_by.isnot(None)).all()
+
+        # 构建邀请关系字典
+        relationships_dict = {}
+        for user in users_with_inviters:
+            inviter_id = user.invited_by
+            if inviter_id not in relationships_dict:
+                inviter = db.query(User).filter(User.id == inviter_id).first()
+                if inviter:
+                    relationships_dict[inviter_id] = {
+                        "inviter": {
+                            "id": inviter.id,
+                            "name": inviter.name,
+                            "email": inviter.email,
+                            "invite_code": inviter.invite_code
+                        },
+                        "invitees": []
+                    }
+
+            if inviter_id in relationships_dict:
+                relationships_dict[inviter_id]["invitees"].append({
+                    "id": user.id,
+                    "name": user.name,
+                    "email": user.email,
+                    "created_at": user.created_at
+                })
+
+        # 转换为列表并按邀请人数排序
+        relationships = list(relationships_dict.values())
+        relationships.sort(key=lambda x: len(x["invitees"]), reverse=True)
+
+        return {
+            "relationships": relationships,
+            "total_inviters": len(relationships),
+            "total_invitees": len(users_with_inviters)
+        }

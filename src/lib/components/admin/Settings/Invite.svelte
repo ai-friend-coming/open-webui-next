@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { getInviteConfig, updateInviteConfig } from '$lib/apis/invite';
+	import { getInviteConfig, updateInviteConfig, getAllInviteRelationships, type InviteRelationshipsResponse } from '$lib/apis/invite';
 
 	const i18n = getContext('i18n');
 
 	let rebateRate = 5;
 	let loading = false;
 	let saving = false;
+	let relationships: InviteRelationshipsResponse | null = null;
+	let loadingRelationships = false;
 
 	onMount(async () => {
 		await loadConfig();
+		await loadRelationships();
 	});
 
 	async function loadConfig() {
@@ -23,6 +26,18 @@
 			toast.error($i18n.t('加载配置失败'));
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadRelationships() {
+		loadingRelationships = true;
+		try {
+			relationships = await getAllInviteRelationships(localStorage.token);
+		} catch (error) {
+			console.error('Failed to load invite relationships:', error);
+			toast.error($i18n.t('加载邀请关系失败'));
+		} finally {
+			loadingRelationships = false;
 		}
 	}
 
@@ -43,10 +58,14 @@
 			saving = false;
 		}
 	}
+
+	function formatDate(timestamp: number) {
+		return new Date(timestamp / 1000000).toLocaleDateString();
+	}
 </script>
 
-<div class="flex flex-col h-full justify-between text-sm">
-	<div class="  pr-1.5 space-y-2">
+<div class="flex flex-col h-full text-sm overflow-y-auto">
+	<div class="pr-1.5 space-y-4">
 		<div>
 			<div class=" mb-1 text-sm font-medium">{$i18n.t('邀请返现配置')}</div>
 
@@ -85,17 +104,77 @@
 						<li>{$i18n.t('仅一级返现，不支持多级分销')}</li>
 					</ul>
 				</div>
+
+				<div class="flex justify-end">
+					<button
+						class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50"
+						on:click={saveConfig}
+						disabled={loading || saving}
+					>
+						{saving ? $i18n.t('保存中...') : $i18n.t('保存')}
+					</button>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<div class="flex justify-end pt-3">
-		<button
-			class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50"
-			on:click={saveConfig}
-			disabled={loading || saving}
-		>
-			{saving ? $i18n.t('保存中...') : $i18n.t('保存')}
-		</button>
+		<!-- 邀请关系列表 -->
+		<div class="mt-6">
+			<div class="mb-3 flex items-center justify-between">
+				<div class="text-sm font-medium">{$i18n.t('邀请关系')}</div>
+				{#if relationships}
+					<div class="text-xs text-gray-500">
+						{$i18n.t('共')} {relationships.total_inviters} {$i18n.t('位邀请人')}, {relationships.total_invitees} {$i18n.t('位被邀请用户')}
+					</div>
+				{/if}
+			</div>
+
+			{#if loadingRelationships}
+				<div class="text-center py-8 text-gray-500">
+					{$i18n.t('加载中...')}
+				</div>
+			{:else if relationships && relationships.relationships.length > 0}
+				<div class="space-y-4">
+					{#each relationships.relationships as relationship}
+						<div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+							<div class="flex items-center gap-2 mb-3">
+								<div class="font-medium text-gray-900 dark:text-gray-100">
+									{relationship.inviter.name}
+								</div>
+								<div class="text-xs text-gray-500">
+									({relationship.inviter.email || relationship.inviter.id})
+								</div>
+								<div class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-0.5 rounded">
+									{$i18n.t('邀请码')}: {relationship.inviter.invite_code}
+								</div>
+								<div class="text-xs text-gray-500 ml-auto">
+									{$i18n.t('已邀请')} {relationship.invitees.length} {$i18n.t('人')}
+								</div>
+							</div>
+
+							<div class="pl-4 border-l-2 border-gray-200 dark:border-gray-700 space-y-2">
+								{#each relationship.invitees as invitee}
+									<div class="flex items-center gap-2 text-sm">
+										<div class="w-2 h-2 rounded-full bg-gray-400"></div>
+										<div class="text-gray-700 dark:text-gray-300">
+											{invitee.name}
+										</div>
+										<div class="text-xs text-gray-500">
+											({invitee.email || invitee.id})
+										</div>
+										<div class="text-xs text-gray-400 ml-auto">
+											{formatDate(invitee.created_at)}
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="text-center py-8 text-gray-500">
+					{$i18n.t('暂无邀请关系')}
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>

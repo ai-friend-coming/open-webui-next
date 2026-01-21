@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from open_webui.utils.auth import get_verified_user
-from open_webui.config import ENABLE_IMAGE_CAPTION, IMAGE_CAPTION_MODEL
+from open_webui.config import ENABLE_IMAGE_CAPTION, IMAGE_CAPTION_MODEL, IMAGE_CAPTION_BILLING_RATIO
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +96,39 @@ async def generate_image_caption(
 
         response = await generate_chat_completions(request, form_data=payload, user=user)
 
+        # 应用计费倍率（如果不是 1.0）
+        billing_ratio = IMAGE_CAPTION_BILLING_RATIO.value
+        if billing_ratio != 1.0:
+            try:
+                from open_webui.billing.core import deduct_balance_with_usage
+                from open_webui.billing.usage import UsageInfo
+                from open_webui.models.billing import BillingLog
+
+                # 获取最近的计费记录
+                if hasattr(response, 'usage') and response.usage:
+                    usage = response.usage
+                    # 计算额外费用（倍率 - 1.0）
+                    extra_ratio = billing_ratio - 1.0
+
+                    # 构建 UsageInfo
+                    usage_info = UsageInfo(
+                        prompt_tokens=int(usage.prompt_tokens * extra_ratio),
+                        completion_tokens=int(usage.completion_tokens * extra_ratio)
+                    )
+
+                    # 额外扣费
+                    deduct_balance_with_usage(
+                        user_id=user.id,
+                        model_id=caption_model,
+                        usage=usage_info,
+                        note=f"Image caption billing ratio adjustment ({billing_ratio}x)"
+                    )
+
+                    log.info(f"Applied caption billing ratio {billing_ratio}x for user {user.id}")
+            except Exception as e:
+                log.error(f"Failed to apply caption billing ratio: {e}")
+                # 不影响主流程，继续返回结果
+
         # 提取描述文本
         if hasattr(response, 'choices') and len(response.choices) > 0:
             caption = response.choices[0].message.content
@@ -131,11 +164,12 @@ async def get_image_caption_config(user=Depends(get_verified_user)):
     获取图片描述配置
 
     Returns:
-        dict: 包含启用状态和模型配置
+        dict: 包含启用状态、模型配置和计费倍率
     """
     return {
         "enabled": ENABLE_IMAGE_CAPTION.value,
-        "model": IMAGE_CAPTION_MODEL.value
+        "model": IMAGE_CAPTION_MODEL.value,
+        "billing_ratio": IMAGE_CAPTION_BILLING_RATIO.value
     }
 
 
@@ -143,6 +177,7 @@ class ImageCaptionConfigUpdate(BaseModel):
     """图片描述配置更新"""
     enabled: bool
     model: str
+    billing_ratio: float = 1.0
 
 
 @router.post("/config")
@@ -171,8 +206,10 @@ async def update_image_caption_config(
 
     ENABLE_IMAGE_CAPTION.value = form_data.enabled
     IMAGE_CAPTION_MODEL.value = form_data.model
+    IMAGE_CAPTION_BILLING_RATIO.value = form_data.billing_ratio
 
     return {
         "enabled": ENABLE_IMAGE_CAPTION.value,
-        "model": IMAGE_CAPTION_MODEL.value
+        "model": IMAGE_CAPTION_MODEL.value,
+        "billing_ratio": IMAGE_CAPTION_BILLING_RATIO.value
     }
