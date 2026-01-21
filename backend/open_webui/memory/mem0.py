@@ -223,18 +223,19 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str, ses
         _charge_mem0(user_id, MEM0_SEARCH_MODEL_ID, type="search")
 
         # 根据 session_scope 参数决定搜索范围
-        search_filters = {}
         if session_scope:
-            search_filters["metadata"] = {"session_id": chat_id}
             log.info(f"[mem: search]mem0_search (session-scoped) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
+            serach_rst = memory_client.search(
+                query=last_message,
+                user_id=user_id,
+                filters={"metadata": {"session_id": chat_id}}
+            )
         else:
             log.info(f"[mem: search]mem0_search (all sessions) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
-
-        serach_rst = memory_client.search(
-            query=last_message,
-            user_id=user_id,
-            filters=search_filters if search_filters else None
-        )
+            serach_rst = memory_client.search(
+                query=last_message,
+                user_id=user_id
+            )
         
         if "results" not in serach_rst:
             log.info("[mem: search]mem0_search_and_add no results found, skipping add")
