@@ -182,7 +182,7 @@ async def mem0_search(user_id: str, chat_id: str, last_message: str) -> list[str
         log.info(f"mem0_search called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         serach_rst = memory_client.search(
             query=last_message,
-            user_id=user_id
+            filters={"user_id": user_id}
         )
         memories = serach_rst["results"] if "results" in serach_rst else serach_rst
         log.info(f"mem0_search found {len(memories)} memories")
@@ -227,14 +227,16 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str, ses
             log.info(f"[mem: search]mem0_search (session-scoped) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
             serach_rst = memory_client.search(
                 query=last_message,
-                user_id=user_id,
-                filters={"metadata": {"session_id": chat_id}}
+                filters={
+                    "user_id": user_id,
+                    "metadata": {"session_id": chat_id}
+                }
             )
         else:
             log.info(f"[mem: search]mem0_search (all sessions) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
             serach_rst = memory_client.search(
                 query=last_message,
-                user_id=user_id
+                filters={"user_id": user_id}
             )
         
         if "results" not in serach_rst:
@@ -287,9 +289,11 @@ async def mem0_delete(user_id: str, chat_id: str) -> bool:
 
         # 先搜索该会话的所有记忆
         search_result = memory_client.search(
-            query="*",  # 使用通配符查询所有
-            user_id=user_id,
-            filters={"metadata": {"session_id": chat_id}}  # metadata使用嵌套字典
+            query="*",
+            filters={
+                "user_id": user_id,
+                "metadata": {"session_id": chat_id}
+            }
         )
 
         # 获取记忆列表
@@ -331,9 +335,9 @@ async def mem0_delete_by_message_content(user_id: str, chat_id: str, message_con
 
         # 先搜索匹配的记忆
         search_result = memory_client.search(
-            query="*",  # 使用通配符查询所有
-            user_id=user_id,
+            query="*",
             filters={
+                "user_id": user_id,
                 "metadata": {
                     "session_id": chat_id,
                     "message_hash": message_hash
