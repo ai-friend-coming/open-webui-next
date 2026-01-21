@@ -225,7 +225,7 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str, ses
         # 根据 session_scope 参数决定搜索范围
         search_filters = {}
         if session_scope:
-            search_filters["metadata.session_id"] = chat_id
+            search_filters["metadata"] = {"session_id": chat_id}
             log.info(f"[mem: search]mem0_search (session-scoped) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
         else:
             log.info(f"[mem: search]mem0_search (all sessions) called with user_id: {user_id}, chat_id: {chat_id}, last_message: {last_message}")
@@ -288,7 +288,7 @@ async def mem0_delete(user_id: str, chat_id: str) -> bool:
         search_result = memory_client.search(
             query="*",  # 使用通配符查询所有
             user_id=user_id,
-            filters={"metadata.session_id": chat_id}  # metadata字段需要使用点号访问
+            filters={"metadata": {"session_id": chat_id}}  # metadata使用嵌套字典
         )
 
         # 获取记忆列表
@@ -333,8 +333,10 @@ async def mem0_delete_by_message_content(user_id: str, chat_id: str, message_con
             query="*",  # 使用通配符查询所有
             user_id=user_id,
             filters={
-                "metadata.session_id": chat_id,
-                "metadata.message_hash": message_hash
+                "metadata": {
+                    "session_id": chat_id,
+                    "message_hash": message_hash
+                }
             }
         )
 
