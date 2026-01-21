@@ -453,17 +453,23 @@ ENABLE_SIGNUP_EMAIL_VERIFICATION = (
 # SMTP 配置：用于发送注册验证码
 # 服务器地址（开启验证码时必填）
 EMAIL_SMTP_SERVER = os.environ.get("EMAIL_SMTP_SERVER", "")
-# 端口，默认 587
-EMAIL_SMTP_PORT = os.environ.get("EMAIL_SMTP_PORT", "587")
+# 端口，默认 465（SSL 模式）
+EMAIL_SMTP_PORT = os.environ.get("EMAIL_SMTP_PORT", "465")
 try:
     EMAIL_SMTP_PORT = int(EMAIL_SMTP_PORT)
 except ValueError:
-    EMAIL_SMTP_PORT = 587
+    EMAIL_SMTP_PORT = 465
 
 EMAIL_SMTP_USERNAME = os.environ.get("EMAIL_SMTP_USERNAME", "")
 EMAIL_SMTP_PASSWORD = os.environ.get("EMAIL_SMTP_PASSWORD", "")
 # 发信人地址
 EMAIL_SMTP_FROM = os.environ.get("EMAIL_SMTP_FROM", "no-reply@localhost")
+
+# SSL 模式开关（默认启用）
+EMAIL_SMTP_USE_SSL = os.environ.get("EMAIL_SMTP_USE_SSL", "True").lower() == "true"
+
+# 发信人别名
+EMAIL_SMTP_FROM_ALIAS = os.environ.get("EMAIL_SMTP_FROM_ALIAS", "")
 
 # 验证码策略：有效期、发送冷却、最大尝试次数
 # 有效期（秒）

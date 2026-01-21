@@ -1,10 +1,14 @@
 import json
 import logging
 import smtplib
+import ssl
 import time
 import secrets
 from typing import Optional
+from email.header import Header
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 
 log = logging.getLogger(__name__)
 
@@ -19,20 +23,59 @@ def send_email(
     smtp_username: str = "",
     smtp_password: str = "",
     from_email: str,
+    from_alias: str = "",
+    use_ssl: bool = True,
 ):
     """
-    - 使用 SMTP 明文连接，再 STARTTLS，再登录发送
+    发送邮件（基于腾讯云邮件服务实现）
+    - use_ssl=True: 使用 SMTP_SSL（端口 465/587）
+    - use_ssl=False: 使用 SMTP（端口 25）
     """
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = from_email
-    msg["To"] = to_email
+    try:
+        # 构建邮件
+        message = MIMEMultipart('alternative')
+        message['Subject'] = Header(subject, 'UTF-8')
+        message['From'] = formataddr([from_alias, from_email])
+        message['To'] = to_email
 
-    with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
-        server.starttls()
-        if smtp_username and smtp_password:
-            server.login(smtp_username, smtp_password)
-        server.sendmail(from_email, [to_email], msg.as_string())
+        # 添加邮件内容（HTML 格式）
+        mime_text = MIMEText(body, _subtype='html', _charset='UTF-8')
+        message.attach(mime_text)
+
+        # 发送邮件
+        if use_ssl:
+            context = ssl.create_default_context()
+            context.set_ciphers('DEFAULT')
+            client = smtplib.SMTP_SSL(smtp_server, smtp_port, context=context)
+        else:
+            client = smtplib.SMTP(smtp_server, smtp_port)
+
+        client.login(smtp_username, smtp_password)
+        client.sendmail(from_email, [to_email], message.as_string())
+        client.quit()
+
+        log.info(f'Email sent successfully to {to_email}')
+    except smtplib.SMTPConnectError as e:
+        log.error(f'SMTP connection error: {e.smtp_code} {e.smtp_error}')
+        raise
+    except smtplib.SMTPAuthenticationError as e:
+        log.error(f'SMTP authentication error: {e.smtp_code} {e.smtp_error}')
+        raise
+    except smtplib.SMTPSenderRefused as e:
+        log.error(f'SMTP sender refused: {e.smtp_code} {e.smtp_error}')
+        raise
+    except smtplib.SMTPRecipientsRefused as e:
+        log.error(f'SMTP recipients refused: {e.recipients}')
+        raise
+    except smtplib.SMTPDataError as e:
+        log.error(f'SMTP data error: {e.smtp_code} {e.smtp_error}')
+        raise
+    except smtplib.SMTPException as e:
+        log.error(f'SMTP exception: {str(e)}')
+        raise
+    except Exception as e:
+        log.error(f'Failed to send email: {str(e)}')
+        raise
 
 def generate_verification_code(length: int = 6) -> str:
     alphabet = "0123456789"

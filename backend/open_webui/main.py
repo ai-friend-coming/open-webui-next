@@ -460,6 +460,8 @@ from open_webui.env import (
     EMAIL_SMTP_USERNAME,
     EMAIL_SMTP_PASSWORD,
     EMAIL_SMTP_FROM,
+    EMAIL_SMTP_USE_SSL,
+    EMAIL_SMTP_FROM_ALIAS,
     EMAIL_VERIFICATION_CODE_TTL,
     EMAIL_VERIFICATION_SEND_INTERVAL,
     EMAIL_VERIFICATION_MAX_ATTEMPTS,
@@ -792,6 +794,8 @@ app.state.email_verification_config = {
         "username": EMAIL_SMTP_USERNAME,
         "password": EMAIL_SMTP_PASSWORD,
         "from_email": EMAIL_SMTP_FROM,
+        "use_ssl": EMAIL_SMTP_USE_SSL,
+        "from_alias": EMAIL_SMTP_FROM_ALIAS,
     },
 }
 
