@@ -110,10 +110,10 @@
     };
 
     // 解析 Chatbox 格式的 txt 文件
-    const parseChatboxFormat = (text: string): any => {
+    const parseChatboxFormat = (text: string, filename: string): any => {
         const lines = text.split('\n');
-        const titleMatch = text.match(/====+\s*\[\[(.+?)\]\]\s*====+/);
-        const title = titleMatch ? titleMatch[1].trim() : 'Imported Chat';
+        // 使用文件名（去除扩展名）作为标题
+        const title = filename.replace(/\.txt$/i, '');
 
         const messages: any[] = [];
         let currentRole = '';
@@ -152,12 +152,12 @@
 
         const now = Math.floor(Date.now() / 1000);
         return {
-            title,
             chat: {
+                title,
                 messages,
-                models: ["chatbox"]
+                models: ["chatbox"],
+                timestamp: now
             },
-            timestamp: now,
             created_at: now,
             updated_at: now
         };
@@ -180,7 +180,7 @@
             if (file.name.endsWith('.txt')) {
                 // Chatbox 格式
                 try {
-                    parsed = [parseChatboxFormat(text)];
+                    parsed = [parseChatboxFormat(text, file.name)];
                 } catch (e) {
                     throw new Error('无法解析 Chatbox 格式，请检查文件内容');
                 }
