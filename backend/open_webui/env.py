@@ -1137,3 +1137,10 @@ ENABLE_E2E_ENCRYPTION = (
 ENCRYPTION_DEBUG = (
     os.environ.get("ENCRYPTION_DEBUG", "false").lower() == "true"
 )
+
+####################################
+# SUMMARY
+####################################
+
+# 并行摘要时最多处理的分段数量（默认 3）
+MAX_SUMMARY_CHUNKS = int(os.environ.get("MAX_SUMMARY_CHUNKS", "3"))
