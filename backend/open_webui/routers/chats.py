@@ -802,7 +802,15 @@ async def delete_chat_by_id(request: Request, id: str, user=Depends(get_verified
                 detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
 
-        chat = Chats.get_chat_by_id(id)
+        # 使用 get_chat_by_id_and_user_id 确保只能删除自己的聊天
+        chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+
+        # 如果聊天不存在或不属于当前用户，返回 404
+        if chat is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found"
+            )
 
         # 清理该聊天的 Mem0 记忆条目
         await mem0_delete(user.id, id)
