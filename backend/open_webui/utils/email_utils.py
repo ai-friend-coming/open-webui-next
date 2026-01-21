@@ -77,6 +77,95 @@ def send_email(
         log.error(f'Failed to send email: {str(e)}')
         raise
 
+
+def send_email_ses_api(
+    *,
+    to_email: str,
+    code: str,
+    secret_id: str,
+    secret_key: str,
+    region: str,
+    from_email: str,
+    template_id: int,
+):
+    """
+    使用腾讯云 SES API 模板发送邮件
+    """
+    from tencentcloud.common import credential
+    from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
+    from tencentcloud.ses.v20201002 import ses_client, models
+    import json
+
+    try:
+        cred = credential.Credential(secret_id, secret_key)
+        client = ses_client.SesClient(cred, region)
+
+        req = models.SendEmailRequest()
+        req.FromEmailAddress = from_email
+        req.Destination = [to_email]
+        req.Subject = "验证码邮件"
+
+        req.Template = models.Template()
+        req.Template.TemplateID = template_id
+        req.Template.TemplateData = json.dumps({"code": code}, ensure_ascii=False)
+
+        resp = client.SendEmail(req)
+        log.info(f'Email sent successfully via SES API to {to_email}, MessageId: {resp.MessageId}')
+    except TencentCloudSDKException as e:
+        log.error(f'SES API error: {e}')
+        raise
+    except Exception as e:
+        log.error(f'Failed to send email via SES API: {str(e)}')
+        raise
+
+
+def send_email_unified(
+    *,
+    subject: str = "",
+    body: str = "",
+    to_email: str,
+    code: str = "",
+    service_type: str = "SMTP",
+    smtp_server: str = "",
+    smtp_port: int = 465,
+    smtp_username: str = "",
+    smtp_password: str = "",
+    from_email: str = "",
+    from_alias: str = "",
+    use_ssl: bool = True,
+    secret_id: str = "",
+    secret_key: str = "",
+    region: str = "ap-guangzhou",
+    template_id: int = 0,
+):
+    """
+    统一邮件发送入口,根据 service_type 选择发送方式
+    """
+    if service_type == "TENCENT_SES_API":
+        return send_email_ses_api(
+            to_email=to_email,
+            code=code,
+            secret_id=secret_id,
+            secret_key=secret_key,
+            region=region,
+            from_email=from_email,
+            template_id=template_id,
+        )
+    else:
+        return send_email(
+            subject=subject,
+            body=body,
+            to_email=to_email,
+            smtp_server=smtp_server,
+            smtp_port=smtp_port,
+            smtp_username=smtp_username,
+            smtp_password=smtp_password,
+            from_email=from_email,
+            from_alias=from_alias,
+            use_ssl=use_ssl,
+        )
+
+
 def generate_verification_code(length: int = 6) -> str:
     alphabet = "0123456789"
     return "".join(secrets.choice(alphabet) for _ in range(length))

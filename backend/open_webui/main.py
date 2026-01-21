@@ -462,6 +462,14 @@ from open_webui.env import (
     EMAIL_SMTP_FROM,
     EMAIL_SMTP_USE_SSL,
     EMAIL_SMTP_FROM_ALIAS,
+    EMAIL_SERVICE_TYPE,
+    SES_SECRET_ID,
+    SES_SECRET_KEY,
+    SES_REGION,
+    SES_FROM_EMAIL,
+    SES_FROM_ALIAS,
+    SES_SIGNUP_TEMPLATE_ID,
+    SES_PASSWORD_RESET_TEMPLATE_ID,
     EMAIL_VERIFICATION_CODE_TTL,
     EMAIL_VERIFICATION_SEND_INTERVAL,
     EMAIL_VERIFICATION_MAX_ATTEMPTS,
@@ -788,6 +796,7 @@ app.state.email_verification_config = {
     "ttl": EMAIL_VERIFICATION_CODE_TTL,
     "send_interval": EMAIL_VERIFICATION_SEND_INTERVAL,
     "max_attempts": EMAIL_VERIFICATION_MAX_ATTEMPTS,
+    "service_type": EMAIL_SERVICE_TYPE,
     "smtp": {
         "server": EMAIL_SMTP_SERVER,
         "port": EMAIL_SMTP_PORT,
@@ -796,6 +805,15 @@ app.state.email_verification_config = {
         "from_email": EMAIL_SMTP_FROM,
         "use_ssl": EMAIL_SMTP_USE_SSL,
         "from_alias": EMAIL_SMTP_FROM_ALIAS,
+    },
+    "ses": {
+        "secret_id": SES_SECRET_ID,
+        "secret_key": SES_SECRET_KEY,
+        "region": SES_REGION,
+        "from_email": SES_FROM_EMAIL,
+        "from_alias": SES_FROM_ALIAS,
+        "signup_template_id": SES_SIGNUP_TEMPLATE_ID,
+        "password_reset_template_id": SES_PASSWORD_RESET_TEMPLATE_ID,
     },
 }
 

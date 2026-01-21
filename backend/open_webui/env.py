@@ -471,6 +471,22 @@ EMAIL_SMTP_USE_SSL = os.environ.get("EMAIL_SMTP_USE_SSL", "True").lower() == "tr
 # 发信人别名
 EMAIL_SMTP_FROM_ALIAS = os.environ.get("EMAIL_SMTP_FROM_ALIAS", "")
 
+####################################
+# 邮箱服务类型选择
+####################################
+EMAIL_SERVICE_TYPE = os.environ.get("EMAIL_SERVICE_TYPE", "TENCENT_SES_API")
+
+####################################
+# 腾讯云 SES API 配置
+####################################
+SES_SECRET_ID = os.environ.get("SES_SECRET_ID", "")
+SES_SECRET_KEY = os.environ.get("SES_SECRET_KEY", "")
+SES_REGION = os.environ.get("SES_REGION", "ap-guangzhou")
+SES_FROM_EMAIL = os.environ.get("SES_FROM_EMAIL", "")
+SES_FROM_ALIAS = os.environ.get("SES_FROM_ALIAS", "")
+SES_SIGNUP_TEMPLATE_ID = os.environ.get("SES_SIGNUP_TEMPLATE_ID", "")  # 注册验证码模板
+SES_PASSWORD_RESET_TEMPLATE_ID = os.environ.get("SES_PASSWORD_RESET_TEMPLATE_ID", "")  # 密码重置模板
+
 # 验证码策略：有效期、发送冷却、最大尝试次数
 # 有效期（秒）
 EMAIL_VERIFICATION_CODE_TTL = os.environ.get("EMAIL_VERIFICATION_CODE_TTL", "600")

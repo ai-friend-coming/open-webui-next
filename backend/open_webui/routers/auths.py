@@ -66,7 +66,7 @@ from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.email_utils import (
     EmailVerificationManager,
     generate_verification_code,
-    send_email,
+    send_email_unified,
 )
 from open_webui.utils.sms_utils import SMSVerificationManager, generate_sms_code
 from open_webui.utils.sms_client import init_sms_client, send_sms_code, get_sms_client, SMSScene
@@ -656,15 +656,24 @@ async def send_signup_code(request: Request, form_data: SignupCodeForm):
 
     ttl = request.app.state.email_verification_config["ttl"]
     max_attempts = request.app.state.email_verification_config["max_attempts"]
+    service_type = request.app.state.email_verification_config.get("service_type", "SMTP")
     smtp_config = request.app.state.email_verification_config.get("smtp", {})
+    ses_config = request.app.state.email_verification_config.get("ses", {})
 
     print(smtp_config)
 
-    if not smtp_config.get("server"):
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Email service is not configured.",
-        )
+    if service_type == "TENCENT_SES_API":
+        if not ses_config.get("secret_id") or not ses_config.get("from_email"):
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="SES service is not configured.",
+            )
+    else:
+        if not smtp_config.get("server"):
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service is not configured.",
+            )
 
     code = generate_verification_code()
     await manager.store_code(
@@ -685,17 +694,23 @@ async def send_signup_code(request: Request, form_data: SignupCodeForm):
 </div>
 """
 
-        send_email(
+        send_email_unified(
             subject=f"{request.app.state.WEBUI_NAME} 验证码",
             body=html_body,
             to_email=email,
+            code=code,
+            service_type=service_type,
             smtp_server=smtp_config.get("server", ""),
             smtp_port=int(smtp_config.get("port", 465)),
             smtp_username=smtp_config.get("username", ""),
             smtp_password=smtp_config.get("password", ""),
-            from_email=smtp_config.get("from_email", EMAIL_SMTP_FROM),
-            from_alias=smtp_config.get("from_alias", ""),
+            from_email=smtp_config.get("from_email", "") if service_type == "SMTP" else ses_config.get("from_email", ""),
+            from_alias=smtp_config.get("from_alias", "") if service_type == "SMTP" else ses_config.get("from_alias", ""),
             use_ssl=smtp_config.get("use_ssl", True),
+            secret_id=ses_config.get("secret_id", ""),
+            secret_key=ses_config.get("secret_key", ""),
+            region=ses_config.get("region", "ap-guangzhou"),
+            template_id=int(ses_config.get("signup_template_id", 0)),
         )
     except Exception as e:
         log.error(f"Failed to send verification email: {e}")
@@ -1267,13 +1282,22 @@ async def send_reset_code(request: Request, form_data: ResetPasswordCodeForm):
 
     ttl = request.app.state.email_verification_config["ttl"]
     max_attempts = request.app.state.email_verification_config["max_attempts"]
+    service_type = request.app.state.email_verification_config.get("service_type", "SMTP")
     smtp_config = request.app.state.email_verification_config.get("smtp", {})
+    ses_config = request.app.state.email_verification_config.get("ses", {})
 
-    if not smtp_config.get("server"):
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Email service is not configured.",
-        )
+    if service_type == "TENCENT_SES_API":
+        if not ses_config.get("secret_id") or not ses_config.get("from_email"):
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="SES service is not configured.",
+            )
+    else:
+        if not smtp_config.get("server"):
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email service is not configured.",
+            )
 
     code = generate_verification_code()
     await manager.store_code(
@@ -1294,17 +1318,23 @@ async def send_reset_code(request: Request, form_data: ResetPasswordCodeForm):
 </div>
 """
 
-        send_email(
+        send_email_unified(
             subject=f"{request.app.state.WEBUI_NAME} 密码重置验证码",
             body=html_body,
             to_email=email,
+            code=code,
+            service_type=service_type,
             smtp_server=smtp_config.get("server", ""),
             smtp_port=int(smtp_config.get("port", 465)),
             smtp_username=smtp_config.get("username", ""),
             smtp_password=smtp_config.get("password", ""),
-            from_email=smtp_config.get("from_email", EMAIL_SMTP_FROM),
-            from_alias=smtp_config.get("from_alias", ""),
+            from_email=smtp_config.get("from_email", "") if service_type == "SMTP" else ses_config.get("from_email", ""),
+            from_alias=smtp_config.get("from_alias", "") if service_type == "SMTP" else ses_config.get("from_alias", ""),
             use_ssl=smtp_config.get("use_ssl", True),
+            secret_id=ses_config.get("secret_id", ""),
+            secret_key=ses_config.get("secret_key", ""),
+            region=ses_config.get("region", "ap-guangzhou"),
+            template_id=int(ses_config.get("password_reset_template_id", 0)),
         )
     except Exception as e:
         log.error(f"Failed to send password reset email: {e}")
