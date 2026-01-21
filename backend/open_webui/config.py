@@ -3371,6 +3371,22 @@ IMAGE_GENERATION_MODEL = PersistentConfig(
 )
 
 ####################################
+# Image Caption
+####################################
+
+ENABLE_IMAGE_CAPTION = PersistentConfig(
+    "ENABLE_IMAGE_CAPTION",
+    "image_caption.enable",
+    os.environ.get("ENABLE_IMAGE_CAPTION", "").lower() == "true",
+)
+
+IMAGE_CAPTION_MODEL = PersistentConfig(
+    "IMAGE_CAPTION_MODEL",
+    "image_caption.model",
+    os.getenv("IMAGE_CAPTION_MODEL", ""),
+)
+
+####################################
 # Audio
 ####################################
 

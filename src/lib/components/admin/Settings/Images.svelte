@@ -2,7 +2,7 @@
 	import { toast } from 'svelte-sonner';
 
 	import { createEventDispatcher, onMount, getContext } from 'svelte';
-	import { config as backendConfig, user } from '$lib/stores';
+	import { config as backendConfig, user, models as modelsStore } from '$lib/stores';
 
 	import { getBackendConfig } from '$lib/apis';
 	import {
@@ -13,6 +13,7 @@
 		updateConfig,
 		verifyConfigUrl
 	} from '$lib/apis/images';
+	import { getImageCaptionConfig } from '$lib/apis/images-caption';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
@@ -26,6 +27,7 @@
 
 	let config = null;
 	let imageGenerationConfig = null;
+	let imageCaptionConfig = { enabled: false, model: '' };
 
 	let models = null;
 
