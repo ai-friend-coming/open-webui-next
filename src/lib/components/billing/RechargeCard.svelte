@@ -348,7 +348,7 @@
 								bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-lg
 								flex items-center gap-0.5 animate-bounce-subtle whitespace-nowrap z-10">
 								<span class="text-[9px] sm:text-[10px]">🎁</span>
-								<span>+¥{calculateBonus(amount).toFixed(0)}</span>
+								<span>+¥{calculateBonus(amount).toFixed(1)}</span>
 							</div>
 						{/if}
 						<span class="relative z-0">¥{amount}</span>

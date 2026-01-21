@@ -150,10 +150,16 @@
             });
         }
 
+        const now = Math.floor(Date.now() / 1000);
         return {
             title,
-            chat: { messages },
-            timestamp: Date.now()
+            chat: {
+                messages,
+                models: ["chatbox"]
+            },
+            timestamp: now,
+            created_at: now,
+            updated_at: now
         };
     };
 
