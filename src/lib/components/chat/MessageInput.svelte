@@ -47,6 +47,7 @@
 	import { deleteFileById } from '$lib/apis/files';
 	import { getSessionUser } from '$lib/apis/auths';
 	import { getTools } from '$lib/apis/tools';
+	import { getImageCaptionConfig, generateImageCaption } from '$lib/apis/images-caption';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
@@ -434,9 +435,20 @@
 	}
 
 	const triggerSubmit = (value: string) => {
+		// Append image captions to the prompt
+		let enhancedValue = value;
+		const imageCaptions = files
+			.filter((f) => f.caption)
+			.map((f) => f.caption)
+			.join('\n\n');
+
+		if (imageCaptions) {
+			enhancedValue = `${value}\n\n[图片的内容: 下面是图片内容的描述]\n${imageCaptions}`;
+		}
+
 		blurInput();
 		dismissKeyboardHack();
-		dispatch('submit', value);
+		dispatch('submit', enhancedValue);
 	};
 
 	let filesInputElement;
@@ -625,6 +637,34 @@
 					fileItem.collection_name =
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
+
+				// Generate caption for images if enabled
+				if (file.type.startsWith('image/')) {
+					try {
+						const captionConfig = await getImageCaptionConfig(localStorage.token);
+						if (captionConfig?.enabled && captionConfig?.model) {
+							const reader = new FileReader();
+							reader.onload = async (e) => {
+								try {
+									const base64Data = e.target.result;
+									const captionResult = await generateImageCaption(
+										localStorage.token,
+										base64Data
+									);
+									if (captionResult?.caption) {
+										fileItem.caption = captionResult.caption;
+										files = files;
+									}
+								} catch (error) {
+									console.error('Failed to generate image caption:', error);
+								}
+							};
+							reader.readAsDataURL(file);
+						}
+					} catch (error) {
+						console.error('Failed to get caption config:', error);
+					}
+				}
 
 					files = files;
 				} else {

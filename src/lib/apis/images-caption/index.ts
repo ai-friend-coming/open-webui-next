@@ -58,3 +58,35 @@ export const generateImageCaption = async (token: string = '', imageUrl: string)
 
 	return res;
 };
+
+export const updateImageCaptionConfig = async (
+	token: string = '',
+	config: { enabled: boolean; model: string }
+) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/images/caption/config`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		},
+		body: JSON.stringify(config)
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.log(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};

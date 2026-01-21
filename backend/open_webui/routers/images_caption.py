@@ -137,3 +137,42 @@ async def get_image_caption_config(user=Depends(get_verified_user)):
         "enabled": ENABLE_IMAGE_CAPTION.value,
         "model": IMAGE_CAPTION_MODEL.value
     }
+
+
+class ImageCaptionConfigUpdate(BaseModel):
+    """图片描述配置更新"""
+    enabled: bool
+    model: str
+
+
+@router.post("/config")
+async def update_image_caption_config(
+    form_data: ImageCaptionConfigUpdate,
+    user=Depends(get_verified_user)
+):
+    """
+    更新图片描述配置（仅管理员）
+
+    Args:
+        form_data: 配置更新数据
+        user: 当前用户
+
+    Returns:
+        dict: 更新后的配置
+
+    Raises:
+        HTTPException(403): 非管理员用户
+    """
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin users can update image caption config"
+        )
+
+    ENABLE_IMAGE_CAPTION.value = form_data.enabled
+    IMAGE_CAPTION_MODEL.value = form_data.model
+
+    return {
+        "enabled": ENABLE_IMAGE_CAPTION.value,
+        "model": IMAGE_CAPTION_MODEL.value
+    }

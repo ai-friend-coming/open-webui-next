@@ -13,7 +13,7 @@
 		updateConfig,
 		verifyConfigUrl
 	} from '$lib/apis/images';
-	import { getImageCaptionConfig } from '$lib/apis/images-caption';
+	import { getImageCaptionConfig, updateImageCaptionConfig } from '$lib/apis/images-caption';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
@@ -174,6 +174,12 @@
 			return null;
 		});
 
+		await updateImageCaptionConfig(localStorage.token, imageCaptionConfig).catch((error) => {
+			toast.error(`${error}`);
+			loading = false;
+			return null;
+		});
+
 		getModels();
 		dispatch('save');
 		loading = false;
@@ -225,6 +231,15 @@
 
 			if (imageConfigRes) {
 				imageGenerationConfig = imageConfigRes;
+			}
+
+			const captionConfigRes = await getImageCaptionConfig(localStorage.token).catch((error) => {
+				console.error('Failed to load image caption config:', error);
+				return null;
+			});
+
+			if (captionConfigRes) {
+				imageCaptionConfig = captionConfigRes;
 			}
 		}
 	});
@@ -311,6 +326,48 @@
 				</div>
 			</div>
 			<hr class=" border-gray-100 dark:border-gray-850" />
+
+		<div>
+			<div class=" mb-1 text-sm font-medium">{$i18n.t('Image Caption Settings')}</div>
+
+			<div>
+				<div class=" py-1 flex w-full justify-between">
+					<div class=" self-center text-xs font-medium">
+						{$i18n.t('Enable Image Caption')}
+					</div>
+
+					<div class="px-1">
+						<Switch bind:state={imageCaptionConfig.enabled} />
+					</div>
+				</div>
+			</div>
+
+			{#if imageCaptionConfig.enabled}
+				<div class=" py-1">
+					<div class=" mb-2 text-sm font-medium">{$i18n.t('Caption Model')}</div>
+					<div class="flex w-full">
+						<div class="flex-1">
+							<select
+								class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+								bind:value={imageCaptionConfig.model}
+								required
+							>
+								<option value="">{$i18n.t('Select a model')}</option>
+								{#each $modelsStore as model}
+									{#if model.info?.meta?.capabilities?.vision}
+										<option value={model.id}>{model.name}</option>
+									{/if}
+								{/each}
+							</select>
+						</div>
+					</div>
+					<div class="text-xs text-gray-500 mt-1">
+						{$i18n.t('Select a vision model to automatically describe uploaded images')}
+					</div>
+				</div>
+			{/if}
+		</div>
+		<hr class=" border-gray-100 dark:border-gray-850" />
 
 			<div class="flex flex-col gap-2">
 				{#if (config?.engine ?? 'automatic1111') === 'automatic1111'}
