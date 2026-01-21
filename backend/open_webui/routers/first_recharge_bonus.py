@@ -262,8 +262,21 @@ async def check_tiers_eligibility(user=Depends(get_verified_user)):
     需要登录
     """
     try:
-        # 预设档位（元）
-        PRESET_TIERS = [10, 50, 100, 200, 500, 1000]
+        # 从数据库读取充值档位配置
+        from open_webui.config import Config
+        from open_webui.internal.db import get_db
+
+        with get_db() as db:
+            config_entry = db.query(Config).order_by(Config.id.desc()).first()
+
+            if config_entry and "billing" in config_entry.data and "recharge_tiers" in config_entry.data["billing"]:
+                tiers_mils = config_entry.data["billing"]["recharge_tiers"]
+            else:
+                # 如果数据库没有配置，使用默认值
+                tiers_mils = [100000, 500000, 1000000, 2000000, 5000000, 10000000]
+
+        # 转换为元
+        PRESET_TIERS = [tier / 10000 for tier in tiers_mils]
 
         # 检查活动是否启用
         if not FIRST_RECHARGE_BONUS_ENABLED.value:

@@ -109,6 +109,54 @@
         return 0;
     };
 
+    // 解析 Chatbox 格式的 txt 文件
+    const parseChatboxFormat = (text: string): any => {
+        const lines = text.split('\n');
+        const titleMatch = text.match(/====+\s*\[\[(.+?)\]\]\s*====+/);
+        const title = titleMatch ? titleMatch[1].trim() : 'Imported Chat';
+
+        const messages: any[] = [];
+        let currentRole = '';
+        let currentContent: string[] = [];
+
+        for (const line of lines) {
+            // 检测角色标记
+            const roleMatch = line.match(/^▶\s*(SYSTEM|USER|ASSISTANT):\s*$/);
+            if (roleMatch) {
+                // 保存上一条消息
+                if (currentRole && currentContent.length > 0) {
+                    messages.push({
+                        role: currentRole.toLowerCase(),
+                        content: currentContent.join('\n').trim()
+                    });
+                }
+                // 开始新消息
+                currentRole = roleMatch[1];
+                currentContent = [];
+            } else if (currentRole && line.trim() &&
+                       !line.includes('====') &&
+                       !line.includes('----') &&
+                       !line.includes('Chatbox AI')) {
+                // 累积消息内容
+                currentContent.push(line);
+            }
+        }
+
+        // 保存最后一条消息
+        if (currentRole && currentContent.length > 0) {
+            messages.push({
+                role: currentRole.toLowerCase(),
+                content: currentContent.join('\n').trim()
+            });
+        }
+
+        return {
+            title,
+            chat: { messages },
+            timestamp: Date.now()
+        };
+    };
+
     // 处理文件
     const handleFiles = async (files: FileList | File[]) => {
         if (!files || files.length === 0) return;
@@ -121,10 +169,22 @@
         try {
             const text = await file.text();
             let parsed: any;
-            try {
-                parsed = JSON.parse(text);
-            } catch (e) {
-                throw new Error('无法解析 JSON，请检查文件格式');
+
+            // 检测文件类型
+            if (file.name.endsWith('.txt')) {
+                // Chatbox 格式
+                try {
+                    parsed = [parseChatboxFormat(text)];
+                } catch (e) {
+                    throw new Error('无法解析 Chatbox 格式，请检查文件内容');
+                }
+            } else {
+                // JSON 格式
+                try {
+                    parsed = JSON.parse(text);
+                } catch (e) {
+                    throw new Error('无法解析 JSON，请检查文件格式');
+                }
             }
 
             // Handle Grok format (object with conversations array)
@@ -323,8 +383,8 @@
                         <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-full flex items-center justify-center mb-4 shadow-sm">
                             <DocumentText className="size-8" />
                         </div>
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">点击或拖拽 JSON 文件至此</h3>
-                        <p class="text-sm text-gray-500 mt-2 mb-6 max-w-xs text-center">只能上传符合格式的 JSON 数组文件</p>
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">点击或拖拽文件至此</h3>
+                        <p class="text-sm text-gray-500 mt-2 mb-6 max-w-xs text-center">支持 JSON 或 Chatbox TXT 格式</p>
                         <button 
                             class="px-6 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-medium shadow-lg hover:shadow-xl transition-transform active:scale-95"
                             on:click={(e) => { e.stopPropagation(); fileInputEl.click(); }}
@@ -389,6 +449,17 @@
                                 </div>
                                 <div class="pl-6 text-[11px] text-gray-500 dark:text-gray-500">
                                     📥 下载对应标题文件 (无后缀，内容即 JSON)
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col gap-1 py-1.5">
+                                <div class="flex items-center gap-2">
+                                    <span class="shrink-0 w-4">📦</span>
+                                    <span class="font-medium text-gray-900 dark:text-white w-16 shrink-0">Chatbox</span>
+                                    <span class="text-gray-600 dark:text-gray-400 truncate">右键聊天 → 导出为 Markdown</span>
+                                </div>
+                                <div class="pl-6 text-[11px] text-gray-500 dark:text-gray-500">
+                                    📄 上传导出的 <code class="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-blue-600 dark:text-blue-400">.txt</code> 文件
                                 </div>
                             </div>
                         </div>
@@ -564,10 +635,10 @@
         </div>
     </div>
     
-    <input 
+    <input
         bind:this={fileInputEl}
-        type="file" 
-        accept=".json"
+        type="file"
+        accept=".json,.txt"
         class="hidden"
         on:change={(e) => handleFiles(e.currentTarget.files ?? [])}
     />
