@@ -676,18 +676,26 @@ async def send_signup_code(request: Request, form_data: SignupCodeForm):
     )
 
     try:
+        # 构建 HTML 邮件内容
+        html_body = f"""
+<div style="font-family: Arial, sans-serif;">
+    <p>您的验证码是: <strong>{code}</strong></p>
+    <p>验证码有效期为 {max(1, int(ttl / 60))} 分钟，请勿泄露给他人。</p>
+    <p>记得加q群（1073457923）哦！有问题第一时间反馈，我们还会赠送额度！</p>
+</div>
+"""
+
         send_email(
-            subject=f"{request.app.state.WEBUI_NAME} Verification Code",
-            body=(
-                f"Your verification code is {code}.\n"
-                f"It expires in {max(1, int(ttl / 60))} minutes."
-            ),
+            subject=f"{request.app.state.WEBUI_NAME} 验证码",
+            body=html_body,
             to_email=email,
             smtp_server=smtp_config.get("server", ""),
-            smtp_port=int(smtp_config.get("port", 587)),
+            smtp_port=int(smtp_config.get("port", 465)),
             smtp_username=smtp_config.get("username", ""),
             smtp_password=smtp_config.get("password", ""),
             from_email=smtp_config.get("from_email", EMAIL_SMTP_FROM),
+            from_alias=smtp_config.get("from_alias", ""),
+            use_ssl=smtp_config.get("use_ssl", True),
         )
     except Exception as e:
         log.error(f"Failed to send verification email: {e}")
@@ -1277,18 +1285,26 @@ async def send_reset_code(request: Request, form_data: ResetPasswordCodeForm):
     )
 
     try:
+        # 构建 HTML 邮件内容
+        html_body = f"""
+<div style="font-family: Arial, sans-serif;">
+    <p>您的密码重置验证码是: <strong>{code}</strong></p>
+    <p>验证码有效期为 {max(1, int(ttl / 60))} 分钟，请勿泄露给他人。</p>
+    <p>记得加q群（1073457923）哦！有问题第一时间反馈，我们还会赠送额度！</p>
+</div>
+"""
+
         send_email(
-            subject=f"{request.app.state.WEBUI_NAME} Password Reset Code",
-            body=(
-                f"Your password reset code is {code}.\n"
-                f"It expires in {max(1, int(ttl / 60))} minutes."
-            ),
+            subject=f"{request.app.state.WEBUI_NAME} 密码重置验证码",
+            body=html_body,
             to_email=email,
             smtp_server=smtp_config.get("server", ""),
-            smtp_port=int(smtp_config.get("port", 587)),
+            smtp_port=int(smtp_config.get("port", 465)),
             smtp_username=smtp_config.get("username", ""),
             smtp_password=smtp_config.get("password", ""),
             from_email=smtp_config.get("from_email", EMAIL_SMTP_FROM),
+            from_alias=smtp_config.get("from_alias", ""),
+            use_ssl=smtp_config.get("use_ssl", True),
         )
     except Exception as e:
         log.error(f"Failed to send password reset email: {e}")

@@ -809,9 +809,9 @@ async def summarize_multi_chunk(
             return_details=return_details,
         )
 
-    # 2. 将消息分成多段
+    # 2. 将消息分成多段（从后往前，确保最新消息不被截断）
     chunks = []
-    remaining_messages = messages.copy()
+    remaining_messages = list(reversed(messages.copy()))  # 反转：从新到旧
     while remaining_messages:
         chunk, remaining_messages = split_messages_by_tokens(remaining_messages, token_threshold)
         # 边界情况：单条消息超过阈值，强制取出
@@ -819,12 +819,29 @@ async def summarize_multi_chunk(
             log.warning(f"并行摘要：单条消息超过阈值，强制取出")
             chunk = [remaining_messages.pop(0)]
         if chunk:
-            chunks.append(chunk)
+            # 反转 chunk 内的消息顺序，恢复从旧到新
+            chunks.append(list(reversed(chunk)))
+
+    # 反转 chunks 列表，使 chunks[0] 包含最新消息
+    chunks = list(reversed(chunks))
 
     log.info(
         f"开始并行摘要: total_tokens={total_tokens}, threshold={token_threshold}, "
         f"messages_count={len(messages)}, chunks={len(chunks)}, is_user_model={is_user_model}"
     )
+
+    # 限制摘要范围
+    from open_webui.env import MAX_SUMMARY_CHUNKS
+
+    if len(chunks) > MAX_SUMMARY_CHUNKS:
+        discarded_chunks = len(chunks) - MAX_SUMMARY_CHUNKS
+        discarded_messages = sum(len(chunks[i]) for i in range(MAX_SUMMARY_CHUNKS, len(chunks)))
+        log.info(
+            f"消息分段数 ({len(chunks)}) 超过限制 ({MAX_SUMMARY_CHUNKS})，"
+            f"丢弃最早的 {discarded_chunks} 个分段（共 {discarded_messages} 条消息），"
+            f"只摘要最新的 {MAX_SUMMARY_CHUNKS} 个分段"
+        )
+        chunks = chunks[:MAX_SUMMARY_CHUNKS]  # 保留前 N 个（最新的）
 
     # 3. 并发对每一段调用 summarize
     async def summarize_chunk(chunk_idx: int, chunk: List[Dict]) -> Tuple[int, str, Dict]:
@@ -857,8 +874,9 @@ async def summarize_multi_chunk(
     tasks = [summarize_chunk(i, chunk) for i, chunk in enumerate(chunks)]
     results = await asyncio.gather(*tasks)
 
-    # 4. 按顺序整理结果
-    results_sorted = sorted(results, key=lambda x: x[0])
+    # 4. 按顺序整理结果（按时间顺序：从旧到新）
+    # 由于 chunks[0] 是最新的，chunk_idx 越小越新，所以需要反转排序
+    results_sorted = sorted(results, key=lambda x: x[0], reverse=True)
     all_summaries = []
     all_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     all_prompts = []
