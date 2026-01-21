@@ -228,8 +228,10 @@ async def mem0_search_and_add(user_id: str, chat_id: str, last_message: str, ses
             serach_rst = memory_client.search(
                 query=last_message,
                 filters={
-                    "user_id": user_id,
-                    "metadata": {"session_id": chat_id}
+                    "AND": [
+                        {"user_id": user_id},
+                        {"metadata": {"session_id": chat_id}}
+                    ]
                 }
             )
         else:
@@ -291,8 +293,10 @@ async def mem0_delete(user_id: str, chat_id: str) -> bool:
         search_result = memory_client.search(
             query="*",
             filters={
-                "user_id": user_id,
-                "metadata": {"session_id": chat_id}
+                "AND": [
+                    {"user_id": user_id},
+                    {"metadata": {"session_id": chat_id}}
+                ]
             }
         )
 
@@ -337,11 +341,11 @@ async def mem0_delete_by_message_content(user_id: str, chat_id: str, message_con
         search_result = memory_client.search(
             query="*",
             filters={
-                "user_id": user_id,
-                "metadata": {
-                    "session_id": chat_id,
-                    "message_hash": message_hash
-                }
+                "AND": [
+                    {"user_id": user_id},
+                    {"metadata": {"session_id": chat_id}},
+                    {"metadata": {"message_hash": message_hash}}
+                ]
             }
         )
 
