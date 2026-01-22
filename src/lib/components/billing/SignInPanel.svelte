@@ -18,12 +18,10 @@
 	let isSigningIn = false;
 	let reward: number | null = null;
 	let showReward = false;
+	let displayReward = 0;
 
-	// 扭蛋机动画状态
-	let machineShaking = false;
-	let capsuleFalling = false;
-	let capsuleOpening = false;
-	let coinsFlying = false;
+	// 日历相关
+	let currentMonth = new Date();
 
 	// 加载公开配置
 	const loadPublicConfig = async () => {
@@ -55,50 +53,30 @@
 		isSigningIn = true;
 		reward = null;
 		showReward = false;
+		displayReward = 0;
 
 		try {
-			// 步骤1: 扭蛋机摇晃 (800ms)
-			machineShaking = true;
-			await new Promise((resolve) => setTimeout(resolve, 800));
-			machineShaking = false;
-
-			// 步骤2: 扭蛋掉落 (600ms)
-			capsuleFalling = true;
-			await new Promise((resolve) => setTimeout(resolve, 600));
-
-			// 执行签到 API 调用（在动画进行时）
 			const response = await signIn(localStorage.token);
-
-			// 步骤3: 扭蛋打开 (400ms)
-			capsuleOpening = true;
-			await new Promise((resolve) => setTimeout(resolve, 400));
-
-			// 步骤4: 金币飞出 (600ms)
-			coinsFlying = true;
-			await new Promise((resolve) => setTimeout(resolve, 600));
-
-			// 设置最终奖励
 			reward = response.amount;
 
-			// 重置动画状态
-			capsuleFalling = false;
-			capsuleOpening = false;
-			coinsFlying = false;
+			// 数字滚动动画
+			const duration = 1000;
+			const steps = 30;
+			const increment = reward / steps;
+			let currentStep = 0;
 
-			// 显示奖励弹窗
-			showReward = true;
+			const interval = setInterval(() => {
+				currentStep++;
+				displayReward = Math.min(currentStep * increment, reward);
+				if (currentStep >= steps) {
+					clearInterval(interval);
+					displayReward = reward;
+				}
+			}, duration / steps);
 
-			// 重新加载状态
 			await loadStatus();
-
-			// 显示成功消息
 			toast.success(response.message);
 		} catch (error: any) {
-			// 重置所有动画状态
-			machineShaking = false;
-			capsuleFalling = false;
-			capsuleOpening = false;
-			coinsFlying = false;
 			toast.error(error || '签到失败，请稍后重试');
 		} finally {
 			isSigningIn = false;
@@ -109,6 +87,50 @@
 	const closeReward = () => {
 		showReward = false;
 		reward = null;
+		displayReward = 0;
+	};
+
+	// 生成日历数据
+	$: calendarDays = generateCalendar(currentMonth);
+
+	function generateCalendar(month: Date) {
+		const year = month.getFullYear();
+		const monthIndex = month.getMonth();
+		const firstDay = new Date(year, monthIndex, 1);
+		const lastDay = new Date(year, monthIndex + 1, 0);
+		const startWeekday = firstDay.getDay();
+		const daysInMonth = lastDay.getDate();
+
+		const days = [];
+		for (let i = 0; i < startWeekday; i++) {
+			days.push(null);
+		}
+		for (let i = 1; i <= daysInMonth; i++) {
+			days.push(i);
+		}
+		return days;
+	}
+
+	// 获取当月签到日期
+	$: signedDates = status ? getSignedDatesInMonth(status) : new Set<number>();
+
+	function getSignedDatesInMonth(status: SignInStatus): Set<number> {
+		const dates = new Set<number>();
+		const today = new Date();
+		if (status.has_signed_today &&
+		    currentMonth.getMonth() === today.getMonth() &&
+		    currentMonth.getFullYear() === today.getFullYear()) {
+			dates.add(today.getDate());
+		}
+		return dates;
+	}
+
+	const prevMonth = () => {
+		currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+	};
+
+	const nextMonth = () => {
+		currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
 	};
 
 	onMount(async () => {
@@ -120,196 +142,121 @@
 </script>
 
 {#if isEnabled}
-	<div class="relative bg-gradient-to-br from-pink-50 to-purple-50 dark:from-pink-900/20 dark:to-purple-900/20 border-2 border-pink-200 dark:border-pink-800 rounded-2xl p-6 shadow-lg">
-		<!-- 背景装饰 -->
-		<div class="absolute top-0 left-0 w-full h-full overflow-hidden rounded-2xl pointer-events-none">
-			<div class="absolute top-2 right-2 text-4xl opacity-20">✨</div>
-			<div class="absolute bottom-2 left-2 text-4xl opacity-20">🌟</div>
-			<div class="absolute top-1/2 left-1/4 text-3xl opacity-10">⭐</div>
-		</div>
-
-		<!-- 内容 -->
-		<div class="relative z-10">
-			<!-- 标题 -->
-			<div class="text-center mb-6">
-				<h3 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 dark:from-pink-400 dark:to-purple-400 mb-2">
-					✨ 每日签到 ✨
-				</h3>
-				<p class="text-sm text-gray-600 dark:text-gray-300 mb-3">
-					每天签到领取随机奖励哦~
-				</p>
-
-				<!-- 签到进度条 -->
-				{#if status}
-					<div class="flex items-center justify-center gap-2 mt-3">
-						{#each Array(5) as _, i}
-							{@const dayNum = i + 1}
-							{@const isSigned = dayNum <= (status.continuous_days % 5 || (status.continuous_days > 0 && status.continuous_days % 5 === 0 ? 5 : 0))}
-							{@const isToday = dayNum === (status.continuous_days % 5 || (status.continuous_days > 0 && status.continuous_days % 5 === 0 ? 5 : 0)) && status.has_signed_today}
-
-							<div class="flex flex-col items-center gap-1">
-								<div class="relative">
-									{#if isToday}
-										<!-- 今天刚签到 -->
-										<div class="w-9 h-9 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 border-2 border-yellow-300 flex items-center justify-center text-lg animate-pulse shadow-lg">
-											🎁
-										</div>
-									{:else if isSigned}
-										<!-- 已签到 -->
-										<div class="w-9 h-9 rounded-full bg-gradient-to-br from-pink-500 to-purple-500 border-2 border-pink-400 flex items-center justify-center shadow-md">
-											<svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-												<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-											</svg>
-										</div>
-									{:else}
-										<!-- 未签到 -->
-										<div class="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
-											<span class="text-xs text-gray-400 dark:text-gray-500">{dayNum}</span>
-										</div>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
+	<div class="relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
+		{#if statusLoading}
+			<div class="flex items-center justify-center py-8">
+				<Spinner className="size-8" />
+			</div>
+		{:else if status}
+			<!-- 标题和月份切换 -->
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-lg font-bold text-gray-900 dark:text-white">每日签到</h3>
+				<div class="flex items-center gap-2">
+					<button
+						on:click={prevMonth}
+						class="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
+						aria-label="上个月"
+					>
+						<svg class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+						</svg>
+					</button>
+					<span class="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-[60px] text-center">
+						本月
+					</span>
+					<button
+						on:click={nextMonth}
+						class="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
+						aria-label="下个月"
+					>
+						<svg class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+						</svg>
+					</button>
+				</div>
 			</div>
 
-			{#if statusLoading}
-				<div class="flex items-center justify-center py-8">
-					<Spinner className="size-8" />
-				</div>
-			{:else if status}
-				<!-- 签到状态卡片 -->
-				<div class="bg-white dark:bg-gray-800/80 backdrop-blur-sm rounded-xl p-5 mb-4 border border-pink-100 dark:border-pink-900/50">
-					<div class="grid grid-cols-2 gap-4 text-center">
-						<!-- 连续签到天数 -->
-						<div>
-							<div class="text-3xl font-bold text-pink-600 dark:text-pink-400">
-								{status.continuous_days}
-							</div>
-							<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-								连续签到
-							</div>
-						</div>
+			<!-- 星期标题 -->
+			<div class="grid grid-cols-7 gap-1 mb-2">
+				{#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as day}
+					<div class="text-center text-xs text-gray-400 dark:text-gray-500 py-1 font-medium">
+						{day}
+					</div>
+				{/each}
+			</div>
 
-						<!-- 本月签到天数 -->
-						<div>
-							<div class="text-3xl font-bold text-purple-600 dark:text-purple-400">
-								{status.month_days}
-							</div>
-							<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-								本月签到
-							</div>
+			<!-- 日历格子 -->
+			<div class="grid grid-cols-7 gap-1 mb-4">
+				{#each calendarDays as day}
+					{#if day === null}
+						<div class="aspect-square"></div>
+					{:else}
+						{@const today = new Date()}
+						{@const isToday = day === today.getDate() &&
+						                  currentMonth.getMonth() === today.getMonth() &&
+						                  currentMonth.getFullYear() === today.getFullYear()}
+						{@const isSigned = signedDates.has(day)}
+						<div class="aspect-square flex items-center justify-center relative">
+							<span class="text-sm font-medium {isToday ? 'text-white z-10' : isSigned ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}">
+								{day}
+							</span>
+							{#if isToday}
+								<div class="absolute inset-0 bg-green-500 rounded-full -z-0 m-0.5"></div>
+							{:else if isSigned}
+								<div class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-black dark:bg-white rounded-full"></div>
+							{/if}
 						</div>
+					{/if}
+				{/each}
+			</div>
 
-						<!-- 累计签到天数 -->
-						<div>
-							<div class="text-2xl font-bold text-blue-600 dark:text-blue-400">
-								{status.total_days}
-							</div>
-							<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-								累计天数
-							</div>
-						</div>
-
-						<!-- 累计奖励 -->
-						<div>
-							<div class="text-2xl font-bold text-red-600 dark:text-red-400 flex items-center justify-center gap-1">
-								<span class="text-xl">🧧</span>
-								<span>¥{status.total_amount.toFixed(2)}</span>
-							</div>
-							<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-								累计奖励
-							</div>
+			<!-- 底部信息和按钮 -->
+			<div class="flex gap-2">
+				<!-- 累计奖励 -->
+				<div class="flex-1 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+					<div class="text-xs text-orange-600 dark:text-orange-400 mb-1 font-medium">累计奖励</div>
+					<div class="flex items-center gap-1.5 text-orange-600 dark:text-orange-400">
+						<span class="text-lg">💰</span>
+						<div class="text-base font-bold tabular-nums">
+							¥{status.total_amount.toFixed(2)}
 						</div>
 					</div>
 				</div>
 
-				<!-- 扭蛋机和签到按钮 -->
-				<div class="text-center">
-					{#if status.has_signed_today}
-						<!-- 已签到 -->
-						<div class="mb-4">
-							<div class="py-6 px-8 bg-gray-100 dark:bg-gray-800/50 rounded-xl border-2 border-gray-200 dark:border-gray-700">
-								<p class="text-base font-medium text-gray-500 dark:text-gray-400 mb-2">
-									✓ 今日已领取
-								</p>
-								<p class="text-xs text-gray-400 dark:text-gray-500">
-									明天再来签到吧~
-								</p>
+				<!-- 签到按钮 -->
+				<div class="flex-1 border-2 border-orange-500 dark:border-orange-600 rounded-lg p-3 flex items-center justify-center">
+					{#if status.has_signed_today && reward !== null}
+						<div class="text-center">
+							<div class="text-xs font-medium text-orange-600 dark:text-orange-400 mb-0.5">今日奖励</div>
+							<div class="text-lg font-bold text-orange-600 dark:text-orange-400 tabular-nums">
+								{displayReward.toFixed(2)}元
+							</div>
+						</div>
+					{:else if status.has_signed_today}
+						<div class="text-center">
+							<div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">今日奖励</div>
+							<div class="text-lg font-bold text-gray-500 dark:text-gray-400">
+								已领取
 							</div>
 						</div>
 					{:else}
-						<!-- 扭蛋机容器 -->
-						<div class="mb-6 flex items-center justify-center min-h-[280px] relative">
-							<!-- 扭蛋机 -->
-							<div class="gashapon-machine {machineShaking ? 'shaking' : ''}">
-								<!-- 扭蛋机顶部玻璃球 -->
-								<div class="machine-globe">
-									<div class="glass-shine"></div>
-									<!-- 扭蛋们 -->
-									<div class="capsules-container">
-										<div class="capsule-mini" style="top: 20%; left: 30%; background: linear-gradient(135deg, #ff6b9d 0%, #c94b7f 100%);"></div>
-										<div class="capsule-mini" style="top: 40%; left: 60%; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div>
-										<div class="capsule-mini" style="top: 60%; left: 25%; background: linear-gradient(135deg, #ffd93d 0%, #ffb800 100%);"></div>
-										<div class="capsule-mini" style="top: 35%; left: 70%; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);"></div>
-										<div class="capsule-mini" style="top: 70%; left: 55%; background: linear-gradient(135deg, #c471f5 0%, #fa71cd 100%);"></div>
-									</div>
-								</div>
-
-								<!-- 扭蛋机底座 -->
-								<div class="machine-base">
-									<div class="machine-opening"></div>
-								</div>
-
-								<!-- 扭蛋机旋钮 -->
-								<div class="machine-knob"></div>
-							</div>
-
-							<!-- 掉落的扭蛋 -->
-							{#if capsuleFalling || capsuleOpening || coinsFlying}
-								<div class="falling-capsule {capsuleFalling ? 'falling' : ''} {capsuleOpening ? 'opening' : ''}">
-									<div class="capsule-half capsule-top"></div>
-									<div class="capsule-half capsule-bottom"></div>
-
-									<!-- 金币飞出效果 -->
-									{#if coinsFlying}
-										<div class="coin coin-1">💰</div>
-										<div class="coin coin-2">💰</div>
-										<div class="coin coin-3">💰</div>
-										<div class="coin coin-4">🪙</div>
-										<div class="coin coin-5">🪙</div>
-									{/if}
-								</div>
-							{/if}
-						</div>
-
-						<!-- 签到按钮 -->
 						<button
-							class="px-8 py-3 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-bold rounded-full text-lg shadow-lg transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
 							on:click={handleSignIn}
 							disabled={isSigningIn}
+							class="text-orange-600 dark:text-orange-400 font-bold text-base hover:text-orange-700 dark:hover:text-orange-300 disabled:opacity-50 transition"
 						>
-							{#if isSigningIn}
-								<span class="flex items-center gap-2">
-									<Spinner className="size-5" />
-									扭蛋中...
-								</span>
-							{:else}
-								🎁 转动扭蛋
-							{/if}
+							{isSigningIn ? '签到中...' : '点击签到'}
 						</button>
 					{/if}
 				</div>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 
 	<!-- 奖励弹窗 -->
 	{#if showReward && reward !== null}
 		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" on:click={closeReward}>
-			<div class="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl max-w-sm mx-4 transform animate-bounce" on:click|stopPropagation>
-				<!-- 关闭按钮 -->
+			<div class="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl max-w-sm mx-4 relative" on:click|stopPropagation>
 				<button
 					class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
 					on:click={closeReward}
@@ -319,7 +266,6 @@
 					</svg>
 				</button>
 
-				<!-- 奖励内容 -->
 				<div class="text-center">
 					<div class="text-6xl mb-4">🎉</div>
 					<h3 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">
@@ -332,7 +278,7 @@
 						¥{reward.toFixed(2)}
 					</div>
 					<button
-						class="px-6 py-2 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium rounded-full"
+						class="px-6 py-2 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-medium rounded-full transition"
 						on:click={closeReward}
 					>
 						太棒了！
@@ -344,292 +290,8 @@
 {/if}
 
 <style>
-	/* 扭蛋机主体 */
-	.gashapon-machine {
-		position: relative;
-		width: 180px;
-		height: 240px;
-		transition: transform 0.1s;
-	}
-
-	/* 摇晃动画 */
-	.gashapon-machine.shaking {
-		animation: shake 0.1s infinite;
-	}
-
-	@keyframes shake {
-		0%, 100% { transform: translateX(0) rotate(0deg); }
-		25% { transform: translateX(-3px) rotate(-2deg); }
-		75% { transform: translateX(3px) rotate(2deg); }
-	}
-
-	/* 玻璃球容器 */
-	.machine-globe {
-		position: relative;
-		width: 180px;
-		height: 180px;
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 240, 255, 0.8) 100%);
-		border-radius: 50%;
-		border: 4px solid #ff6b9d;
-		box-shadow:
-			inset 0 -20px 40px rgba(255, 107, 157, 0.2),
-			0 8px 20px rgba(255, 107, 157, 0.3);
-		overflow: hidden;
-	}
-
-	/* 玻璃反光效果 */
-	.glass-shine {
-		position: absolute;
-		top: 15%;
-		left: 20%;
-		width: 40px;
-		height: 60px;
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.6), transparent);
-		border-radius: 50%;
-		transform: rotate(-30deg);
-	}
-
-	/* 扭蛋容器 */
-	.capsules-container {
-		position: absolute;
-		width: 100%;
-		height: 100%;
-	}
-
-	/* 小扭蛋 */
-	.capsule-mini {
-		position: absolute;
-		width: 24px;
-		height: 30px;
-		border-radius: 50%;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-	}
-
-	/* 底座 */
-	.machine-base {
-		position: relative;
-		width: 160px;
-		height: 60px;
-		margin: 0 auto;
-		background: linear-gradient(180deg, #ff6b9d 0%, #ff527a 100%);
-		border-radius: 0 0 20px 20px;
-		box-shadow: 0 4px 12px rgba(255, 107, 157, 0.4);
-	}
-
-	/* 出口 */
-	.machine-opening {
-		position: absolute;
-		bottom: 8px;
-		left: 50%;
-		transform: translateX(-50%);
-		width: 50px;
-		height: 15px;
-		background: rgba(0, 0, 0, 0.3);
-		border-radius: 8px;
-	}
-
-	/* 旋钮 */
-	.machine-knob {
-		position: absolute;
-		right: -10px;
-		top: 140px;
-		width: 35px;
-		height: 35px;
-		background: linear-gradient(135deg, #ffd93d 0%, #ffb800 100%);
-		border-radius: 50%;
-		border: 3px solid #ff8c00;
-		box-shadow: 0 3px 8px rgba(255, 140, 0, 0.4);
-	}
-
-	/* 掉落的扭蛋 */
-	.falling-capsule {
-		position: absolute;
-		width: 50px;
-		height: 60px;
-		top: 200px;
-		left: 50%;
-		transform: translateX(-50%);
-	}
-
-	.falling-capsule.falling {
-		animation: fall 0.6s ease-in forwards;
-	}
-
-	@keyframes fall {
-		0% {
-			top: 160px;
-			opacity: 1;
-		}
-		100% {
-			top: 250px;
-			opacity: 1;
-		}
-	}
-
-	/* 扭蛋两半 */
-	.capsule-half {
-		position: absolute;
-		width: 50px;
-		height: 30px;
-		border-radius: 25px 25px 0 0;
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-	}
-
-	.capsule-top {
-		top: 0;
-		background: linear-gradient(135deg, #ff6b9d 0%, #c94b7f 100%);
-		z-index: 2;
-	}
-
-	.capsule-bottom {
-		bottom: 0;
-		background: linear-gradient(135deg, #ffd93d 0%, #ffb800 100%);
-		border-radius: 0 0 25px 25px;
-		z-index: 1;
-	}
-
-	/* 扭蛋打开动画 */
-	.falling-capsule.opening .capsule-top {
-		animation: openTop 0.4s ease-out forwards;
-	}
-
-	.falling-capsule.opening .capsule-bottom {
-		animation: openBottom 0.4s ease-out forwards;
-	}
-
-	@keyframes openTop {
-		0% {
-			transform: translateY(0) rotate(0deg);
-			opacity: 1;
-		}
-		100% {
-			transform: translateY(-30px) rotate(-20deg);
-			opacity: 0;
-		}
-	}
-
-	@keyframes openBottom {
-		0% {
-			transform: translateY(0) rotate(0deg);
-			opacity: 1;
-		}
-		100% {
-			transform: translateY(30px) rotate(20deg);
-			opacity: 0;
-		}
-	}
-
-	/* 金币 */
-	.coin {
-		position: absolute;
-		font-size: 24px;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		opacity: 0;
-	}
-
-	.coin-1 {
-		animation: flyOut1 0.6s ease-out;
-	}
-
-	.coin-2 {
-		animation: flyOut2 0.6s ease-out 0.1s;
-	}
-
-	.coin-3 {
-		animation: flyOut3 0.6s ease-out 0.2s;
-	}
-
-	.coin-4 {
-		animation: flyOut4 0.6s ease-out 0.15s;
-	}
-
-	.coin-5 {
-		animation: flyOut5 0.6s ease-out 0.25s;
-	}
-
-	@keyframes flyOut1 {
-		0% {
-			transform: translate(-50%, -50%) scale(0);
-			opacity: 0;
-		}
-		50% {
-			opacity: 1;
-		}
-		100% {
-			transform: translate(-80px, -60px) scale(1.2);
-			opacity: 0;
-		}
-	}
-
-	@keyframes flyOut2 {
-		0% {
-			transform: translate(-50%, -50%) scale(0);
-			opacity: 0;
-		}
-		50% {
-			opacity: 1;
-		}
-		100% {
-			transform: translate(80px, -70px) scale(1.2);
-			opacity: 0;
-		}
-	}
-
-	@keyframes flyOut3 {
-		0% {
-			transform: translate(-50%, -50%) scale(0);
-			opacity: 0;
-		}
-		50% {
-			opacity: 1;
-		}
-		100% {
-			transform: translate(0px, -90px) scale(1.2);
-			opacity: 0;
-		}
-	}
-
-	@keyframes flyOut4 {
-		0% {
-			transform: translate(-50%, -50%) scale(0);
-			opacity: 0;
-		}
-		50% {
-			opacity: 1;
-		}
-		100% {
-			transform: translate(-60px, -80px) scale(1);
-			opacity: 0;
-		}
-	}
-
-	@keyframes flyOut5 {
-		0% {
-			transform: translate(-50%, -50%) scale(0);
-			opacity: 0;
-		}
-		50% {
-			opacity: 1;
-		}
-		100% {
-			transform: translate(60px, -85px) scale(1);
-			opacity: 0;
-		}
-	}
-
-	/* 奖励弹窗动画 */
-	.animate-bounce {
-		animation: modalBounce 0.5s ease-in-out 2;
-	}
-
-	@keyframes modalBounce {
-		0%, 100% {
-			transform: translateY(0);
-		}
-		50% {
-			transform: translateY(-20px);
-		}
+	/* 数字滚动动画 */
+	.tabular-nums {
+		font-variant-numeric: tabular-nums;
 	}
 </style>
