@@ -666,36 +666,36 @@
 							console.log('[Caption] Caption config retrieved:', captionConfig);
 							if (captionConfig?.enabled && captionConfig?.model) {
 								console.log('[Caption] Caption is enabled, generating caption with model:', captionConfig.model);
-								const reader = new FileReader();
-								reader.onload = async (e) => {
-									try {
-										const base64Data = e.target.result;
-										console.log('[Caption] Calling generateImageCaption API...');
-										const captionResult = await generateImageCaption(
-											localStorage.token,
-											base64Data
-										);
-										console.log('[Caption] Caption result:', captionResult);
-										if (captionResult?.caption) {
-											fileItem.caption = captionResult.caption;
-											files = files;
-											console.log('[Caption] Caption saved to fileItem:', {
-												fileName: fileItem.name,
-												caption: captionResult.caption
-											});
-										} else {
-											console.warn('[Caption] No caption in result');
-										}
-									} catch (error) {
-										console.error('[Caption] Failed to generate image caption:', error);
-									}
-								};
-								reader.readAsDataURL(file);
+
+								// 使用 Promise 包装 FileReader
+								const base64Data = await new Promise((resolve, reject) => {
+									const reader = new FileReader();
+									reader.onload = (e) => resolve(e.target.result);
+									reader.onerror = (e) => reject(e);
+									reader.readAsDataURL(file);
+								});
+
+								console.log('[Caption] Calling generateImageCaption API...');
+								const captionResult = await generateImageCaption(
+									localStorage.token,
+									base64Data
+								);
+								console.log('[Caption] Caption result:', captionResult);
+								if (captionResult?.caption) {
+									fileItem.caption = captionResult.caption;
+									files = files;
+									console.log('[Caption] Caption saved to fileItem:', {
+										fileName: fileItem.name,
+										caption: captionResult.caption
+									});
+								} else {
+									console.warn('[Caption] No caption in result');
+								}
 							} else {
 								console.log('[Caption] Caption is disabled or no model configured');
 							}
 						} catch (error) {
-							console.error('[Caption] Failed to get caption config:', error);
+							console.error('[Caption] Failed to generate image caption:', error);
 						}
 					}
 

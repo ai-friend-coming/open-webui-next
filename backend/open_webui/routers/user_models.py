@@ -274,11 +274,21 @@ async def test_user_model_connection(
                         for model in models
                     )
 
+                # 提取模型 ID 列表
+                model_ids = []
+                if isinstance(models, list):
+                    for model in models:
+                        if isinstance(model, dict):
+                            model_id = model.get("id") or model.get("model") or model.get("name")
+                            if model_id:
+                                model_ids.append(model_id)
+
                 return {
                     "ok": True,
                     "status": r.status,
                     "has_model": has_model,
                     "model_count": len(models) if isinstance(models, list) else None,
+                    "models": model_ids,
                     "base_url": base_url,
                 }
 

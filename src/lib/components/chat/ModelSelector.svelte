@@ -33,6 +33,8 @@ let form = {
 let originalForm = null; // 保存编辑时的原始表单数据
 let testingConnection = false;
 let connectionVerified = false; // 跟踪API连接是否已验证
+let availableModels = []; // 测试连接后获取的可用模型列表
+let isCustomModelId = false; // 是否选择了自定义 Model ID
 const i18n = getContext('i18n');
 
 	export let selectedModels = [''];
@@ -118,6 +120,8 @@ const i18n = getContext('i18n');
 		editingCredential = null;
 		originalForm = null;
 		connectionVerified = false; // 重置验证状态
+		availableModels = []; // 清空模型列表
+		isCustomModelId = false; // 重置自定义标志
 	};
 
 	const submitUserModel = async () => {
@@ -151,8 +155,8 @@ const i18n = getContext('i18n');
 	};
 
 	const testUserModelConnection = async () => {
-		if (!form.model_id || !form.api_key) {
-			toast.error($i18n.t('Model ID and API Key are required'));
+		if (!form.api_key) {
+			toast.error($i18n.t('API Key is required'));
 			return;
 		}
 
@@ -166,7 +170,9 @@ const i18n = getContext('i18n');
 
 			if (res) {
 				connectionVerified = true; // 验证成功，设置状态为true
-				if (res.has_model === false) {
+				availableModels = res.models || []; // 保存可用模型列表
+
+				if (res.has_model === false && form.model_id) {
 					toast.warning($i18n.t('Connected, but the model ID was not found on the endpoint'));
 				} else {
 					toast.success($i18n.t('Connection successful'));
@@ -312,11 +318,31 @@ const i18n = getContext('i18n');
 				</div>
 				<div class="flex flex-col gap-1">
 					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Model ID')}</label>
-					<input
-						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
-						bind:value={form.model_id}
-						placeholder="gpt-4o / claude-3..."
-					/>
+					{#if availableModels.length > 0}
+						<select
+							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+							bind:value={form.model_id}
+							on:change={(e) => {
+								isCustomModelId = e.target.value === '__custom__';
+								if (isCustomModelId) {
+									form.model_id = '';
+								}
+							}}
+						>
+							<option value="" disabled>{$i18n.t('Select a model')}</option>
+							{#each availableModels as model}
+								<option value={model}>{model}</option>
+							{/each}
+							<option value="__custom__">{$i18n.t('Other (Custom)')}</option>
+						</select>
+					{/if}
+					{#if availableModels.length === 0 || isCustomModelId}
+						<input
+							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+							bind:value={form.model_id}
+							placeholder="gpt-4o / claude-3..."
+						/>
+					{/if}
 				</div>
 				<div class="flex flex-col gap-1">
 					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Base URL')}</label>

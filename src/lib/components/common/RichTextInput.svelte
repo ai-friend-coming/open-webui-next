@@ -698,7 +698,14 @@
 			element: element,
 			extensions: [
 				StarterKit.configure({
-					link: link
+					link: link,
+					// 禁用 StarterKit 中的列表和代码块扩展，因为 richText 模式下会使用增强版本
+					...(richText ? {
+						codeBlock: false,
+						bulletList: false,
+						orderedList: false,
+						listItem: false
+					} : {})
 				}),
 				...(dragHandle ? [ListItemDragHandle] : []),
 				Placeholder.configure({ placeholder: () => _placeholder, showOnlyWhenEditable: false }),
