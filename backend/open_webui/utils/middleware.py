@@ -1121,8 +1121,13 @@ async def process_image_captions_if_needed(request, form_data, user, model):
     Returns:
         dict: 处理后的 form_data
     """
+    log.info(f"[ImageCaption] === 开始处理 ===")
+    log.info(f"[ImageCaption] ENABLE_IMAGE_CAPTION: {ENABLE_IMAGE_CAPTION.value}")
+    log.info(f"[ImageCaption] IMAGE_CAPTION_MODEL: {IMAGE_CAPTION_MODEL.value}")
+
     # 检查是否启用了 caption
     if not ENABLE_IMAGE_CAPTION.value:
+        log.info(f"[ImageCaption] 功能未启用，跳过")
         return form_data
 
     # 检查目标模型是否支持视觉
@@ -1130,20 +1135,47 @@ async def process_image_captions_if_needed(request, form_data, user, model):
         model.get("info", {}).get("meta", {}).get("capabilities", {}).get("vision", False)
         if isinstance(model, dict) else False
     )
+    log.info(f"[ImageCaption] 目标模型: {model.get('id', 'unknown') if isinstance(model, dict) else 'unknown'}")
+    log.info(f"[ImageCaption] 模型支持视觉: {model_has_vision}")
+
     if model_has_vision:
-        log.debug(f"[ImageCaption] Model supports vision, skipping caption")
+        log.info(f"[ImageCaption] Model supports vision, skipping caption")
         return form_data  # 模型支持视觉，不需要 caption
 
     # 检查是否配置了 caption 模型
     caption_model = IMAGE_CAPTION_MODEL.value
     if not caption_model:
-        log.debug(f"[ImageCaption] No caption model configured")
+        log.info(f"[ImageCaption] No caption model configured, 跳过")
         return form_data
 
     log.info(f"[ImageCaption] Processing images with caption model: {caption_model}")
 
     # 遍历消息，处理图片
     messages = form_data.get("messages", [])
+    images_found = 0
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+
+        content = message.get("content")
+        log.info(f"[ImageCaption] 检查消息内容类型: {type(content)}")
+        if not isinstance(content, list):
+            log.info(f"[ImageCaption] 消息内容不是列表，跳过")
+            continue
+
+        log.info(f"[ImageCaption] 消息内容项数: {len(content)}")
+        for item in content:
+            log.info(f"[ImageCaption] 内容项类型: {item.get('type', 'unknown')}")
+            if item.get("type") == "image_url":
+                images_found += 1
+
+    log.info(f"[ImageCaption] 找到 {images_found} 张图片")
+
+    if images_found == 0:
+        log.info(f"[ImageCaption] 没有找到图片，跳过处理")
+        return form_data
+
+    # 重新遍历消息，处理图片
     for message in messages:
         if message.get("role") != "user":
             continue
