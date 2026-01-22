@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, getContext } from 'svelte';
 	import { formatCurrency } from '$lib/stores';
-	import { getInviteInfo, getRebateLogs, getInvitees, type InviteInfo, type InviteRebateLog, type InviteUser } from '$lib/apis/invite';
+	import { getInviteInfo, getRebateLogs, type InviteInfo, type InviteRebateLog } from '$lib/apis/invite';
 	import { toast } from 'svelte-sonner';
 	import { page } from '$app/stores';
 
@@ -9,8 +9,6 @@
 
 	let inviteInfo: InviteInfo | null = null;
 	let rebateLogs: InviteRebateLog[] = [];
-	let invitees: InviteUser[] = [];
-	let activeTab: 'rebate' | 'invitees' = 'rebate';
 	let loading = false;
 
 	// 生成邀请链接
@@ -43,18 +41,6 @@
 		}
 	}
 
-	async function loadInvitees() {
-		loading = true;
-		try {
-			const result = await getInvitees(localStorage.token, 0, 20);
-			invitees = result.users;
-		} catch (error) {
-			console.error('Failed to load invitees:', error);
-		} finally {
-			loading = false;
-		}
-	}
-
 	function copyInviteCode() {
 		if (inviteInfo?.invite_code) {
 			navigator.clipboard.writeText(inviteInfo.invite_code);
@@ -66,13 +52,6 @@
 		if (inviteUrl) {
 			navigator.clipboard.writeText(inviteUrl);
 			toast.success($i18n.t('邀请链接已复制'));
-		}
-	}
-
-	async function switchTab(tab: 'rebate' | 'invitees') {
-		activeTab = tab;
-		if (tab === 'invitees' && invitees.length === 0) {
-			await loadInvitees();
 		}
 	}
 
@@ -128,62 +107,27 @@
 				</div>
 			</div>
 
-			<!-- Tab 切换 -->
-			<div class="tabs">
-				<button
-					class="tab"
-					class:active={activeTab === 'rebate'}
-					on:click={() => switchTab('rebate')}
-				>
-					{$i18n.t('返现记录')}
-				</button>
-				<button
-					class="tab"
-					class:active={activeTab === 'invitees'}
-					on:click={() => switchTab('invitees')}
-				>
-					{$i18n.t('我的邀请')}
-				</button>
-			</div>
+			<!-- 返现记录标题 -->
+			<div class="section-title">{$i18n.t('返现记录')}</div>
 
 			<!-- 内容区域 -->
 			<div class="tab-content">
 				{#if loading}
 					<div class="loading">{$i18n.t('加载中...')}</div>
-				{:else if activeTab === 'rebate'}
-					{#if rebateLogs.length > 0}
-						<div class="records-list">
-							{#each rebateLogs as log}
-								<div class="record-item">
-									<div class="record-main">
-										<div class="record-title">{$i18n.t('充值返现')}</div>
-										<div class="record-time">{formatDate(log.created_at)}</div>
-									</div>
-									<div class="record-amount">+{formatCurrency(log.rebate_amount)}</div>
+				{:else if rebateLogs.length > 0}
+					<div class="records-list">
+						{#each rebateLogs as log}
+							<div class="record-item">
+								<div class="record-main">
+									<div class="record-title">{$i18n.t('充值返现')}</div>
+									<div class="record-time">{formatDate(log.created_at)}</div>
 								</div>
-							{/each}
-						</div>
-					{:else}
-						<div class="empty-state">{$i18n.t('暂无返现记录')}</div>
-					{/if}
+								<div class="record-amount">+{formatCurrency(log.rebate_amount)}</div>
+							</div>
+						{/each}
+					</div>
 				{:else}
-					{#if invitees.length > 0}
-						<div class="records-list">
-							{#each invitees as invitee}
-								<div class="record-item">
-									<div class="record-main">
-										<div class="record-title">{invitee.name}</div>
-										<div class="record-time">{formatDate(invitee.created_at * 1000000)}</div>
-									</div>
-									<div class="record-meta">
-										{$i18n.t('消费')}: {formatCurrency(invitee.total_consumed)}
-									</div>
-								</div>
-							{/each}
-						</div>
-					{:else}
-						<div class="empty-state">{$i18n.t('暂无邀请用户')}</div>
-					{/if}
+					<div class="empty-state">{$i18n.t('暂无返现记录')}</div>
 				{/if}
 			</div>
 		</div>
@@ -360,52 +304,19 @@
 		color: #f9fafb;
 	}
 
-	/* Tabs */
-	.tabs {
-		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
-		border-bottom: 2px solid rgba(229, 231, 235, 0.8);
-	}
-
-	:global(.dark) .tabs {
-		border-bottom-color: rgba(75, 85, 99, 0.5);
-	}
-
-	.tab {
-		flex: 1;
-		padding: 0.75rem;
+	/* 返现记录标题 */
+	.section-title {
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: #6b7280;
-		background: none;
-		border: none;
-		border-bottom: 2px solid transparent;
-		margin-bottom: -2px;
-		cursor: pointer;
-		transition: all 0.2s;
+		margin-bottom: 1rem;
+		padding-bottom: 0.5rem;
+		border-bottom: 2px solid rgba(229, 231, 235, 0.8);
 	}
 
-	.tab:hover {
-		color: #4f46e5;
-	}
-
-	.tab.active {
-		color: #4f46e5;
-		border-bottom-color: #4f46e5;
-	}
-
-	:global(.dark) .tab {
+	:global(.dark) .section-title {
 		color: #9ca3af;
-	}
-
-	:global(.dark) .tab:hover {
-		color: #818cf8;
-	}
-
-	:global(.dark) .tab.active {
-		color: #818cf8;
-		border-bottom-color: #818cf8;
+		border-bottom-color: rgba(75, 85, 99, 0.5);
 	}
 
 	/* 内容区域 */
@@ -468,14 +379,5 @@
 		font-size: 1rem;
 		font-weight: 700;
 		color: #10b981;
-	}
-
-	.record-meta {
-		font-size: 0.875rem;
-		color: #6b7280;
-	}
-
-	:global(.dark) .record-meta {
-		color: #9ca3af;
 	}
 </style>

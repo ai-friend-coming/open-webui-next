@@ -127,19 +127,11 @@ def process_invite_rebate(
             db.add(billing_log)
             db.commit()
 
-            # 10. 检查是否是首次返现（判断是否新邀请人）
-            is_new_invitee = (
-                db.query(User)
-                .filter(User.invited_by == inviter_id, User.id == invitee_id)
-                .count()
-                == 1
-            )
-
-            # 11. 更新邀请统计
+            # 10. 更新邀请统计（仅更新返现金额，邀请人数在注册时已增加）
             InviteStatsTable.increment_stats(
                 user_id=inviter_id,
                 rebate_amount=rebate_amount,
-                is_new_invitee=is_new_invitee,
+                is_new_invitee=False,  # 邀请人数在注册时已增加，这里不再增加
             )
 
             log.info(

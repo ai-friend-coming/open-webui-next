@@ -230,6 +230,14 @@ class UsersTable:
             db.commit()
             db.refresh(result)
             if result:
+                # 如果有邀请人，增加邀请人的邀请统计
+                if invited_by:
+                    try:
+                        from open_webui.models.invite import InviteStatsTable
+                        InviteStatsTable.increment_invitee_count(invited_by)
+                        log.info(f"Incremented invite count for inviter {invited_by}")
+                    except Exception as e:
+                        log.error(f"Failed to increment invite count for inviter {invited_by}: {e}")
                 return user
             else:
                 return None

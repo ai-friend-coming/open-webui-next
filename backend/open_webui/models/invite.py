@@ -225,3 +225,28 @@ class InviteStatsTable:
             db.commit()
             db.refresh(stats)
             return InviteStatsModel.model_validate(stats)
+
+    @staticmethod
+    def increment_invitee_count(user_id: str) -> InviteStatsModel:
+        """仅增加邀请人数（用户注册时调用）"""
+        with get_db() as db:
+            stats = db.query(InviteStats).filter(InviteStats.user_id == user_id).first()
+
+            if stats:
+                # 更新现有统计
+                stats.total_invitees += 1
+                stats.updated_at = time.time_ns()
+            else:
+                # 创建新统计
+                stats = InviteStats(
+                    user_id=user_id,
+                    total_invitees=1,
+                    total_rebate_amount=0,
+                    last_rebate_at=None,
+                    updated_at=time.time_ns(),
+                )
+                db.add(stats)
+
+            db.commit()
+            db.refresh(stats)
+            return InviteStatsModel.model_validate(stats)
