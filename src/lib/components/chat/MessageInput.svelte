@@ -47,7 +47,6 @@
 	import { deleteFileById } from '$lib/apis/files';
 	import { getSessionUser } from '$lib/apis/auths';
 	import { getTools } from '$lib/apis/tools';
-	import { getImageCaptionConfig, generateImageCaption } from '$lib/apis/images-caption';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
