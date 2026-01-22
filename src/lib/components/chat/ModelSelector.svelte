@@ -251,7 +251,7 @@ const i18n = getContext('i18n');
 				{#if selectedModelIdx === 0}
 					<div class="self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]">
 						<Tooltip content={$i18n.t('Add Model')}>
-						{#if false}
+							{#if false}
 								<button
 									class=" "
 									{disabled}
@@ -263,8 +263,8 @@ const i18n = getContext('i18n');
 									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-3.5">
 										<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
 									</svg>
-						{/if}
-								</button>
+							</button>
+							{/if}
 						</Tooltip>
 					</div>
 				{:else}
