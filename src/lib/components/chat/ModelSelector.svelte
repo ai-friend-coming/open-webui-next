@@ -172,6 +172,11 @@ const i18n = getContext('i18n');
 				connectionVerified = true; // 验证成功，设置状态为true
 				availableModels = res.models || []; // 保存可用模型列表
 
+				// 如果 model_id 为空且有可用模型，自动选择第一个
+				if (!form.model_id && availableModels.length > 0) {
+					form.model_id = availableModels[0];
+				}
+
 				if (res.has_model === false && form.model_id) {
 					toast.warning($i18n.t('Connected, but the model ID was not found on the endpoint'));
 				} else {

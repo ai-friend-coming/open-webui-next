@@ -381,8 +381,11 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
     log.info(f"[UserModel] form_data keys: {form_data.keys()}")
     log.info(f"[UserModel] model_item in form_data: {form_data.get('model_item')}")
 
+    # Track if model_item was explicitly provided or reconstructed from history
+    model_item_was_explicit = "model_item" in form_data and form_data.get("model_item")
+
     # If model_item is missing, try to reconstruct it from chat history
-    if "model_item" not in form_data or not form_data.get("model_item"):
+    if not model_item_was_explicit:
         chat_id = form_data.get("chat_id")
         if chat_id:
             from open_webui.models.chats import Chats
@@ -414,6 +417,15 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
         log.info(f"[UserModel] Credential found: {cred is not None}")
 
         if not cred:
+            # If credential not found and it was reconstructed from history (not explicit),
+            # this is likely a background task using an old/deleted credential.
+            # Skip transformation and let it use the platform model instead.
+            if not model_item_was_explicit:
+                log.warning(f"[UserModel] Credential not found (reconstructed from history): cred_id={cred_id}. Skipping user model transformation for background task.")
+                form_data["model_item"] = {}
+                return form_data
+
+            # If it was an explicit request, throw error
             log.error(f"[UserModel] Credential not found: cred_id={cred_id}, user_id={user.id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -436,8 +448,8 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
             form_data['model'] = cred.model_id
         model_id = cred.model_id
         log.info(f"[UserModel] Transform complete: model_id={model_id}, direct=True")
-    
+
     form_data["model_item"] = model_item
     form_data["model"] = model_id
-    
+
     return form_data
