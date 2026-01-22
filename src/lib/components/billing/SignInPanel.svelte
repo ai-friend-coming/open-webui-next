@@ -162,7 +162,7 @@
 						</svg>
 					</button>
 					<span class="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-[60px] text-center">
-						本月
+						{currentMonth.getMonth() + 1}月
 					</span>
 					<button
 						on:click={nextMonth}
