@@ -323,7 +323,7 @@ const i18n = getContext('i18n');
 				</div>
 				<div class="flex flex-col gap-1">
 					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Model ID')}</label>
-					{#if availableModels.length > 0}
+					{#if !isCustomModelId}
 						<select
 							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
 							bind:value={form.model_id}
@@ -335,18 +335,37 @@ const i18n = getContext('i18n');
 							}}
 						>
 							<option value="" disabled>{$i18n.t('Select a model')}</option>
-							{#each availableModels as model}
-								<option value={model}>{model}</option>
-							{/each}
+							{#if availableModels.length > 0}
+								<!-- 测试连接后显示 API 返回的模型 -->
+								{#each availableModels as model}
+									<option value={model}>{model}</option>
+								{/each}
+							{:else}
+								<!-- 默认显示平台模型 -->
+								{#each $models as model}
+									<option value={model.id}>{model.name}</option>
+								{/each}
+							{/if}
 							<option value="__custom__">{$i18n.t('Other (Custom)')}</option>
 						</select>
 					{/if}
-					{#if availableModels.length === 0 || isCustomModelId}
-						<input
-							class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
-							bind:value={form.model_id}
-							placeholder="gpt-4o / claude-3..."
-						/>
+					{#if isCustomModelId}
+						<div class="flex gap-2">
+							<input
+								class="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+								bind:value={form.model_id}
+								placeholder="gpt-4o / claude-3..."
+							/>
+							<button
+								class="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700"
+								on:click={() => {
+									isCustomModelId = false;
+									form.model_id = '';
+								}}
+							>
+								{$i18n.t('Cancel')}
+							</button>
+						</div>
 					{/if}
 				</div>
 				<div class="flex flex-col gap-1">
