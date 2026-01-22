@@ -461,7 +461,7 @@
 			{/if}
 
 			<!-- Add private model button -->
-			<!-- <div class="mx-4">
+			<div class="mx-4">
 				<button
 					class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/60 flex items-center gap-2 transition mb-1"
 					on:click={() => {
@@ -487,7 +487,7 @@
 						{$i18n.t('Add My API')}
 					</div>
 				</button>
-			</div> -->
+			</div>
 
 			<div class="px-2">
 				{#if tags && items.filter((item) => !(item.model?.info?.meta?.hidden ?? false)).length > 0}
