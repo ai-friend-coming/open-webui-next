@@ -5,7 +5,9 @@
 		signIn,
 		getSignInStatus,
 		getPublicConfig,
-		type SignInStatus
+		getSignInLogs,
+		type SignInStatus,
+		type SignInLog
 	} from '$lib/apis/sign-in';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
@@ -13,6 +15,9 @@
 	let status: SignInStatus | null = null;
 	let statusLoading = true;
 	let isEnabled = false;
+
+	// 签到记录
+	let signInLogs: SignInLog[] = [];
 
 	// 签到动画状态
 	let isSigningIn = false;
@@ -46,6 +51,17 @@
 		}
 	};
 
+	// 加载签到记录
+	const loadSignInLogs = async () => {
+		try {
+			// 获取最近90天的签到记录，足够显示3个月
+			signInLogs = await getSignInLogs(localStorage.token, 90, 0);
+		} catch (error) {
+			console.error('加载签到记录失败:', error);
+			signInLogs = [];
+		}
+	};
+
 	// 执行签到
 	const handleSignIn = async () => {
 		if (!status || status.has_signed_today) return;
@@ -75,6 +91,7 @@
 			}, duration / steps);
 
 			await loadStatus();
+			await loadSignInLogs();
 			toast.success(response.message);
 		} catch (error: any) {
 			toast.error(error || '签到失败，请稍后重试');
@@ -112,16 +129,21 @@
 	}
 
 	// 获取当月签到日期
-	$: signedDates = status ? getSignedDatesInMonth(status) : new Set<number>();
+	$: signedDates = getSignedDatesInMonth(currentMonth, signInLogs);
 
-	function getSignedDatesInMonth(status: SignInStatus): Set<number> {
+	function getSignedDatesInMonth(month: Date, logs: SignInLog[]): Set<number> {
 		const dates = new Set<number>();
-		const today = new Date();
-		if (status.has_signed_today &&
-		    currentMonth.getMonth() === today.getMonth() &&
-		    currentMonth.getFullYear() === today.getFullYear()) {
-			dates.add(today.getDate());
+		const year = month.getFullYear();
+		const monthIndex = month.getMonth();
+
+		for (const log of logs) {
+			// sign_in_date 格式为 "YYYY-MM-DD"
+			const [logYear, logMonth, logDay] = log.sign_in_date.split('-').map(Number);
+			if (logYear === year && logMonth === monthIndex + 1) {
+				dates.add(logDay);
+			}
 		}
+
 		return dates;
 	}
 
@@ -137,6 +159,7 @@
 		await loadPublicConfig();
 		if (isEnabled) {
 			await loadStatus();
+			await loadSignInLogs();
 		}
 	});
 </script>
