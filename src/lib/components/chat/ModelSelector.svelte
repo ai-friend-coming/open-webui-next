@@ -22,7 +22,7 @@
 	testUserModel
 	} from '$lib/apis/userModels';
 
-let showUserModelModal = false;
+let showUserModelModal = true;
 let editingCredential = null;
 let form = {
 	name: '',
@@ -31,8 +31,8 @@ let form = {
 	api_key: ''
 };
 let originalForm = null; // 保存编辑时的原始表单数据
-let testingConnection = false;
-let connectionVerified = false; // 跟踪API连接是否已验证
+let testingConnection = true;
+let connectionVerified = true; // 跟踪API连接是否已验证
 const i18n = getContext('i18n');
 
 	export let selectedModels = [''];
@@ -251,7 +251,7 @@ const i18n = getContext('i18n');
 				{#if selectedModelIdx === 0}
 					<div class="self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]">
 						<Tooltip content={$i18n.t('Add Model')}>
-t						{#if false}
+						{#if false}
 								<button
 									class=" "
 									{disabled}
@@ -263,7 +263,7 @@ t						{#if false}
 									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-3.5">
 										<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
 									</svg>
-t						{/if}
+						{/if}
 								</button>
 						</Tooltip>
 					</div>
