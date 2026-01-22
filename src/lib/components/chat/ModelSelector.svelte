@@ -31,8 +31,8 @@ let form = {
 	api_key: ''
 };
 let originalForm = null; // 保存编辑时的原始表单数据
-let testingConnection = true;
-let connectionVerified = true; // 跟踪API连接是否已验证
+let testingConnection = false;
+let connectionVerified = false; // 跟踪API连接是否已验证
 const i18n = getContext('i18n');
 
 	export let selectedModels = [''];
