@@ -2334,6 +2334,12 @@
 		const isUserModel = combinedModel?.source === 'user';
 		const credential = combinedModel?.credential;
 
+		console.log('[UserModel] isUserModel:', isUserModel);
+		console.log('[UserModel] credential:', credential);
+		if (isUserModel) {
+			console.log('[UserModel] credential.id:', credential?.id);
+		}
+
 		const stream = true; // 始终使用流式响应
 
 		// 第五步: 构建 OpenAI 格式的消息数组

@@ -435,37 +435,15 @@
 	}
 
 	const triggerSubmit = (value: string) => {
-		// Append image captions to the prompt
-		console.log('[Caption] triggerSubmit called, checking files for captions...', {
+		// 图片的 caption 将由后端处理，前端直接发送原始 prompt
+		console.log('[Submit] Triggering submit with files:', {
 			filesCount: files.length,
-			files: files.map(f => ({ name: f.name, hasCaption: !!f.caption }))
+			files: files.map(f => ({ name: f.name, type: f.type, hasBase64: !!f.base64 }))
 		});
-
-		let enhancedValue = value;
-		const imageCaptions = files
-			.filter((f) => f.caption)
-			.map((f) => f.caption)
-			.join('\n\n');
-
-		console.log('[Caption] Image captions extracted:', {
-			captionsCount: files.filter((f) => f.caption).length,
-			imageCaptions: imageCaptions
-		});
-
-		if (imageCaptions) {
-			enhancedValue = `${value}\n\n[图片的内容: 下面是图片内容的描述]\n${imageCaptions}`;
-			console.log('[Caption] Enhanced prompt created:', {
-				originalLength: value.length,
-				enhancedLength: enhancedValue.length,
-				enhancedValue: enhancedValue
-			});
-		} else {
-			console.log('[Caption] No captions found, using original prompt');
-		}
 
 		blurInput();
 		dismissKeyboardHack();
-		dispatch('submit', enhancedValue);
+		dispatch('submit', value);
 	};
 
 	let filesInputElement;
@@ -622,86 +600,68 @@
 
 		if (!$temporaryChatEnabled) {
 			try {
-				// If the file is an audio file, provide the language for STT.
-				let metadata = null;
-				if (
-					(file.type.startsWith('audio/') || file.type.startsWith('video/')) &&
-					$settings?.audio?.stt?.language
-				) {
-					metadata = {
-						language: $settings?.audio?.stt?.language
-					};
-				}
-
-				// During the file upload, file content is automatically extracted.
-				const uploadedFile = await uploadFile(localStorage.token, file, metadata);
-
-				if (uploadedFile) {
-					console.log('File upload completed:', {
-						id: uploadedFile.id,
-						name: fileItem.name,
-						collection: uploadedFile?.meta?.collection_name
+				// 图片文件：直接转为 base64，不上传到服务器
+				if (file.type.startsWith('image/')) {
+					console.log('[Image] Converting image to base64...', {
+						fileName: file.name,
+						fileType: file.type
 					});
 
-					if (uploadedFile.error) {
-						console.warn('File upload warning:', uploadedFile.error);
-						toast.warning(uploadedFile.error);
-					}
+					// 读取图片为 base64
+					const base64Data = await new Promise((resolve, reject) => {
+						const reader = new FileReader();
+						reader.onload = (e) => resolve(e.target.result);
+						reader.onerror = (e) => reject(e);
+						reader.readAsDataURL(file);
+					});
 
+					// 保存 base64 数据到 fileItem
 					fileItem.status = 'uploaded';
-					fileItem.file = uploadedFile;
-					fileItem.id = uploadedFile.id;
-					fileItem.collection_name =
-						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
-					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
+					fileItem.type = 'image';
+					fileItem.base64 = base64Data;
+					fileItem.mimeType = file.type;
+					files = files;
 
-					// Generate caption for images if enabled
-					if (file.type.startsWith('image/')) {
-						console.log('[Caption] Image detected, checking caption config...', {
-							fileName: file.name,
-							fileType: file.type
-						});
-						try {
-							const captionConfig = await getImageCaptionConfig(localStorage.token);
-							console.log('[Caption] Caption config retrieved:', captionConfig);
-							if (captionConfig?.enabled && captionConfig?.model) {
-								console.log('[Caption] Caption is enabled, generating caption with model:', captionConfig.model);
-
-								// 使用 Promise 包装 FileReader
-								const base64Data = await new Promise((resolve, reject) => {
-									const reader = new FileReader();
-									reader.onload = (e) => resolve(e.target.result);
-									reader.onerror = (e) => reject(e);
-									reader.readAsDataURL(file);
-								});
-
-								console.log('[Caption] Calling generateImageCaption API...');
-								const captionResult = await generateImageCaption(
-									localStorage.token,
-									base64Data
-								);
-								console.log('[Caption] Caption result:', captionResult);
-								if (captionResult?.caption) {
-									fileItem.caption = captionResult.caption;
-									files = files;
-									console.log('[Caption] Caption saved to fileItem:', {
-										fileName: fileItem.name,
-										caption: captionResult.caption
-									});
-								} else {
-									console.warn('[Caption] No caption in result');
-								}
-							} else {
-								console.log('[Caption] Caption is disabled or no model configured');
-							}
-						} catch (error) {
-							console.error('[Caption] Failed to generate image caption:', error);
-						}
+					console.log('[Image] Image converted to base64, will be processed by backend');
+				} else {
+					// 非图片文件：按原流程上传到服务器
+					// If the file is an audio file, provide the language for STT.
+					let metadata = null;
+					if (
+						(file.type.startsWith('audio/') || file.type.startsWith('video/')) &&
+						$settings?.audio?.stt?.language
+					) {
+						metadata = {
+							language: $settings?.audio?.stt?.language
+						};
 					}
 
-					files = files;
-				} else {
-					files = files.filter((item) => item?.itemId !== tempItemId);
+					// During the file upload, file content is automatically extracted.
+					const uploadedFile = await uploadFile(localStorage.token, file, metadata);
+
+					if (uploadedFile) {
+						console.log('File upload completed:', {
+							id: uploadedFile.id,
+							name: fileItem.name,
+							collection: uploadedFile?.meta?.collection_name
+						});
+
+						if (uploadedFile.error) {
+							console.warn('File upload warning:', uploadedFile.error);
+							toast.warning(uploadedFile.error);
+						}
+
+						fileItem.status = 'uploaded';
+						fileItem.file = uploadedFile;
+						fileItem.id = uploadedFile.id;
+						fileItem.collection_name =
+							uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
+						fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
+
+						files = files;
+					} else {
+						files = files.filter((item) => item?.itemId !== tempItemId);
+					}
 				}
 			} catch (e) {
 				toast.error(`${e}`);

@@ -374,6 +374,13 @@ def get_filtered_models(models, user):
 
 
 async def transform_user_model_if_needed(form_data: dict, user: UserModel):
+    import logging
+    log = logging.getLogger(__name__)
+
+    log.info(f"[UserModel] transform_user_model_if_needed called")
+    log.info(f"[UserModel] form_data keys: {form_data.keys()}")
+    log.info(f"[UserModel] model_item in form_data: {form_data.get('model_item')}")
+
     # If model_item is missing, try to reconstruct it from chat history
     if "model_item" not in form_data or not form_data.get("model_item"):
         chat_id = form_data.get("chat_id")
@@ -394,20 +401,26 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
     model_item = form_data.get("model_item", {})
 
     credential_id = model_item.get("credential_id")
+    log.info(f"[UserModel] credential_id: {credential_id}")
+
     if credential_id and credential_id.startswith("user:"):
         from open_webui.models.user_model_credentials import UserModelCredentials
         from open_webui.constants import ERROR_MESSAGES
         from fastapi import HTTPException, status
 
         cred_id = credential_id.replace("user:", "")
+        log.info(f"[UserModel] Looking up credential: cred_id={cred_id}, user_id={user.id}")
         cred = UserModelCredentials.get_credential_by_id_and_user_id(cred_id, user.id)
+        log.info(f"[UserModel] Credential found: {cred is not None}")
 
         if not cred:
+            log.error(f"[UserModel] Credential not found: cred_id={cred_id}, user_id={user.id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=ERROR_MESSAGES.USER_MODEL_CREDENTIAL_NOT_FOUND(),
             )
 
+        log.info(f"[UserModel] Updating model_item with credential: base_url={cred.base_url}, model_id={cred.model_id}")
         model_item.clear()
         model_item.update({
             "direct": True,
@@ -418,10 +431,11 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
             "api_key": cred.api_key,
             "config": cred.config,
         })
-        
+
         if form_data.get('model') != cred.model_id:
             form_data['model'] = cred.model_id
         model_id = cred.model_id
+        log.info(f"[UserModel] Transform complete: model_id={model_id}, direct=True")
     
     form_data["model_item"] = model_item
     form_data["model"] = model_id
