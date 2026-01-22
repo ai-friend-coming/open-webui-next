@@ -111,6 +111,8 @@ from open_webui.utils.summary import (
 from open_webui.config import (
     DEFAULT_TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
     CODE_INTERPRETER_BLOCKED_MODULES,
+    ENABLE_IMAGE_CAPTION,
+    IMAGE_CAPTION_MODEL,
 )
 from open_webui.env import (
     SRC_LOG_LEVELS,
@@ -1053,6 +1055,144 @@ def apply_params_to_form_data(form_data, model):
     return form_data
 
 
+async def generate_caption_for_image(request, image_url: str, user) -> str:
+    """
+    调用视觉模型生成图片描述
+
+    Args:
+        request: FastAPI 请求对象
+        image_url: 图片 URL 或 base64 数据
+        user: 当前用户
+
+    Returns:
+        str: 图片描述文本
+    """
+    caption_model = IMAGE_CAPTION_MODEL.value
+
+    # 构建 caption 请求
+    caption_request = {
+        "model": caption_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "请详细描述这张图片的内容，包括主要元素、颜色、布局等。"
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_url}
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 500,
+        "stream": False
+    }
+
+    try:
+        response = await generate_chat_completion(
+            request=request,
+            form_data=caption_request,
+            user=user,
+            bypass_filter=True
+        )
+
+        if response and "choices" in response:
+            return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        log.error(f"[ImageCaption] Caption generation failed: {e}")
+
+    return ""
+
+
+async def process_image_captions_if_needed(request, form_data, user, model):
+    """
+    如果启用了 image caption 且目标模型不支持视觉，
+    自动为消息中的图片生成 caption 并替换图片内容
+
+    Args:
+        request: FastAPI 请求对象
+        form_data: 聊天请求数据
+        user: 当前用户
+        model: 目标模型信息
+
+    Returns:
+        dict: 处理后的 form_data
+    """
+    # 检查是否启用了 caption
+    if not ENABLE_IMAGE_CAPTION.value:
+        return form_data
+
+    # 检查目标模型是否支持视觉
+    model_has_vision = (
+        model.get("info", {}).get("meta", {}).get("capabilities", {}).get("vision", False)
+        if isinstance(model, dict) else False
+    )
+    if model_has_vision:
+        log.debug(f"[ImageCaption] Model supports vision, skipping caption")
+        return form_data  # 模型支持视觉，不需要 caption
+
+    # 检查是否配置了 caption 模型
+    caption_model = IMAGE_CAPTION_MODEL.value
+    if not caption_model:
+        log.debug(f"[ImageCaption] No caption model configured")
+        return form_data
+
+    log.info(f"[ImageCaption] Processing images with caption model: {caption_model}")
+
+    # 遍历消息，处理图片
+    messages = form_data.get("messages", [])
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+
+        # 收集图片 caption
+        captions = []
+        new_content = []
+
+        for item in content:
+            if item.get("type") == "image_url":
+                image_url = item.get("image_url", {}).get("url", "")
+                if image_url:
+                    try:
+                        log.info(f"[ImageCaption] Generating caption for image...")
+                        caption = await generate_caption_for_image(request, image_url, user)
+                        if caption:
+                            captions.append(caption)
+                            log.info(f"[ImageCaption] Caption generated: {caption[:100]}...")
+                    except Exception as e:
+                        log.error(f"[ImageCaption] Failed to generate caption: {e}")
+                # 不添加图片到新内容（用 caption 替代）
+            else:
+                new_content.append(item)
+
+        # 如果有 caption，添加到文本内容
+        if captions:
+            caption_text = "\n\n[图片内容描述]\n" + "\n".join(captions)
+            # 找到文本内容并追加
+            text_found = False
+            for item in new_content:
+                if item.get("type") == "text":
+                    item["text"] = item.get("text", "") + caption_text
+                    text_found = True
+                    break
+
+            if not text_found:
+                # 没有文本内容，创建一个
+                new_content.append({"type": "text", "text": caption_text})
+
+            message["content"] = new_content
+            log.info(f"[ImageCaption] Replaced {len(captions)} image(s) with caption(s)")
+
+    return form_data
+
+
 async def process_chat_payload(request, form_data, user, metadata, model):
     """
     处理聊天请求的 Payload - 执行 Pipeline、Filter、功能增强和工具注入
@@ -1138,6 +1278,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     if perf_logger:
         perf_logger.mark_payload_checkpoint("apply_params")
+
+    # === 1.5 图片 Caption 处理 ===
+    # 如果启用了 caption 且目标模型不支持视觉，自动生成 caption
+    form_data = await process_image_captions_if_needed(request, form_data, user, model)
+
+    if perf_logger:
+        perf_logger.mark_payload_checkpoint("image_caption")
 
     user_token_num = USER_TOKEN_IN_CONTEXT_NUM_DEFAULT
     assistant_token_num = ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT
