@@ -295,6 +295,12 @@ const i18n = getContext('i18n');
 				{editingCredential ? $i18n.t('Edit My API') : $i18n.t('Add My API')}
 			</div>
 
+			<div class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+				<div class="text-sm text-yellow-800 dark:text-yellow-200">
+					⚠️ {$i18n.t('暂不支持魔法 API')}
+				</div>
+			</div>
+
 			<div class="space-y-2 text-sm">
 				<div class="flex flex-col gap-1">
 					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Display Name')}</label>
