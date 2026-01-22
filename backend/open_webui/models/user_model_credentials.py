@@ -33,9 +33,12 @@ cd /home/gaofeng/open-webui-next/backend
 """
 
 import time
+import logging
 from typing import Optional
 
 from open_webui.internal.db import Base, JSONField, get_db
+
+log = logging.getLogger(__name__)
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import BigInteger, Column, String, Text
 
@@ -321,10 +324,18 @@ class UserModelCredentialsTable:
             UserModelCredentialModel: 凭据对象，权限不足返回 None
         """
         with get_db() as db:
+            log.info(f"[CredLookup] Looking for cred_id={cred_id}, user_id={user_id}")
             # === 1. 权限校验：凭据必须存在且属于当前用户 ===
             cred = db.get(UserModelCredential, cred_id)
-            if not cred or cred.user_id != user_id:
+            if not cred:
+                # Check if any credentials exist for this user
+                all_creds = db.query(UserModelCredential).filter_by(user_id=user_id).all()
+                log.error(f"[CredLookup] Credential NOT FOUND by id={cred_id}. User has {len(all_creds)} credentials: {[c.id for c in all_creds]}")
                 return None
+            if cred.user_id != user_id:
+                log.error(f"[CredLookup] User mismatch: cred.user_id={cred.user_id}, requested user_id={user_id}")
+                return None
+            log.info(f"[CredLookup] Found credential: id={cred.id}, model_id={cred.model_id}")
             return UserModelCredentialModel.model_validate(cred)
 
 
