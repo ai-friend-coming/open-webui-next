@@ -22,7 +22,7 @@
 	testUserModel
 	} from '$lib/apis/userModels';
 
-let showUserModelModal = true;
+let showUserModelModal = false;
 let editingCredential = null;
 let form = {
 	name: '',

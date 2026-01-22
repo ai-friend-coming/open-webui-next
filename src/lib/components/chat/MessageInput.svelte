@@ -655,49 +655,49 @@
 						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
 					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
 
-				// Generate caption for images if enabled
-				if (file.type.startsWith('image/')) {
-					console.log('[Caption] Image detected, checking caption config...', {
-						fileName: file.name,
-						fileType: file.type
-					});
-					try {
-						const captionConfig = await getImageCaptionConfig(localStorage.token);
-						console.log('[Caption] Caption config retrieved:', captionConfig);
-						if (captionConfig?.enabled && captionConfig?.model) {
-							console.log('[Caption] Caption is enabled, generating caption with model:', captionConfig.model);
-							const reader = new FileReader();
-							reader.onload = async (e) => {
-								try {
-									const base64Data = e.target.result;
-									console.log('[Caption] Calling generateImageCaption API...');
-									const captionResult = await generateImageCaption(
-										localStorage.token,
-										base64Data
-									);
-									console.log('[Caption] Caption result:', captionResult);
-									if (captionResult?.caption) {
-										fileItem.caption = captionResult.caption;
-										files = files;
-										console.log('[Caption] Caption saved to fileItem:', {
-											fileName: fileItem.name,
-											caption: captionResult.caption
-										});
-									} else {
-										console.warn('[Caption] No caption in result');
+					// Generate caption for images if enabled
+					if (file.type.startsWith('image/')) {
+						console.log('[Caption] Image detected, checking caption config...', {
+							fileName: file.name,
+							fileType: file.type
+						});
+						try {
+							const captionConfig = await getImageCaptionConfig(localStorage.token);
+							console.log('[Caption] Caption config retrieved:', captionConfig);
+							if (captionConfig?.enabled && captionConfig?.model) {
+								console.log('[Caption] Caption is enabled, generating caption with model:', captionConfig.model);
+								const reader = new FileReader();
+								reader.onload = async (e) => {
+									try {
+										const base64Data = e.target.result;
+										console.log('[Caption] Calling generateImageCaption API...');
+										const captionResult = await generateImageCaption(
+											localStorage.token,
+											base64Data
+										);
+										console.log('[Caption] Caption result:', captionResult);
+										if (captionResult?.caption) {
+											fileItem.caption = captionResult.caption;
+											files = files;
+											console.log('[Caption] Caption saved to fileItem:', {
+												fileName: fileItem.name,
+												caption: captionResult.caption
+											});
+										} else {
+											console.warn('[Caption] No caption in result');
+										}
+									} catch (error) {
+										console.error('[Caption] Failed to generate image caption:', error);
 									}
-								} catch (error) {
-									console.error('[Caption] Failed to generate image caption:', error);
-								}
-							};
-							reader.readAsDataURL(file);
-						} else {
-							console.log('[Caption] Caption is disabled or no model configured');
+								};
+								reader.readAsDataURL(file);
+							} else {
+								console.log('[Caption] Caption is disabled or no model configured');
+							}
+						} catch (error) {
+							console.error('[Caption] Failed to get caption config:', error);
 						}
-					} catch (error) {
-						console.error('[Caption] Failed to get caption config:', error);
 					}
-				}
 
 					files = files;
 				} else {
