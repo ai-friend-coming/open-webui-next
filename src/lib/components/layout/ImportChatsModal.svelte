@@ -410,7 +410,7 @@
                 <div class="bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800/30 overflow-hidden">
                     <button
                         class="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-blue-100/50 dark:hover:bg-blue-900/20 transition-colors"
-                        on:click={() => showExportGuide = !showExportGuide}
+                        on:pointerup={() => showExportGuide = !showExportGuide}
                     >
                         <span class="text-xs font-medium text-blue-700 dark:text-blue-300">💡 如何导出聊天记录?</span>
                         <span class="text-blue-400 text-xs transform transition-transform {showExportGuide ? 'rotate-180' : ''}">▼</span>
