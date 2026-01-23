@@ -158,24 +158,17 @@
 					{/if}
 
 					{#if message.timestamp}
+						{@const msgDate = dayjs(message.timestamp * 1000)}
+						{@const isToday = msgDate.isSame(dayjs(), 'day')}
 						<div
-							class="self-center text-xs font-medium first-letter:capitalize ml-0.5 translate-y-[1px] {($settings?.highContrastMode ??
+							class="self-center text-xs font-medium ml-0.5 translate-y-[1px] {($settings?.highContrastMode ??
 							false)
-								? 'dark:text-gray-900 text-gray-100'
-								: 'invisible group-hover:visible transition'}"
+								? 'dark:text-gray-100 text-gray-900'
+								: 'text-gray-400'}"
 						>
-							<Tooltip content={dayjs(message.timestamp * 1000).format('LLLL')}>
-								<!-- $i18n.t('Today at {{LOCALIZED_TIME}}') -->
-								<!-- $i18n.t('Yesterday at {{LOCALIZED_TIME}}') -->
-								<!-- $i18n.t('{{LOCALIZED_DATE}} at {{LOCALIZED_TIME}}') -->
-
-								<span class="line-clamp-1"
-									>{$i18n.t(formatDate(message.timestamp * 1000), {
-										LOCALIZED_TIME: dayjs(message.timestamp * 1000).format('LT'),
-										LOCALIZED_DATE: dayjs(message.timestamp * 1000).format('L')
-									})}</span
-								>
-							</Tooltip>
+							<span class="line-clamp-1"
+								>{isToday ? `今天 ${msgDate.format('HH:mm')}` : msgDate.format('MM-DD HH:mm')}</span
+							>
 						</div>
 					{/if}
 				</Name>
@@ -186,14 +179,11 @@
 					class="text-[0.65rem] font-medium first-letter:capitalize mb-0.5 {($settings?.highContrastMode ??
 					false)
 						? 'dark:text-gray-100 text-gray-900'
-						: 'invisible group-hover:visible transition text-gray-400'}"
+						: 'text-gray-400'}"
 				>
 					<Tooltip content={dayjs(message.timestamp * 1000).format('LLLL')}>
 						<span class="line-clamp-1"
-							>{$i18n.t(formatDate(message.timestamp * 1000), {
-								LOCALIZED_TIME: dayjs(message.timestamp * 1000).format('LT'),
-								LOCALIZED_DATE: dayjs(message.timestamp * 1000).format('L')
-							})}</span
+							>{dayjs(message.timestamp * 1000).format('HH:mm')}</span
 						>
 					</Tooltip>
 				</div>
