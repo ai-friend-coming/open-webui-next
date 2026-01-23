@@ -1150,7 +1150,12 @@ async def generate_chat_completion(
             # 计费由 chat_with_billing (billing/proxy.py) 统一处理
             return response
 
+    except CustmizedError:
+        # Re-raise CustmizedError to let chat_error_boundary handle it properly
+        # CustmizedError 已经包含了用户友好的错误消息，应该直接传播到外层
+        raise
     except Exception as e:
+        # 只有未预期的异常才转换为 HTTPException
         log.exception(e)
 
         raise HTTPException(
