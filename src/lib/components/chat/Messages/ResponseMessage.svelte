@@ -707,7 +707,45 @@
 							</div>
 						{:else}
 							<div class="w-full flex flex-col relative" id="response-content-container">
-								{#if message.content === '' && !message.error && ((model?.info?.meta?.capabilities?.status_updates ?? true) ? (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length === 0 || (message?.statusHistory?.at(-1)?.hidden ?? false) : true)}
+								{#if message.broken}
+									<!-- 超时错误提示 - 方案5混合风格 -->
+									<div
+										class="flex items-center my-2 gap-2.5 px-4 py-3 bg-gray-50 dark:bg-gray-850 rounded-xl border border-gray-100 dark:border-gray-800"
+										in:fade={{ duration: 200 }}
+									>
+										<!-- 警告图标 -->
+										<div class="flex-shrink-0">
+											<svg
+												class="w-5 h-5 text-orange-500 dark:text-orange-400"
+												fill="none"
+												viewBox="0 0 24 24"
+												stroke="currentColor"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+												/>
+											</svg>
+										</div>
+
+										<!-- 文字内容 -->
+										<div class="flex-1 text-sm text-gray-600 dark:text-gray-400">
+											诶呀！超时了，稍后再试试？
+										</div>
+
+										<!-- 重试按钮 -->
+										<button
+											class="flex-shrink-0 px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full"
+											on:click={() => {
+												regenerateResponse(message);
+											}}
+										>
+											重试
+										</button>
+									</div>
+								{:else if message.content === '' && !message.error && ((model?.info?.meta?.capabilities?.status_updates ?? true) ? (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length === 0 || (message?.statusHistory?.at(-1)?.hidden ?? false) : true)}
 									<Skeleton />
 								{:else if message.content && message.error !== true}
 									<!-- always show message contents even if there's an error -->
@@ -934,7 +972,7 @@
 
 							{#if message.done}
 								{#if !readOnly}
-									{#if $user?.role === 'user' ? ($user?.permissions?.chat?.edit ?? true) : true}
+									{#if !message.broken && ($user?.role === 'user' ? ($user?.permissions?.chat?.edit ?? true) : true)}
 										<Tooltip content={$i18n.t('Edit')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Edit')}
@@ -965,6 +1003,7 @@
 									{/if}
 								{/if}
 
+								{#if !message.broken}
 								<Tooltip content={$i18n.t('Copy')} placement="bottom">
 									<button
 										aria-label={$i18n.t('Copy')}
@@ -992,6 +1031,7 @@
 										</svg>
 									</button>
 								</Tooltip>
+								{/if}
 
 								<!-- 朗读按钮 -->
 								<!-- {#if $user?.role === 'admin' || ($user?.permissions?.chat?.tts ?? true)}
@@ -1378,6 +1418,7 @@
 												</Tooltip>
 											</RegenerateMenu>
 										{:else} -->
+										{#if !message.broken}
 										<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
 											<button
 												type="button"
@@ -1418,6 +1459,7 @@
 											</button>
 										</Tooltip>
 										<!-- {/if} -->
+										{/if}
 									{/if}
 								{/if}
 

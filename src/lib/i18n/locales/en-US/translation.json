@@ -1220,6 +1220,7 @@
 	"Playground": "",
 	"Playwright Timeout (ms)": "",
 	"Playwright WebSocket URL": "",
+	"Request timeout: No response received within 30 seconds, please try again": "",
 	"Please carefully review the following warnings:": "",
 	"Please do not close the settings page while loading the model.": "",
 	"Please enter a message or attach a file.": "",

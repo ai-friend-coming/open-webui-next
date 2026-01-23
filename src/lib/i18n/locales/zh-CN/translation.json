@@ -1247,6 +1247,7 @@
 	"Please enter your phone number first": "请先填写手机号",
 	"Playwright Timeout (ms)": "Playwright 超时时间 (ms)",
 	"Playwright WebSocket URL": "Playwright WebSocket URL",
+	"Request timeout: No response received within 30 seconds, please try again": "请求超时：30秒内未收到响应，请重试",
 	"Please carefully review the following warnings:": "请仔细阅读以下警告信息：",
 	"Please do not close the settings page while loading the model.": "加载模型时请不要关闭设置页面",
 	"Please enter a message or attach a file.": "请输入内容或添加文件。",
