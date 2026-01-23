@@ -129,6 +129,12 @@
 	const currentRequestId = sendingRequestManagement.currentRequestId;
 	$: isWaitingForResponse = $currentRequestId !== null;
 
+	// 订阅超时事件
+	const timeoutEvent = sendingRequestManagement.timeoutEvent;
+	$: if ($timeoutEvent) {
+		handleTimeoutEvent($timeoutEvent);
+	}
+
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
 	let selectedModelIds = [];
@@ -356,6 +362,39 @@
 
 		await tick();
 		saveChatHandler(_chatId, history);
+	};
+
+	/**
+	 * 处理超时事件
+	 * 当请求超时时，标记消息为 broken 状态
+	 *
+	 * @param messageId - 超时的消息 ID
+	 */
+	const handleTimeoutEvent = async (messageId: string) => {
+		console.log(`[Chat] Handling timeout event for message ${messageId}`);
+
+		const message = history.messages[messageId];
+		if (!message) {
+			// 清空事件（避免重复处理）
+			sendingRequestManagement.timeoutEvent.set(null);
+			return;
+		}
+
+		// 标记消息为 broken 状态
+		message.broken = true;
+
+		// 标记父消息完成
+		const parentId = message.parentId;
+		if (parentId && history.messages[parentId]) {
+			history.messages[parentId].done = true;
+		}
+
+		// 保存更新后的 history 到数据库
+		// 注意：createMessagesList 会过滤掉 broken 消息，因此不会持久化
+		await saveChatHandler($chatId, history);
+
+		// 清空事件（避免重复处理）
+		sendingRequestManagement.timeoutEvent.set(null);
 	};
 
 	/**

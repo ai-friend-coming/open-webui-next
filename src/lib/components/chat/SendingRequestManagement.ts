@@ -1,6 +1,7 @@
 import { stopTask } from '$lib/apis';
 import { get, writable, type Writable } from 'svelte/store';
 import { toast } from 'svelte-sonner';
+import i18next from 'i18next';
 import {
 	trackMessageLifecycle,
 	type MessageLifecycleSentData,
@@ -39,6 +40,7 @@ export interface RequestLifecycle {
 	errorData?: ErrorData;
 	taskId: string | null;
 	partialResponseLength?: number;
+	timeoutId?: ReturnType<typeof setTimeout>; // 超时定时器 ID
 }
 
 // =====================================================
@@ -62,6 +64,9 @@ export class SendingRequestManagement {
 	/** 当前正在等待响应的请求 ID */
 	currentRequestId: Writable<string | null> = writable(null);
 
+	/** 超时事件：当请求超时时发送消息 ID */
+	timeoutEvent: Writable<string | null> = writable(null);
+
 	// =====================================================
 	// ==================== 生命周期方法 ====================
 	// =====================================================
@@ -78,6 +83,16 @@ export class SendingRequestManagement {
 	 */
 	startRequest(messageId: string, sentData: SentData, submitAt: number): void {
 		this.currentRequestId.set(messageId);
+
+		// 创建 30s 超时定时器
+		const timeoutId = setTimeout(() => {
+			console.log(`[Timeout] Timer triggered for message ${messageId}`);
+			// 正确处理 async 函数的 Promise
+			this.timeoutRequest(messageId).catch((error) => {
+				console.error('Error in timeoutRequest:', error);
+			});
+		}, 30000);
+
 		this.requests[messageId] = {
 			status: 'pending',
 			timestamps: {
@@ -85,7 +100,8 @@ export class SendingRequestManagement {
 				sendRequestAt: Date.now()
 			},
 			sentData,
-			taskId: null
+			taskId: null,
+			timeoutId
 		};
 	}
 
@@ -141,6 +157,12 @@ export class SendingRequestManagement {
 		if (!request.timestamps.firstTokenAt) {
 			request.timestamps.firstTokenAt = Date.now();
 			request.status = 'streaming';
+
+			// 清理超时定时器（收到第一个 token 说明请求正常）
+			if (request.timeoutId) {
+				clearTimeout(request.timeoutId);
+				request.timeoutId = undefined;
+			}
 		}
 	}
 
@@ -156,6 +178,11 @@ export class SendingRequestManagement {
 	completeRequest(messageId: string, responseData: ResponseData): void {
 		const request = this.requests[messageId];
 		if (!request) return;
+
+		// 清理超时定时器
+		if (request.timeoutId) {
+			clearTimeout(request.timeoutId);
+		}
 
 		request.status = 'completed';
 		request.timestamps.endAt = Date.now();
@@ -184,6 +211,11 @@ export class SendingRequestManagement {
 	async stopRequest(messageId: string, partialResponseLength: number): Promise<void> {
 		const request = this.requests[messageId];
 		if (!request) return;
+
+		// 清理超时定时器
+		if (request.timeoutId) {
+			clearTimeout(request.timeoutId);
+		}
 
 		// 记录已停止的消息 ID，用于全局通知过滤
 		stoppedMessageIds.update((ids) => {
@@ -237,6 +269,11 @@ export class SendingRequestManagement {
 	): void {
 		const request = this.requests[messageId];
 		if (!request) return;
+
+		// 清理超时定时器
+		if (request.timeoutId) {
+			clearTimeout(request.timeoutId);
+		}
 
 		request.status = outcome;
 		request.timestamps.endAt = Date.now();
@@ -295,6 +332,55 @@ export class SendingRequestManagement {
 				return null;
 			});
 		}
+	}
+
+	/**
+	 * 请求超时处理
+	 *
+	 * 【调用时机】startRequest 后 30s 内未收到第一个 token
+	 * 【功能】终止后端任务，记录超时错误，发送埋点
+	 *
+	 * @param messageId - 响应消息 ID
+	 */
+	private async timeoutRequest(messageId: string): Promise<void> {
+		const request = this.requests[messageId];
+		if (!request) return;
+
+		// 如果已经收到第一个 token 或已经结束，不处理超时
+		if (
+			request.status === 'streaming' ||
+			request.status === 'completed' ||
+			request.status === 'stopped' ||
+			request.status === 'error' ||
+			request.status === 'cancelled'
+		) {
+			return;
+		}
+
+		console.warn(`Request ${messageId} timed out after 30s without receiving first token`);
+
+		// 先终止后端任务（如果有 taskId）
+		if (request.taskId) {
+			await this.terminateTask(messageId);
+		}
+
+		// 显示用户提示（使用 i18n）
+		toast.error(
+			i18next.t('Request timeout: No response received within 30 seconds, please try again')
+		);
+
+		// 【新增】发送超时事件，通知 Chat.svelte 标记消息为 broken
+		this.timeoutEvent.set(messageId);
+
+		// 调用 failRequest 记录超时错误
+		this.failRequest(
+			messageId,
+			{
+				errorType: 'timeout',
+				error: 'No first token received within 30 seconds'
+			},
+			'error'
+		);
 	}
 
 	/**

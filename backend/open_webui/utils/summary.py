@@ -455,46 +455,52 @@ def _temporary_request_state(
     临时修改 request.state，为摘要调用注入模型配置
 
     优先级：
-    1. Global Summary API（如果配置完整）
-    2. 用户指定的模型（model_config 参数）
+    1. 如果 is_user_model = True → 使用用户私有模型（不扣费）
+    2. 否则，检查 Global API：
+       - 如果 Global API 配置完整 → 使用 Global API（扣费）
+       - 如果 Global API 为空 → 使用用户指定的模型（扣费）
     """
     local_request = request
     original_direct = getattr(local_request.state, "direct", None)
     original_model = getattr(local_request.state, "model", None)
 
-    # 检查 Global API 配置
-    global_api_config = _get_global_api_config(request)
-
-    if global_api_config:
-        # 使用 Global Summary API
-        log.info(
-            f"摘要生成使用 Global Summary API: "
-            f"model={global_api_config['model_id']}, base_url={global_api_config['base_url']}"
-        )
-        effective_model_config = {
-            "id": global_api_config["model_id"],
-            "base_url": global_api_config["base_url"],
-            "api_key": global_api_config["key"],
-        }
-        effective_is_user_model = True
-    else:
-        # 回退使用用户指定的模型
-        log.debug(
-            f"摘要生成使用用户模型: model={model_id}, is_user_model={is_user_model}"
-        )
+    # 优先级 1: 如果是用户私有模型，直接使用
+    if is_user_model:
         effective_model_config = model_config
-        effective_is_user_model = is_user_model
+        effective_is_user_model = True
+        log.info(f"摘要生成使用用户私有模型（不扣费）: model={model_id}")
+    else:
+        # 优先级 2: 检查 Global API 配置
+        global_api_config = _get_global_api_config(request)
+
+        if global_api_config:
+            # 使用 Global Summary API
+            effective_model_config = {
+                "id": global_api_config["model_id"],
+                "base_url": global_api_config["base_url"],
+                "api_key": global_api_config["key"],
+            }
+            effective_is_user_model = False  # 改为 False，因为需要扣费
+            log.info(
+                f"摘要生成使用 Global Summary API（扣费）: "
+                f"model={global_api_config['model_id']}, base_url={global_api_config['base_url']}"
+            )
+        else:
+            # 优先级 3: 回退使用用户指定的平台模型
+            effective_model_config = model_config
+            effective_is_user_model = False
+            log.info(f"摘要生成使用平台模型（扣费）: model={model_id}")
 
     # 设置 request.state
     if effective_is_user_model:
         local_request.state.direct = True
         local_request.state.model = effective_model_config
         log.debug(
-            f"摘要生成使用私有模型: {effective_model_config.get('id', 'unknown')}, "
+            f"设置 request.state: direct=True, model_id={effective_model_config.get('id', 'unknown')}, "
             f"base_url={effective_model_config.get('base_url')}"
         )
     else:
-        log.debug(f"摘要生成使用平台模型: {model_id}")
+        log.debug(f"设置 request.state: 使用平台模型 {model_id}")
 
     try:
         yield local_request
@@ -671,44 +677,44 @@ async def summarize(
         )
 
         # 5. 后付费扣费
-        # 检查是否使用 Global API
-        global_api_config = _get_global_api_config(request)
-
+        # 判断是否需要扣费：
+        # - 如果原始 is_user_model = True，说明用户使用私有模型，不扣费
+        # - 如果原始 is_user_model = False，需要扣费（无论是 Global API 还是平台模型）
         if not is_user_model and (prompt_tokens > 0 or completion_tokens > 0):
             from open_webui.billing.core import deduct_balance
+
+            # 检查是否使用 Global API
+            global_api_config = _get_global_api_config(request)
 
             # 如果使用 Global API，使用自定义价格；否则使用默认价格
             if global_api_config:
                 custom_input_price = global_api_config["input_price"]
                 custom_output_price = global_api_config["output_price"]
 
-                # 如果价格都为 0，则不扣费
-                if custom_input_price == 0 and custom_output_price == 0:
-                    log.info(f"摘要生成使用 Global API（免费）: model={global_api_config['model_id']}")
-                else:
-                    try:
-                        cost, balance = deduct_balance(
-                            user_id=user_id,
-                            model_id=global_api_config["model_id"],
-                            prompt_tokens=prompt_tokens,
-                            completion_tokens=completion_tokens,
-                            custom_input_price=custom_input_price,
-                            custom_output_price=custom_output_price,
-                            log_type="deduct_summary"
-                        )
-                        log.info(
-                            f"摘要生成计费成功（Global API）: user={user_id} model={global_api_config['model_id']} "
-                            f"tokens={prompt_tokens}+{completion_tokens} "
-                            f"cost={cost / 10000:.4f}元 balance={balance / 10000:.4f}元"
-                        )
-                    except Exception as e:
-                        from fastapi import HTTPException
-                        if isinstance(e, HTTPException) and e.status_code in (402, 403, 404):
-                            from open_webui.billing.core import convert_billing_exception_to_customized_error
-                            raise convert_billing_exception_to_customized_error(e)
-                        raise
+                # Global API 始终扣费（即使价格为 0 也记录）
+                try:
+                    cost, balance = deduct_balance(
+                        user_id=user_id,
+                        model_id=global_api_config["model_id"],
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        custom_input_price=custom_input_price,
+                        custom_output_price=custom_output_price,
+                        log_type="deduct_summary"
+                    )
+                    log.info(
+                        f"摘要生成计费成功（Global API）: user={user_id} model={global_api_config['model_id']} "
+                        f"tokens={prompt_tokens}+{completion_tokens} "
+                        f"cost={cost / 10000:.4f}元 balance={balance / 10000:.4f}元"
+                    )
+                except Exception as e:
+                    from fastapi import HTTPException
+                    if isinstance(e, HTTPException) and e.status_code in (402, 403, 404):
+                        from open_webui.billing.core import convert_billing_exception_to_customized_error
+                        raise convert_billing_exception_to_customized_error(e)
+                    raise
             else:
-                # 使用用户指定的模型，按默认价格扣费
+                # 使用平台模型，按默认价格扣费
                 try:
                     cost, balance = deduct_balance(
                         user_id=user_id,
