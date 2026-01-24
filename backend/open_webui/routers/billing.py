@@ -722,6 +722,7 @@ async def alipay_notify(request: Request):
     from open_webui.billing.providers import get_provider, PaymentMethod
     from open_webui.billing.payment import process_payment_success
     from open_webui.models.billing import PaymentOrders
+    from open_webui.env import ALIPAY_APP_ID
 
     # 获取回调参数
     form_data = await request.form()
@@ -737,6 +738,15 @@ async def alipay_notify(request: Request):
 
     # 解析参数
     parsed = provider.parse_notify_params(params)
+
+    # 安全验证1：验证 app_id 是否是本商户
+    if parsed.get("app_id") != ALIPAY_APP_ID:
+        log.error(
+            f"支付宝回调，app_id 不匹配: 期望={ALIPAY_APP_ID}, "
+            f"收到={parsed.get('app_id')}, 订单={parsed['out_trade_no']}"
+        )
+        return "fail"
+
     if parsed["status"] != "success":
         log.info(f"支付宝回调，非成功状态: {params.get('trade_status')}")
         return "success"
@@ -746,6 +756,18 @@ async def alipay_notify(request: Request):
     if not order:
         log.error(f"支付宝回调，订单不存在: {parsed['out_trade_no']}")
         return "success"
+
+    # 安全验证2：验证回调金额与订单金额是否匹配
+    # 订单金额是毫（1元=10000毫），回调金额是元
+    order_amount_yuan = order.amount / 10000
+    callback_amount_yuan = parsed.get("total_amount_yuan", 0)
+    # 允许 0.01 元的误差（精度问题）
+    if abs(order_amount_yuan - callback_amount_yuan) > 0.01:
+        log.error(
+            f"支付宝回调，金额不匹配: 订单金额={order_amount_yuan}元, "
+            f"回调金额={callback_amount_yuan}元, 订单={parsed['out_trade_no']}"
+        )
+        return "fail"
 
     # 幂等检查：已处理的订单直接返回成功
     if order.status == "paid":
@@ -821,6 +843,7 @@ async def hupijiao_notify(request: Request):
     from open_webui.billing.providers import get_provider, PaymentMethod
     from open_webui.billing.payment import process_payment_success
     from open_webui.models.billing import PaymentOrders
+    from open_webui.env import HUPIJIAO_APP_ID
 
     # 获取回调参数
     form_data = await request.form()
@@ -836,6 +859,15 @@ async def hupijiao_notify(request: Request):
 
     # 解析参数
     parsed = provider.parse_notify_params(params)
+
+    # 安全验证1：验证 appid 是否是本商户
+    if parsed.get("appid") != HUPIJIAO_APP_ID:
+        log.error(
+            f"虎皮椒回调，appid 不匹配: 期望={HUPIJIAO_APP_ID}, "
+            f"收到={parsed.get('appid')}, 订单={parsed['out_trade_no']}"
+        )
+        return "fail"
+
     if parsed["status"] != "success":
         log.info(f"虎皮椒回调，非成功状态: {params.get('status')}")
         return "success"
@@ -845,6 +877,18 @@ async def hupijiao_notify(request: Request):
     if not order:
         log.error(f"虎皮椒回调，订单不存在: {parsed['out_trade_no']}")
         return "success"
+
+    # 安全验证2：验证回调金额与订单金额是否匹配
+    # 订单金额是毫（1元=10000毫），回调金额是元
+    order_amount_yuan = order.amount / 10000
+    callback_amount_yuan = parsed.get("total_fee_yuan", 0)
+    # 允许 0.01 元的误差（精度问题）
+    if abs(order_amount_yuan - callback_amount_yuan) > 0.01:
+        log.error(
+            f"虎皮椒回调，金额不匹配: 订单金额={order_amount_yuan}元, "
+            f"回调金额={callback_amount_yuan}元, 订单={parsed['out_trade_no']}"
+        )
+        return "fail"
 
     # 幂等检查：已处理的订单直接返回成功
     if order.status == "paid":
