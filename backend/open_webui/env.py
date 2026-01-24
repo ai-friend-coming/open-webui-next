@@ -1134,6 +1134,25 @@ ALIPAY_FRONTEND_URL = _frontend_url.rstrip("/")
 
 
 ####################################
+# HUPIJIAO PAYMENT (虎皮椒聚合支付 - 微信支付)
+####################################
+
+HUPIJIAO_APP_ID = os.environ.get("HUPIJIAO_APP_ID", "")
+HUPIJIAO_APP_SECRET = os.environ.get("HUPIJIAO_APP_SECRET", "")
+
+# 虎皮椒回调域名（后端地址，如 https://api.example.com）
+_hupijiao_domain = os.environ.get("HUPIJIAO_CALLBACK_DOMAIN", "")
+if _hupijiao_domain and not _hupijiao_domain.startswith(("http://", "https://")):
+    _hupijiao_domain = f"https://{_hupijiao_domain}"
+HUPIJIAO_CALLBACK_DOMAIN = _hupijiao_domain.rstrip("/")
+
+# 调试输出
+if HUPIJIAO_APP_ID:
+    print(f"[Hupijiao] HUPIJIAO_APP_ID = {HUPIJIAO_APP_ID[:8]}***")
+    print(f"[Hupijiao] HUPIJIAO_CALLBACK_DOMAIN = {HUPIJIAO_CALLBACK_DOMAIN or '(未配置)'}")
+
+
+####################################
 # IMPORT CHAT MEMORY EXTRACTION
 ####################################
 

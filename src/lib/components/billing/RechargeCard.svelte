@@ -5,6 +5,7 @@
 	import {
 		createPaymentOrder,
 		createH5PaymentOrder,
+		createWechatPaymentOrder,
 		getPaymentConfig,
 		getPaymentStatus,
 		getFirstRechargeBonusConfig,
@@ -37,6 +38,8 @@
 	let customAmount = '';
 	let loading = false;
 	let alipayEnabled = false;
+	let wechatEnabled = false;
+	let selectedPaymentMethod: 'alipay' | 'wechat' = 'alipay';
 	let checkingPayment = false; // 正在检查支付状态
 
 	// 计算每个档位的首充奖励金额
@@ -150,6 +153,14 @@
 		try {
 			const config = await getPaymentConfig();
 			alipayEnabled = config.alipay_enabled;
+			wechatEnabled = config.wechat_enabled || false;
+
+			// 默认选择第一个可用的支付方式
+			if (alipayEnabled) {
+				selectedPaymentMethod = 'alipay';
+			} else if (wechatEnabled) {
+				selectedPaymentMethod = 'wechat';
+			}
 		} catch (e) {
 			console.error('获取支付配置失败', e);
 		}
@@ -217,11 +228,18 @@
 
 		loading = true;
 		try {
-			// 根据设备类型选择不同的支付接口
-			const isMobile = isMobilePayment();
-			const result = isMobile
-				? await createH5PaymentOrder(localStorage.token, finalAmount)
-				: await createPaymentOrder(localStorage.token, finalAmount);
+			let result;
+
+			if (selectedPaymentMethod === 'wechat') {
+				// 微信支付（虎皮椒，统一使用 H5 跳转）
+				result = await createWechatPaymentOrder(localStorage.token, finalAmount);
+			} else {
+				// 支付宝支付（根据设备类型选择）
+				const isMobile = isMobilePayment();
+				result = isMobile
+					? await createH5PaymentOrder(localStorage.token, finalAmount)
+					: await createPaymentOrder(localStorage.token, finalAmount);
+			}
 
 			// 保存订单信息到 sessionStorage，支付完成后返回时使用
 			sessionStorage.setItem(
@@ -229,11 +247,12 @@
 				JSON.stringify({
 					order_id: result.order_id,
 					amount: result.amount,
-					expired_at: result.expired_at
+					expired_at: result.expired_at,
+					payment_method: selectedPaymentMethod
 				})
 			);
 
-			// 跳转到支付宝收银台
+			// 跳转到支付页面
 			window.location.href = result.pay_url;
 		} catch (error: any) {
 			toast.error(error.detail || error || $i18n.t('创建订单失败'));
@@ -308,7 +327,7 @@
 		</div>
 	{/if}
 
-	{#if !alipayEnabled}
+	{#if !alipayEnabled && !wechatEnabled}
 		<!-- 支付未配置 -->
 		<div class="text-center py-6 text-gray-500 dark:text-gray-400">
 			<svg
@@ -328,6 +347,48 @@
 			<p class="text-xs mt-1">{$i18n.t('请联系管理员')}</p>
 		</div>
 	{:else}
+		<!-- 支付方式选择 -->
+		{#if alipayEnabled && wechatEnabled}
+			<div class="mb-4">
+				<label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+					{$i18n.t('支付方式')}
+				</label>
+				<div class="grid grid-cols-2 gap-3">
+					<!-- 支付宝选项 -->
+					<button
+						class="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition-all duration-200
+							{selectedPaymentMethod === 'alipay'
+							? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md'
+							: 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500 bg-white/50 dark:bg-gray-700/50'}"
+						on:click={() => selectedPaymentMethod = 'alipay'}
+					>
+						<!-- 支付宝官方 Logo -->
+						<svg class="w-6 h-6" viewBox="0 0 16 16" fill="#1677FF">
+							<path d="M2.541 0H13.5a2.55 2.55 0 0 1 2.54 2.563v8.297c-.006 0-.531-.046-2.978-.813-.412-.14-.916-.327-1.479-.536q-.456-.17-.957-.353a13 13 0 0 0 1.325-3.373H8.822V4.649h3.831v-.634h-3.83V2.121H7.26c-.274 0-.274.273-.274.273v1.621H3.11v.634h3.875v1.136h-3.2v.634H9.99c-.227.789-.532 1.53-.894 2.202-2.013-.67-4.161-1.212-5.51-.878-.864.214-1.42.597-1.746.998-1.499 1.84-.424 4.633 2.741 4.633 1.872 0 3.675-1.053 5.072-2.787 2.08 1.008 6.37 2.738 6.387 2.745v.105A2.55 2.55 0 0 1 13.5 16H2.541A2.55 2.55 0 0 1 0 13.437V2.563A2.55 2.55 0 0 1 2.541 0"/>
+							<path d="M2.309 9.27c-1.22 1.073-.49 3.034 1.978 3.034 1.434 0 2.868-.925 3.994-2.406-1.602-.789-2.959-1.353-4.425-1.207-.397.04-1.14.217-1.547.58Z"/>
+						</svg>
+						<span class="font-medium text-gray-800 dark:text-gray-200">{$i18n.t('支付宝')}</span>
+					</button>
+
+					<!-- 微信选项 -->
+					<button
+						class="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition-all duration-200
+							{selectedPaymentMethod === 'wechat'
+							? 'border-green-500 bg-green-50 dark:bg-green-900/30 shadow-md'
+							: 'border-gray-200 dark:border-gray-600 hover:border-green-300 dark:hover:border-green-500 bg-white/50 dark:bg-gray-700/50'}"
+						on:click={() => selectedPaymentMethod = 'wechat'}
+					>
+						<!-- 微信支付官方 Logo -->
+						<svg class="w-6 h-6" viewBox="0 0 16 16" fill="#07C160">
+							<path d="M11.176 14.429c-2.665 0-4.826-1.8-4.826-4.018 0-2.22 2.159-4.02 4.824-4.02S16 8.191 16 10.411c0 1.21-.65 2.301-1.666 3.036a.32.32 0 0 0-.12.366l.218.81a.6.6 0 0 1 .029.117.166.166 0 0 1-.162.162.2.2 0 0 1-.092-.03l-1.057-.61a.5.5 0 0 0-.256-.074.5.5 0 0 0-.142.021 5.7 5.7 0 0 1-1.576.22M9.064 9.542a.647.647 0 1 0 .557-1 .645.645 0 0 0-.646.647.6.6 0 0 0 .09.353Zm3.232.001a.646.646 0 1 0 .546-1 .645.645 0 0 0-.644.644.63.63 0 0 0 .098.356"/>
+							<path d="M0 6.826c0 1.455.781 2.765 2.001 3.656a.385.385 0 0 1 .143.439l-.161.6-.1.373a.5.5 0 0 0-.032.14.19.19 0 0 0 .193.193q.06 0 .111-.029l1.268-.733a.6.6 0 0 1 .308-.088q.088 0 .171.025a6.8 6.8 0 0 0 1.625.26 4.5 4.5 0 0 1-.177-1.251c0-2.936 2.785-5.02 5.824-5.02l.15.002C10.587 3.429 8.392 2 5.796 2 2.596 2 0 4.16 0 6.826m4.632-1.555a.77.77 0 1 1-1.54 0 .77.77 0 0 1 1.54 0m3.875 0a.77.77 0 1 1-1.54 0 .77.77 0 0 1 1.54 0"/>
+						</svg>
+						<span class="font-medium text-gray-800 dark:text-gray-200">{$i18n.t('微信支付')}</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+
 		<!-- 金额选择 -->
 		<div class="space-y-4">
 			<div class="grid grid-cols-3 gap-2.5">
@@ -335,8 +396,12 @@
 					<button
 						class="relative py-2.5 px-3 rounded-xl border text-sm font-semibold transition-all duration-200
 							{selectedAmount === amount
-							? 'border-indigo-500 bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-700 dark:from-indigo-900/40 dark:to-purple-900/40 dark:text-indigo-300 shadow-md scale-105'
-							: 'border-gray-200/60 dark:border-gray-600/60 hover:border-indigo-300 dark:hover:border-indigo-500 text-gray-700 dark:text-gray-300 hover:shadow-md hover:scale-102 bg-white/50 dark:bg-gray-700/50'}"
+							? selectedPaymentMethod === 'wechat'
+								? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 text-green-700 dark:from-green-900/40 dark:to-emerald-900/40 dark:text-green-300 shadow-md scale-105'
+								: 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-700 dark:from-blue-900/40 dark:to-indigo-900/40 dark:text-blue-300 shadow-md scale-105'
+							: selectedPaymentMethod === 'wechat'
+								? 'border-gray-200/60 dark:border-gray-600/60 hover:border-green-300 dark:hover:border-green-500 text-gray-700 dark:text-gray-300 hover:shadow-md hover:scale-102 bg-white/50 dark:bg-gray-700/50'
+								: 'border-gray-200/60 dark:border-gray-600/60 hover:border-blue-300 dark:hover:border-blue-500 text-gray-700 dark:text-gray-300 hover:shadow-md hover:scale-102 bg-white/50 dark:bg-gray-700/50'}"
 						on:click={() => {
 							selectedAmount = amount;
 							customAmount = '';
@@ -365,7 +430,7 @@
 						on:input={() => (selectedAmount = null)}
 						placeholder={$i18n.t('自定义金额 (0.01-10000)')}
 						class="w-full px-4 py-2.5 border rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400
-							focus:ring-2 focus:ring-indigo-500 focus:border-transparent backdrop-blur-sm transition-all
+							focus:ring-2 {selectedPaymentMethod === 'wechat' ? 'focus:ring-green-500' : 'focus:ring-blue-500'} focus:border-transparent backdrop-blur-sm transition-all
 							border-gray-200/60 dark:border-gray-600/60 bg-white/50 dark:bg-gray-700/50"
 					/>
 				</div>
@@ -417,7 +482,10 @@
 			<button
 				on:click={createOrder}
 				disabled={!isValidAmount || loading}
-				class="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700
+				class="w-full py-3 px-4 bg-gradient-to-r
+					{selectedPaymentMethod === 'wechat'
+						? 'from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+						: 'from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700'}
 					disabled:from-gray-300 disabled:to-gray-300 dark:disabled:from-gray-600 dark:disabled:to-gray-600
 					text-white font-semibold rounded-xl transition-all duration-200 disabled:cursor-not-allowed
 					shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
@@ -450,9 +518,15 @@
 
 			<div class="flex items-center justify-center gap-2 text-xs text-gray-500 dark:text-gray-400">
 				<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-					<path d="M3.75 21h16.5M4.5 3h15l-3.86 14.14a2 2 0 01-1.93 1.5H8.29a2 2 0 01-1.93-1.5L2.5 3h2z"/>
+					<path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 100-16 8 8 0 000 16zm-1-5v2h2v-2h-2zm0-8v6h2V7h-2z"/>
 				</svg>
-				<span>{$i18n.t('支持支付宝支付')}</span>
+				{#if alipayEnabled && wechatEnabled}
+					<span>{$i18n.t('支持支付宝、微信支付')}</span>
+				{:else if alipayEnabled}
+					<span>{$i18n.t('支持支付宝支付')}</span>
+				{:else if wechatEnabled}
+					<span>{$i18n.t('支持微信支付')}</span>
+				{/if}
 			</div>
 		</div>
 	{/if}
