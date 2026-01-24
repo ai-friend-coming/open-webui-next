@@ -153,6 +153,9 @@
 	let chat = null;
 	let tags = [];
 
+	// Session-specific model name customization
+	let customModelNames = {}; // { "model-id": "Custom Name" }
+
 	let history = {
 		messages: {},
 		currentId: null
@@ -1100,6 +1103,9 @@
 		chatFiles = [];
 		params = {};
 
+		// Reset session-specific custom model names
+		customModelNames = {};
+
 		if ($page.url.searchParams.get('youtube')) {
 			uploadYoutubeTranscription(
 				`https://www.youtube.com/watch?v=${$page.url.searchParams.get('youtube')}`
@@ -1229,6 +1235,10 @@
 
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
+
+				// Load session-specific custom model names
+				customModelNames = chat?.meta?.modelNames ?? {};
+
 				if (chatContent?.memory_enabled !== undefined) {
 					memoryEnabled = chatContent.memory_enabled;
 					console.log('[Memory Debug] Set memoryEnabled from chatContent:', memoryEnabled);
@@ -1267,6 +1277,35 @@
 			} else {
 				return null;
 			}
+		}
+	};
+
+	// Handler for renaming models in the current session
+	const handleRenameModel = async (modelId: string, customName: string) => {
+		if (customName === '') {
+			// Remove custom name
+			delete customModelNames[modelId];
+		} else {
+			// Set custom name
+			customModelNames[modelId] = customName;
+		}
+
+		// Trigger reactivity
+		customModelNames = { ...customModelNames };
+
+		// Save to backend if chat exists
+		if ($chatId && chat) {
+			const updatedMeta = {
+				...chat.meta,
+				modelNames: customModelNames
+			};
+
+			await updateChatById(localStorage.token, $chatId, {
+				meta: updatedMeta
+			});
+
+			// Update local chat object
+			chat.meta = updatedMeta;
 		}
 	};
 
@@ -2057,9 +2096,12 @@
 							? combined.credential.model_id
 							: model.id,
 					modelName:
-						combined.source === 'user' && combined.credential
+						// Priority 1: Custom name for this session
+						customModelNames[modelId] ||
+						// Priority 2: User credential name or platform model name
+						(combined.source === 'user' && combined.credential
 							? (combined.credential.name ?? combined.credential.model_id)
-							: (model.name ?? model.id),
+							: (model.name ?? model.id)),
 					modelIdx: modelIdx ? modelIdx : _modelIdx, // 多模型对话时，区分不同模型的响应
 					timestamp: Math.floor(Date.now() / 1000), // Unix epoch
 					is_user_model: combined.source === 'user' // 是否为用户私有 API 模型
@@ -3041,6 +3083,8 @@
 						{initNewChat}
 						archiveChatHandler={() => {}}
 						{moveChatHandler}
+						{customModelNames}
+						onRenameModel={handleRenameModel}
 						onSaveTempChat={async () => {
 							try {
 								if (!history?.currentId || !Object.keys(history.messages).length) {

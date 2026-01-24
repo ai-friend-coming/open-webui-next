@@ -42,6 +42,14 @@ const i18n = getContext('i18n');
 
 	export let showSetDefault = true;
 
+	// Session-specific model name customization
+	export let customModelNames = {}; // { "model-id": "Custom Name" }
+	export let onRenameModel: (modelId: string, customName: string) => void = () => {};
+
+	let showRenameModal = false;
+	let renamingModelId = '';
+	let renameForm = { customName: '' };
+
 	const saveDefaultModel = async () => {
 		const hasEmptyModel = selectedModels.filter((it) => it === '');
 		if (hasEmptyModel.length) {
@@ -200,6 +208,44 @@ const i18n = getContext('i18n');
 			await loadUserModels();
 		}
 	};
+
+	const openRenameModal = (modelId: string) => {
+		renamingModelId = modelId;
+		renameForm.customName = customModelNames[modelId] || '';
+		showRenameModal = true;
+	};
+
+	const submitRename = () => {
+		if (renameForm.customName.trim() === '') {
+			// Clear custom name if empty
+			onRenameModel(renamingModelId, '');
+		} else {
+			onRenameModel(renamingModelId, renameForm.customName.trim());
+		}
+		showRenameModal = false;
+		renamingModelId = '';
+		renameForm.customName = '';
+	};
+
+	const getDisplayName = (modelId: string) => {
+		// Check if there's a custom name for this session
+		if (customModelNames[modelId]) {
+			return customModelNames[modelId];
+		}
+
+		// Otherwise, use the default model name
+		const platformModel = $models.find((m) => m.id === modelId);
+		if (platformModel) {
+			return platformModel.name || modelId;
+		}
+
+		const userModel = $userModels.find((m) => m.id === modelId);
+		if (userModel) {
+			return userModel.name || userModel.model_id || modelId;
+		}
+
+		return modelId;
+	};
 </script>
 
 
@@ -257,6 +303,24 @@ const i18n = getContext('i18n');
 					/>
 				</div>
 			</div>
+
+			<!-- Rename button for session-specific model name -->
+			{#if selectedModel && selectedModel !== ''}
+				<div class="self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]">
+					<Tooltip content={$i18n.t('Rename model for this chat')}>
+						<button
+							class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition p-1"
+							{disabled}
+							on:click={() => openRenameModal(selectedModel)}
+							aria-label="Rename Model"
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-3.5">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+							</svg>
+						</button>
+					</Tooltip>
+				</div>
+			{/if}
 
 			{#if $user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true)}
 				{#if selectedModelIdx === 0}
@@ -408,6 +472,54 @@ const i18n = getContext('i18n');
 					on:click={submitUserModel}
 					disabled={disabled || testingConnection || (!connectionVerified && (!editingCredential || hasKeyFieldsChanged))}
 					title={!connectionVerified && (!editingCredential || hasKeyFieldsChanged) ? $i18n.t('Please verify the connection first') : ''}
+				>
+					{$i18n.t('Save')}
+				</button>
+			</div>
+		</div>
+	</Modal>
+
+	<!-- Rename Model Modal -->
+	<Modal bind:show={showRenameModal} size="sm" className="bg-white dark:bg-gray-900 rounded-2xl">
+		<div class="w-full p-4 space-y-3">
+			<div class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+				{$i18n.t('Rename Model for This Chat')}
+			</div>
+
+			<div class="text-sm text-gray-600 dark:text-gray-400">
+				{$i18n.t('Set a custom display name for this model in the current chat session. Leave empty to use the default name.')}
+			</div>
+
+			<div class="space-y-2 text-sm">
+				<div class="flex flex-col gap-1">
+					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Custom Name')}</label>
+					<input
+						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
+						bind:value={renameForm.customName}
+						placeholder={getDisplayName(renamingModelId)}
+						on:keydown={(e) => {
+							if (e.key === 'Enter') {
+								submitRename();
+							}
+						}}
+					/>
+				</div>
+			</div>
+
+			<div class="flex justify-end gap-2 pt-2">
+				<button
+					class="px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+					on:click={() => {
+						showRenameModal = false;
+						renamingModelId = '';
+						renameForm.customName = '';
+					}}
+				>
+					{$i18n.t('Cancel')}
+				</button>
+				<button
+					class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black"
+					on:click={submitRename}
 				>
 					{$i18n.t('Save')}
 				</button>

@@ -51,6 +51,10 @@
 	export let selectedModels;
 	export let showModelSelector = true;
 
+	// Session-specific model name customization
+	export let customModelNames = {};
+	export let onRenameModel: (modelId: string, customName: string) => void = () => {};
+
 	export let onSaveTempChat: () => {};
 	export let archiveChatHandler: (id: string) => void;
 	export let moveChatHandler: (id: string, folderId: string) => void;
@@ -133,7 +137,12 @@
 			"
 				>
 					{#if showModelSelector}
-						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
+						<ModelSelector
+							bind:selectedModels
+							showSetDefault={!shareEnabled}
+							{customModelNames}
+							{onRenameModel}
+						/>
 					{/if}
 				</div>
 
