@@ -107,6 +107,10 @@ class ERROR_MESSAGES(str, Enum):
     )
     FILE_NOT_PROCESSED = "Extracted content is not available for this file. Please ensure that the file is processed before proceeding."
 
+    USER_MODEL_CREDENTIAL_NOT_FOUND = (
+        lambda: "The credential you selected has been deleted or is no longer available. Please select a different model."
+    )
+
 
 class TASKS(str, Enum):
     def __str__(self) -> str:

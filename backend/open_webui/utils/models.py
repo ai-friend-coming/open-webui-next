@@ -413,13 +413,13 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
 
         cred_id = credential_id.replace("user:", "")
         log.info(f"[UserModel] Looking up credential: cred_id={cred_id}, user_id={user.id}")
-        cred = UserModelCredentials.get_credential_by_id_and_user_id(cred_id, user.id)
+
+        # Try to get credential (including soft-deleted for backward compatibility)
+        cred = UserModelCredentials.get_credential_by_id_and_user_id_include_deleted(cred_id, user.id)
         log.info(f"[UserModel] Credential found: {cred is not None}")
 
         if not cred:
-            # If credential not found and it was reconstructed from history (not explicit),
-            # this is likely a background task using an old/deleted credential.
-            # Skip transformation and let it use the platform model instead.
+            # Credential doesn't exist at all
             if not model_item_was_explicit:
                 log.warning(f"[UserModel] Credential not found (reconstructed from history): cred_id={cred_id}. Skipping user model transformation for background task.")
                 form_data["model_item"] = {}
@@ -431,6 +431,21 @@ async def transform_user_model_if_needed(form_data: dict, user: UserModel):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=ERROR_MESSAGES.USER_MODEL_CREDENTIAL_NOT_FOUND(),
             )
+
+        # Check if credential is soft-deleted
+        if hasattr(cred, 'deleted_at') and cred.deleted_at is not None:
+            if not model_item_was_explicit:
+                # Background task with deleted credential: skip transformation
+                log.warning(f"[UserModel] Credential soft-deleted (reconstructed from history): cred_id={cred_id}. Skipping user model transformation for background task.")
+                form_data["model_item"] = {}
+                return form_data
+            else:
+                # Explicit request with deleted credential: error
+                log.error(f"[UserModel] Credential soft-deleted: cred_id={cred_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail="The credential you selected has been deleted. Please select a different model.",
+                )
 
         log.info(f"[UserModel] Updating model_item with credential: base_url={cred.base_url}, model_id={cred.model_id}")
         model_item.clear()

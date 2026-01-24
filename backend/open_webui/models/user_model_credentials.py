@@ -75,6 +75,7 @@ class UserModelCredential(Base):
 
     created_at = Column(BigInteger)
     updated_at = Column(BigInteger)
+    deleted_at = Column(BigInteger, nullable=True)  # Soft delete timestamp
 
 
 class UserModelCredentialModel(BaseModel):
@@ -93,6 +94,7 @@ class UserModelCredentialModel(BaseModel):
     config: Optional[dict] = None
     created_at: int
     updated_at: int
+    deleted_at: Optional[int] = None  # Soft delete timestamp
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -252,12 +254,15 @@ class UserModelCredentialsTable:
         self, cred_id: str, user_id: str
     ) -> bool:
         """
-        删除用户私有模型凭据
+        删除用户私有模型凭据（软删除）
 
         安全校验：
         - 凭据必须存在
         - 凭据必须属于当前用户（user_id 匹配）
         - 不满足条件返回 False
+
+        实现：使用软删除（设置 deleted_at 时间戳）而非物理删除
+        优势：保留历史记录引用，防止旧聊天记录中的凭据 ID 失效
 
         Args:
             cred_id: 凭据 ID
@@ -272,8 +277,8 @@ class UserModelCredentialsTable:
             if not cred or cred.user_id != user_id:
                 return False
 
-            # === 2. 删除凭据 ===
-            db.delete(cred)
+            # === 2. 软删除：标记为已删除而非物理删除 ===
+            cred.deleted_at = int(time.time())
             db.commit()
             return True
 
@@ -281,7 +286,7 @@ class UserModelCredentialsTable:
         self, user_id: str
     ) -> list[UserModelCredentialModel]:
         """
-        获取用户的所有私有模型凭据
+        获取用户的所有私有模型凭据（排除已删除的）
 
         用途：前端模型选择器展示用户的所有私有模型
         返回：用户创建的所有凭据列表（包含明文 api_key）
@@ -293,9 +298,12 @@ class UserModelCredentialsTable:
             list[UserModelCredentialModel]: 用户的所有凭据列表，无数据返回空列表
         """
         with get_db() as db:
-            # 查询该用户的所有凭据
+            # 查询该用户的所有凭据（排除已软删除的）
             creds = (
-                db.query(UserModelCredential).filter_by(user_id=user_id).all()
+                db.query(UserModelCredential)
+                .filter_by(user_id=user_id)
+                .filter(UserModelCredential.deleted_at.is_(None))
+                .all()
             )
             return (
                 [UserModelCredentialModel.model_validate(c) for c in creds]
@@ -336,6 +344,40 @@ class UserModelCredentialsTable:
                 log.error(f"[CredLookup] User mismatch: cred.user_id={cred.user_id}, requested user_id={user_id}")
                 return None
             log.info(f"[CredLookup] Found credential: id={cred.id}, model_id={cred.model_id}")
+            return UserModelCredentialModel.model_validate(cred)
+
+    def get_credential_by_id_and_user_id_include_deleted(
+        self, cred_id: str, user_id: str
+    ) -> Optional[UserModelCredentialModel]:
+        """
+        获取单个用户私有模型凭据（包含已软删除的）
+
+        用途：用于向后兼容旧聊天记录中的凭据引用
+        当用户重新打开包含已删除凭据的旧聊天时，仍能获取凭据信息
+
+        安全校验：
+        - 凭据必须存在（包括软删除的）
+        - 凭据必须属于当前用户（user_id 匹配）
+        - 不满足条件返回 None
+
+        Args:
+            cred_id: 凭据 ID
+            user_id: 当前用户 ID
+
+        Returns:
+            UserModelCredentialModel: 凭据对象（可能已软删除），权限不足返回 None
+        """
+        with get_db() as db:
+            log.info(f"[CredLookup] Looking for cred_id={cred_id} (include deleted), user_id={user_id}")
+            # === 1. 权限校验：凭据必须存在且属于当前用户（不过滤 deleted_at） ===
+            cred = db.get(UserModelCredential, cred_id)
+            if not cred:
+                log.error(f"[CredLookup] Credential NOT FOUND by id={cred_id}")
+                return None
+            if cred.user_id != user_id:
+                log.error(f"[CredLookup] User mismatch: cred.user_id={cred.user_id}, requested user_id={user_id}")
+                return None
+            log.info(f"[CredLookup] Found credential: id={cred.id}, model_id={cred.model_id}, deleted_at={cred.deleted_at}")
             return UserModelCredentialModel.model_validate(cred)
 
 
