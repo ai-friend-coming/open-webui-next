@@ -50,8 +50,18 @@ class HupijiaoWechatProvider(PaymentProvider):
             "OD": "success",
             "WP": "pending",
         }
+
+        # 解析金额，虎皮椒返回的 total_fee 是字符串格式的元
+        total_fee_str = params.get("total_fee", "0")
+        try:
+            total_fee_yuan = float(total_fee_str)
+        except (ValueError, TypeError):
+            total_fee_yuan = 0
+
         return {
             "out_trade_no": params.get("trade_order_id"),
             "trade_no": params.get("transaction_id", ""),
             "status": status_map.get(status, "pending"),
+            "appid": params.get("appid", ""),
+            "total_fee_yuan": total_fee_yuan,  # 回调金额（元）
         }

@@ -46,10 +46,20 @@ class AlipayPageProvider(PaymentProvider):
             "WAIT_BUYER_PAY": "pending",
             "TRADE_CLOSED": "fail",
         }
+
+        # 解析金额，支付宝返回的 total_amount 是字符串格式的元
+        total_amount_str = params.get("total_amount", "0")
+        try:
+            total_amount_yuan = float(total_amount_str)
+        except (ValueError, TypeError):
+            total_amount_yuan = 0
+
         return {
             "out_trade_no": params.get("out_trade_no"),
             "trade_no": params.get("trade_no"),
             "status": status_map.get(trade_status, "pending"),
+            "app_id": params.get("app_id", ""),
+            "total_amount_yuan": total_amount_yuan,  # 回调金额（元）
         }
 
 
@@ -87,8 +97,18 @@ class AlipayH5Provider(PaymentProvider):
             "WAIT_BUYER_PAY": "pending",
             "TRADE_CLOSED": "fail",
         }
+
+        # 解析金额，支付宝返回的 total_amount 是字符串格式的元
+        total_amount_str = params.get("total_amount", "0")
+        try:
+            total_amount_yuan = float(total_amount_str)
+        except (ValueError, TypeError):
+            total_amount_yuan = 0
+
         return {
             "out_trade_no": params.get("out_trade_no"),
             "trade_no": params.get("trade_no"),
             "status": status_map.get(trade_status, "pending"),
+            "app_id": params.get("app_id", ""),
+            "total_amount_yuan": total_amount_yuan,  # 回调金额（元）
         }
