@@ -581,68 +581,24 @@ async def create_payment_order(req: CreateOrderRequest, user=Depends(get_verifie
 
     需要登录
     """
-    import uuid as uuid_module
+    from open_webui.billing.payment import create_order
+    from open_webui.billing.providers import PaymentMethod
 
-    from open_webui.utils.alipay import create_page_payment, is_alipay_configured
-    from open_webui.models.billing import PaymentOrders
-
-    # 检查支付宝配置
-    if not is_alipay_configured():
-        raise HTTPException(status_code=503, detail="支付功能暂未开放，请联系管理员")
-
-    # 验证金额
-    if req.amount < 0.01:
-        raise HTTPException(status_code=400, detail="充值金额最低0.01元")
-    if req.amount > 10000:
-        raise HTTPException(status_code=400, detail="充值金额最高10000元")
-
-    # 生成订单号: CK + 时间戳 + 随机字符
-    out_trade_no = f"CK{int(time.time())}{uuid_module.uuid4().hex[:8].upper()}"
-
-    # 调用支付宝创建PC网页支付订单
-    success, msg, pay_url = create_page_payment(
-        out_trade_no=out_trade_no,
-        amount_yuan=req.amount,
-        subject="Cakumi账户充值",
-    )
-
-    if not success:
-        log.error(f"创建支付订单失败: {msg}")
-        raise HTTPException(status_code=500, detail=f"创建订单失败: {msg}")
-
-    # 保存订单到数据库
-    now = int(time.time())
-    expired_at = now + 900  # 15分钟后过期
-
-    order = PaymentOrders.create(
+    result = create_order(
         user_id=user.id,
-        out_trade_no=out_trade_no,
-        amount=int(req.amount * 10000),  # 元 → 毫
-        qr_code=pay_url,  # 存储跳转URL
-        expired_at=expired_at,
-        payment_method="alipay",
-        payment_type="page",
-    )
-
-    log.info(f"创建PC支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
-
-    # 埋点：创建订单
-    from open_webui.utils.posthog import track_payment_order_created, flush
-    track_payment_order_created(
-        user_id=user.id,
-        order_id=order.id,
-        out_trade_no=out_trade_no,
         amount_yuan=req.amount,
-        payment_type="page",
+        payment_method=PaymentMethod.ALIPAY_PAGE,
     )
-    flush()  # 立即发送到 PostHog
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
 
     return CreateOrderResponse(
-        order_id=order.id,
-        out_trade_no=out_trade_no,
-        pay_url=pay_url,
-        amount=req.amount,
-        expired_at=expired_at,
+        order_id=result.order_id,
+        out_trade_no=result.out_trade_no,
+        pay_url=result.pay_url,
+        amount=result.amount_yuan,
+        expired_at=result.expired_at,
     )
 
 
@@ -653,68 +609,24 @@ async def create_h5_payment_order(req: CreateOrderRequest, user=Depends(get_veri
 
     需要登录
     """
-    import uuid as uuid_module
+    from open_webui.billing.payment import create_order
+    from open_webui.billing.providers import PaymentMethod
 
-    from open_webui.utils.alipay import create_wap_payment, is_alipay_configured
-    from open_webui.models.billing import PaymentOrders
-
-    # 检查支付宝配置
-    if not is_alipay_configured():
-        raise HTTPException(status_code=503, detail="支付功能暂未开放，请联系管理员")
-
-    # 验证金额
-    if req.amount < 0.01:
-        raise HTTPException(status_code=400, detail="充值金额最低0.01元")
-    if req.amount > 10000:
-        raise HTTPException(status_code=400, detail="充值金额最高10000元")
-
-    # 生成订单号: CK + 时间戳 + 随机字符
-    out_trade_no = f"CK{int(time.time())}{uuid_module.uuid4().hex[:8].upper()}"
-
-    # 调用支付宝创建H5支付订单
-    success, msg, pay_url = create_wap_payment(
-        out_trade_no=out_trade_no,
-        amount_yuan=req.amount,
-        subject="Cakumi账户充值",
-    )
-
-    if not success:
-        log.error(f"创建H5支付订单失败: {msg}")
-        raise HTTPException(status_code=500, detail=f"创建订单失败: {msg}")
-
-    # 保存订单到数据库
-    now = int(time.time())
-    expired_at = now + 900  # 15分钟后过期
-
-    order = PaymentOrders.create(
+    result = create_order(
         user_id=user.id,
-        out_trade_no=out_trade_no,
-        amount=int(req.amount * 10000),  # 元 → 毫
-        qr_code=pay_url,  # H5支付存储跳转URL
-        expired_at=expired_at,
-        payment_method="alipay",
-        payment_type="h5",
-    )
-
-    log.info(f"创建H5支付订单成功: {out_trade_no}, 用户={user.id}, 金额={req.amount}元")
-
-    # 埋点：创建订单
-    from open_webui.utils.posthog import track_payment_order_created, flush
-    track_payment_order_created(
-        user_id=user.id,
-        order_id=order.id,
-        out_trade_no=out_trade_no,
         amount_yuan=req.amount,
-        payment_type="h5",
+        payment_method=PaymentMethod.ALIPAY_H5,
     )
-    flush()  # 立即发送到 PostHog
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
 
     return CreateH5OrderResponse(
-        order_id=order.id,
-        out_trade_no=out_trade_no,
-        pay_url=pay_url,
-        amount=req.amount,
-        expired_at=expired_at,
+        order_id=result.order_id,
+        out_trade_no=result.out_trade_no,
+        pay_url=result.pay_url,
+        amount=result.amount_yuan,
+        expired_at=result.expired_at,
     )
 
 
@@ -807,9 +719,9 @@ async def alipay_notify(request: Request):
 
     注意：此接口无需登录验证
     """
-    from open_webui.utils.alipay import verify_notify_sign
-    from open_webui.models.billing import PaymentOrders, RechargeLog
-    import uuid as uuid_module
+    from open_webui.billing.providers import get_provider, PaymentMethod
+    from open_webui.billing.payment import process_payment_success
+    from open_webui.models.billing import PaymentOrders
 
     # 获取回调参数
     form_data = await request.form()
@@ -817,169 +729,35 @@ async def alipay_notify(request: Request):
 
     log.info(f"收到支付宝回调: {params.get('out_trade_no')}")
 
-    # 验签
-    if not verify_notify_sign(params):
+    # 获取提供者并验签
+    provider = get_provider(PaymentMethod.ALIPAY_PAGE)
+    if not provider.verify_notify(params):
         log.error("支付宝回调验签失败")
         return "fail"
 
-    out_trade_no = params.get("out_trade_no")
-    trade_no = params.get("trade_no")
-    trade_status = params.get("trade_status")
-
-    # 只处理支付成功状态
-    if trade_status not in ["TRADE_SUCCESS", "TRADE_FINISHED"]:
-        log.info(f"支付宝回调，非成功状态: {trade_status}")
+    # 解析参数
+    parsed = provider.parse_notify_params(params)
+    if parsed["status"] != "success":
+        log.info(f"支付宝回调，非成功状态: {params.get('trade_status')}")
         return "success"
 
     # 查询订单
-    order = PaymentOrders.get_by_out_trade_no(out_trade_no)
+    order = PaymentOrders.get_by_out_trade_no(parsed["out_trade_no"])
     if not order:
-        log.error(f"支付宝回调，订单不存在: {out_trade_no}")
+        log.error(f"支付宝回调，订单不存在: {parsed['out_trade_no']}")
         return "success"
 
     # 幂等检查：已处理的订单直接返回成功
     if order.status == "paid":
-        log.info(f"支付宝回调，订单已处理: {out_trade_no}")
+        log.info(f"支付宝回调，订单已处理: {parsed['out_trade_no']}")
         return "success"
 
-    # 更新订单状态
-    now = int(time.time())
-    PaymentOrders.update_status(
-        out_trade_no=out_trade_no,
-        status="paid",
-        trade_no=trade_no,
-        paid_at=now,
-    )
-
-    # 增加用户余额
+    # 处理支付成功（余额、首充、返现、埋点）
     try:
-        from open_webui.models.users import User as UserModel
-        from open_webui.models.billing import FirstRechargeBonusLogs, BillingLog
-        from open_webui.config import (
-            Config,
-            FIRST_RECHARGE_BONUS_ENABLED,
-            FIRST_RECHARGE_BONUS_RATE,
-            FIRST_RECHARGE_BONUS_MAX_AMOUNT,
-        )
-
-        with get_db() as db:
-            # 从数据库读取最新充值档位配置（避免多 worker 进程内存不一致）
-            config_entry = db.query(Config).order_by(Config.id.desc()).first()
-            if config_entry and "billing" in config_entry.data and "recharge_tiers" in config_entry.data["billing"]:
-                recharge_tiers = config_entry.data["billing"]["recharge_tiers"]
-            else:
-                # 默认档位
-                recharge_tiers = [100000, 500000, 1000000, 2000000, 5000000, 10000000]
-
-            user = db.query(UserModel).filter_by(id=order.user_id).first()
-            if user:
-                # 检查是否需要发放首充优惠
-                bonus_amount = 0
-                is_first_recharge = False
-                matched_tier = None
-
-                # 精确匹配档位（使用动态配置的档位）
-                if order.amount in recharge_tiers:
-                    matched_tier = order.amount
-                    # 检查该档位是否已参与
-                    if (
-                        FIRST_RECHARGE_BONUS_ENABLED.value
-                        and not FirstRechargeBonusLogs.has_participated_tier(order.user_id, matched_tier)
-                    ):
-                        is_first_recharge = True
-                        # 计算奖励金额
-                        rate = float(FIRST_RECHARGE_BONUS_RATE.value) / 100
-                        max_amount = int(FIRST_RECHARGE_BONUS_MAX_AMOUNT.value)
-                        bonus_amount = int(order.amount * rate)
-                        bonus_amount = min(bonus_amount, max_amount)
-
-                # 更新用户余额（充值金额 + 奖励金额）
-                total_amount = order.amount + bonus_amount
-                user.balance = (user.balance or 0) + total_amount
-                db.commit()
-
-                # 记录充值日志
-                recharge_log = RechargeLog(
-                    id=str(uuid_module.uuid4()),
-                    user_id=order.user_id,
-                    amount=order.amount,
-                    operator_id="system",  # 系统自动充值
-                    remark=f"支付宝充值，订单号: {out_trade_no}",
-                    created_at=now,
-                )
-                db.add(recharge_log)
-                db.commit()
-
-                # 处理邀请返现（充值成功后立即发放）
-                try:
-                    from open_webui.billing.invite import process_invite_rebate
-                    process_invite_rebate(
-                        invitee_id=order.user_id,
-                        recharge_amount=order.amount,
-                        recharge_log_id=recharge_log.id,
-                    )
-                except Exception as e:
-                    log.error(f"邀请返现处理失败: {e}")
-                    # 不影响充值流程，继续执行
-
-                # 如果是首充，记录首充优惠日志和计费日志
-                if is_first_recharge and bonus_amount > 0 and matched_tier is not None:
-                    try:
-                        # 记录首充优惠参与记录（包含档位信息）
-                        FirstRechargeBonusLogs.create(
-                            user_id=order.user_id,
-                            tier_amount=matched_tier,  # 记录档位金额
-                            recharge_amount=order.amount,
-                            bonus_amount=bonus_amount,
-                            bonus_rate=int(FIRST_RECHARGE_BONUS_RATE.value),
-                        )
-
-                        # 记录计费日志（奖励类型）
-                        billing_log = BillingLog(
-                            id=str(uuid_module.uuid4()),
-                            user_id=order.user_id,
-                            model_id="first_recharge_bonus",
-                            prompt_tokens=0,
-                            completion_tokens=0,
-                            total_cost=bonus_amount,
-                            balance_after=user.balance,
-                            log_type="refund",  # 使用 refund 类型表示奖励
-                            created_at=int(time.time_ns()),
-                        )
-                        db.add(billing_log)
-                        db.commit()
-
-                        log.info(
-                            f"首充优惠发放成功: 用户={order.user_id}, "
-                            f"充值={order.amount / 10000:.2f}元, "
-                            f"奖励={bonus_amount / 10000:.2f}元"
-                        )
-                    except Exception as e:
-                        log.error(f"首充优惠记录失败: {e}")
-                        # 不影响充值流程，继续执行
-
-                log.info(
-                    f"支付成功: 用户={order.user_id}, 金额={order.amount / 10000:.2f}元, "
-                    f"订单={out_trade_no}"
-                    + (f", 首充奖励={bonus_amount / 10000:.2f}元" if is_first_recharge else "")
-                )
-
-                # 埋点：支付成功
-                from open_webui.utils.posthog import track_payment_success, flush
-                track_payment_success(
-                    user_id=order.user_id,
-                    order_id=order.id,
-                    out_trade_no=out_trade_no,
-                    trade_no=trade_no,
-                    amount_yuan=order.amount / 10000,
-                    is_first_recharge=is_first_recharge,
-                    bonus_amount_yuan=bonus_amount / 10000 if bonus_amount else 0,
-                )
-                flush()  # 立即发送到 PostHog
+        process_payment_success(order, parsed["trade_no"], "alipay")
     except Exception as e:
         log.error(f"支付回调处理失败: {e}")
         # 即使余额更新失败，也返回 success，避免支付宝重复回调
-        # 后续可通过定时任务修复
 
     return "success"
 
@@ -992,7 +770,153 @@ async def get_payment_config():
     公开接口，用于前端判断是否显示充值功能
     """
     from open_webui.utils.alipay import is_alipay_configured
+    from open_webui.utils.hupijiao import is_hupijiao_configured
 
     return {
         "alipay_enabled": is_alipay_configured(),
+        "wechat_enabled": is_hupijiao_configured(),
     }
+
+
+####################
+# 微信支付 (虎皮椒)
+####################
+
+
+@router.post("/payment/create/wechat", response_model=CreateOrderResponse)
+async def create_wechat_payment_order(req: CreateOrderRequest, user=Depends(get_verified_user)):
+    """
+    创建微信支付订单（通过虎皮椒，H5跳转支付）
+
+    需要登录
+    """
+    from open_webui.billing.payment import create_order
+    from open_webui.billing.providers import PaymentMethod
+
+    result = create_order(
+        user_id=user.id,
+        amount_yuan=req.amount,
+        payment_method=PaymentMethod.WECHAT_H5,
+    )
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+
+    return CreateOrderResponse(
+        order_id=result.order_id,
+        out_trade_no=result.out_trade_no,
+        pay_url=result.pay_url,
+        amount=result.amount_yuan,
+        expired_at=result.expired_at,
+    )
+
+
+@router.post("/payment/hupijiao/notify")
+async def hupijiao_notify(request: Request):
+    """
+    虎皮椒异步通知回调（微信支付）
+
+    注意：此接口无需登录验证
+    """
+    from open_webui.billing.providers import get_provider, PaymentMethod
+    from open_webui.billing.payment import process_payment_success
+    from open_webui.models.billing import PaymentOrders
+
+    # 获取回调参数
+    form_data = await request.form()
+    params = dict(form_data)
+
+    log.info(f"收到虎皮椒回调: {params.get('trade_order_id')}, params={params}")
+
+    # 获取提供者并验签
+    provider = get_provider(PaymentMethod.WECHAT_H5)
+    if not provider.verify_notify(params):
+        log.error("虎皮椒回调验签失败")
+        return "fail"
+
+    # 解析参数
+    parsed = provider.parse_notify_params(params)
+    if parsed["status"] != "success":
+        log.info(f"虎皮椒回调，非成功状态: {params.get('status')}")
+        return "success"
+
+    # 查询订单
+    order = PaymentOrders.get_by_out_trade_no(parsed["out_trade_no"])
+    if not order:
+        log.error(f"虎皮椒回调，订单不存在: {parsed['out_trade_no']}")
+        return "success"
+
+    # 幂等检查：已处理的订单直接返回成功
+    if order.status == "paid":
+        log.info(f"虎皮椒回调，订单已处理: {parsed['out_trade_no']}")
+        return "success"
+
+    # 处理支付成功（余额、首充、返现、埋点）
+    try:
+        process_payment_success(order, parsed["trade_no"], "wechat")
+    except Exception as e:
+        log.error(f"虎皮椒回调处理失败: {e}")
+        # 即使余额更新失败，也返回 success，避免虎皮椒重复回调
+
+    return "success"
+
+
+@router.get("/payment/hupijiao/return")
+async def hupijiao_return(request: Request):
+    """
+    虎皮椒同步返回页面（支付完成后跳转）
+
+    注意：此接口无需登录验证，会重定向到前端页面
+    """
+    from open_webui.env import ALIPAY_FRONTEND_URL
+    from open_webui.models.billing import PaymentOrders
+
+    # 获取回调参数
+    params = dict(request.query_params)
+    trade_order_id = params.get("trade_order_id", "")
+
+    log.info(f"虎皮椒同步返回: {trade_order_id}")
+
+    # 查询订单
+    order = PaymentOrders.get_by_out_trade_no(trade_order_id)
+
+    # 构建前端页面路径
+    if order:
+        page_path = f"/payment/return?order_id={order.id}&status={order.status}"
+    else:
+        page_path = "/payment/return?error=order_not_found"
+
+    # 如果配置了前端地址，使用完整 URL；否则使用相对路径
+    if ALIPAY_FRONTEND_URL:
+        redirect_url = f"{ALIPAY_FRONTEND_URL}{page_path}"
+    else:
+        redirect_url = page_path
+
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
+@router.get("/payment/hupijiao/callback")
+async def hupijiao_callback(request: Request):
+    """
+    虎皮椒失败回调页面（支付失败时跳转）
+
+    注意：此接口无需登录验证，会重定向到前端页面
+    """
+    from open_webui.env import ALIPAY_FRONTEND_URL
+
+    # 获取回调参数
+    params = dict(request.query_params)
+    trade_order_id = params.get("trade_order_id", "")
+
+    log.info(f"虎皮椒失败回调: {trade_order_id}")
+
+    # 构建前端页面路径
+    page_path = f"/payment/return?error=payment_failed&order_no={trade_order_id}"
+
+    # 如果配置了前端地址，使用完整 URL；否则使用相对路径
+    if ALIPAY_FRONTEND_URL:
+        redirect_url = f"{ALIPAY_FRONTEND_URL}{page_path}"
+    else:
+        redirect_url = page_path
+
+    return RedirectResponse(url=redirect_url, status_code=302)

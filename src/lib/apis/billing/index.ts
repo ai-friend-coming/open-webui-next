@@ -371,6 +371,7 @@ export interface PaymentOrder {
 
 export interface PaymentConfig {
 	alipay_enabled: boolean;
+	wechat_enabled: boolean;
 }
 
 /**
@@ -483,6 +484,40 @@ export const createH5PaymentOrder = async (
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/billing/payment/create/h5`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ amount })
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
+ * 创建微信支付订单（通过虎皮椒，H5跳转支付）
+ */
+export const createWechatPaymentOrder = async (
+	token: string,
+	amount: number
+): Promise<CreateOrderResponse> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/billing/payment/create/wechat`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
