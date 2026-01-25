@@ -39,6 +39,9 @@
 	export let selectedModels;
 	export let atSelectedModel;
 
+	// 当前会话的自定义模型名称
+	export let customModelNames = {};
+
 	let messages = [];
 
 	export let setInputText: Function = () => {};

@@ -123,6 +123,9 @@
 	export let messageId;
 	export let selectedModels = [];
 
+	// 当前会话的自定义模型名称
+	export let customModelNames = {};
+
 	let message: MessageType = JSON.parse(JSON.stringify(history.messages[messageId]));
 	$: if (history.messages) {
 		if (JSON.stringify(message) !== JSON.stringify(history.messages[messageId])) {
@@ -212,8 +215,13 @@
 			computedModelName = message.model;
 		}
 
-		// message.modelName 有最高优先级（如果存在且非空）
-		if (message.modelName && message.modelName.trim() !== '') {
+		// 名称优先级（从高到低）：
+		// 1. customModelNames[message.model] - 当前会话的自定义名称（最高优先级）
+		// 2. message.modelName - 消息创建时存储的名称
+		// 3. computedModelName - 从模型定义计算的名称
+		if (customModelNames[message.model] && customModelNames[message.model].trim() !== '') {
+			modelName = customModelNames[message.model];
+		} else if (message.modelName && message.modelName.trim() !== '') {
 			modelName = message.modelName;
 		} else {
 			modelName = computedModelName;

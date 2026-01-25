@@ -18,6 +18,9 @@
 	export let history;
 	export let messageId;
 
+	// 当前会话的自定义模型名称
+	export let customModelNames = {};
+
 	export let user;
 
 	export let setInputText: Function = () => {};
@@ -77,6 +80,7 @@
 				{history}
 				{messageId}
 				{selectedModels}
+				{customModelNames}
 				isLastMessage={messageId === history.currentId}
 				siblings={history.messages[history.messages[messageId].parentId]?.childrenIds ?? []}
 				{setInputText}

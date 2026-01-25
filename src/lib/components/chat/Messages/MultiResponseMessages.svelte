@@ -27,6 +27,9 @@
 	export let messageId;
 	export let selectedModels = [];
 
+	// 当前会话的自定义模型名称
+	export let customModelNames = {};
+
 	export let isLastMessage;
 	export let readOnly = false;
 	export let editCodeBlock = true;
@@ -302,6 +305,7 @@
 									{history}
 									messageId={_messageId}
 									{selectedModels}
+									{customModelNames}
 									isLastMessage={true}
 									siblings={groupedMessageIds[selectedModelIdx].messageIds}
 									gotoMessage={(message, messageIdx) => gotoMessage(selectedModelIdx, messageIdx)}
@@ -358,6 +362,7 @@
 										{history}
 										messageId={_messageId}
 										{selectedModels}
+										{customModelNames}
 										isLastMessage={true}
 										siblings={groupedMessageIds[modelIdx].messageIds}
 										gotoMessage={(message, messageIdx) => gotoMessage(modelIdx, messageIdx)}

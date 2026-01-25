@@ -3154,6 +3154,7 @@
 										{chatActionHandler}
 										topPadding={true}
 										bottomPadding={files.length > 0}
+										{customModelNames}
 										{onSelect}
 									/>
 								</div>

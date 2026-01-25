@@ -483,16 +483,16 @@ const i18n = getContext('i18n');
 	<Modal bind:show={showRenameModal} size="sm" className="bg-white dark:bg-gray-900 rounded-2xl">
 		<div class="w-full p-4 space-y-3">
 			<div class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-				{$i18n.t('Rename Model for This Chat')}
+				为此对话重命名模型
 			</div>
 
 			<div class="text-sm text-gray-600 dark:text-gray-400">
-				{$i18n.t('Set a custom display name for this model in the current chat session. Leave empty to use the default name.')}
+				为此对话中的模型设置自定义显示名称。留空则使用默认名称。
 			</div>
 
 			<div class="space-y-2 text-sm">
 				<div class="flex flex-col gap-1">
-					<label class="text-gray-600 dark:text-gray-400">{$i18n.t('Custom Name')}</label>
+					<label class="text-gray-600 dark:text-gray-400">自定义名称</label>
 					<input
 						class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none"
 						bind:value={renameForm.customName}
@@ -515,13 +515,13 @@ const i18n = getContext('i18n');
 						renameForm.customName = '';
 					}}
 				>
-					{$i18n.t('Cancel')}
+					取消
 				</button>
 				<button
 					class="px-3 py-2 rounded-lg text-sm bg-black text-white dark:bg-white dark:text-black"
 					on:click={submitRename}
 				>
-					{$i18n.t('Save')}
+					保存
 				</button>
 			</div>
 		</div>
