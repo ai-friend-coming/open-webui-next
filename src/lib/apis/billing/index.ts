@@ -10,6 +10,7 @@ export interface BalanceInfo {
 
 export interface BillingLog {
 	id: string;
+	user_id?: string;
 	model_id: string;
 	cost: number;
 	balance_after: number | null;
@@ -18,6 +19,9 @@ export interface BillingLog {
 	completion_tokens: number;
 	created_at: number;
 	precharge_id?: string | null; // 预扣费事务ID，用于关联 precharge 和 settle
+	status?: string | null;
+	estimated_tokens?: number | null;
+	refund_amount?: number | null;
 }
 
 export interface DailyStats {
@@ -113,6 +117,39 @@ export const getBillingLogs = async (
 			}
 		}
 	)
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail || err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+/**
+ * 查询指定用户消费记录 (仅管理员)
+ */
+export const getBillingLogsByUserId = async (
+	token: string,
+	userId: string
+): Promise<BillingLog[]> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/billing/logs/${userId}`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
 			return res.json();

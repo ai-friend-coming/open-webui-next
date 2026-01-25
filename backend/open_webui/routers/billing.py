@@ -58,6 +58,7 @@ class BillingLogResponse(BaseModel):
     """计费日志响应"""
 
     id: str
+    user_id: Optional[str] = None
     model_id: str
     cost: float
     balance_after: Optional[float]
@@ -66,6 +67,9 @@ class BillingLogResponse(BaseModel):
     completion_tokens: int
     created_at: int
     precharge_id: Optional[str] = None  # 预扣费事务ID，用于关联 precharge 和 settle
+    status: Optional[str] = None
+    estimated_tokens: Optional[int] = None
+    refund_amount: Optional[float] = None
 
 
 class PricingRequest(BaseModel):
@@ -177,14 +181,60 @@ async def get_logs(
         return [
             BillingLogResponse(
                 id=log.id,
+                user_id=log.user_id,
                 model_id=log.model_id,
                 cost=float(log.total_cost),
-                balance_after=float(log.balance_after) if log.balance_after else None,
+                balance_after=float(log.balance_after)
+                if log.balance_after is not None
+                else None,
                 type=log.log_type,
                 prompt_tokens=log.prompt_tokens,
                 completion_tokens=log.completion_tokens,
                 created_at=log.created_at,
                 precharge_id=log.precharge_id,  # 添加预扣费事务ID
+                status=log.status,
+                estimated_tokens=log.estimated_tokens,
+                refund_amount=float(log.refund_amount)
+                if log.refund_amount is not None
+                else None,
+            )
+            for log in logs
+        ]
+    except Exception as e:
+        log.error(f"查询日志失败: {e}")
+        raise HTTPException(status_code=500, detail=f"查询日志失败: {str(e)}")
+
+
+@router.get("/logs/{user_id}", response_model=list[BillingLogResponse])
+async def get_logs_by_user_id(
+    user_id: str,
+    admin=Depends(get_admin_user),
+):
+    """
+    查询指定用户消费记录 (仅管理员)
+    """
+    try:
+        logs = BillingLogs.get_all_by_user_id(user_id)
+
+        return [
+            BillingLogResponse(
+                id=log.id,
+                user_id=log.user_id,
+                model_id=log.model_id,
+                cost=float(log.total_cost),
+                balance_after=float(log.balance_after)
+                if log.balance_after is not None
+                else None,
+                type=log.log_type,
+                prompt_tokens=log.prompt_tokens,
+                completion_tokens=log.completion_tokens,
+                created_at=log.created_at,
+                precharge_id=log.precharge_id,
+                status=log.status,
+                estimated_tokens=log.estimated_tokens,
+                refund_amount=float(log.refund_amount)
+                if log.refund_amount is not None
+                else None,
             )
             for log in logs
         ]

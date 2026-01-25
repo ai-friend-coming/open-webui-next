@@ -254,6 +254,17 @@ class BillingLogTable:
             )
             return [BillingLogModel.model_validate(log) for log in logs]
 
+    def get_all_by_user_id(self, user_id: str) -> list[BillingLogModel]:
+        """获取用户全部计费日志（不分页）"""
+        with get_db() as db:
+            logs = (
+                db.query(BillingLog)
+                .filter_by(user_id=user_id)
+                .order_by(BillingLog.created_at.desc())
+                .all()
+            )
+            return [BillingLogModel.model_validate(log) for log in logs]
+
     def count_by_user_id(self, user_id: str) -> int:
         """统计用户日志数量"""
         with get_db() as db:

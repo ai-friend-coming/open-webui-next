@@ -27,6 +27,7 @@
 	import BalanceModal from '$lib/components/admin/Users/UserList/BalanceModal.svelte';
 	import RechargeHistoryModal from '$lib/components/admin/Users/UserList/RechargeHistoryModal.svelte';
 	import UserBalanceDetailModal from '$lib/components/admin/Users/UserList/UserBalanceDetailModal.svelte';
+	import BillingLogsModal from '$lib/components/admin/Users/UserList/BillingLogsModal.svelte';
 
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import RoleUpdateConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -35,6 +36,7 @@
 	import Plus from '$lib/components/icons/Plus.svelte';
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
+	import DocumentText from '$lib/components/icons/DocumentText.svelte';
 	import About from '$lib/components/chat/Settings/About.svelte';
 	import Banner from '$lib/components/common/Banner.svelte';
 	import Markdown from '$lib/components/chat/Messages/Markdown.svelte';
@@ -63,6 +65,7 @@
 	let showBalanceModal = false;
 	let showRechargeHistoryModal = false;
 	let showBalanceDetailModal = false;
+	let showBillingLogsModal = false;
 	let balanceOperation = 'recharge'; // 'recharge' or 'deduct'
 
 	const deleteUserHandler = async (id) => {
@@ -258,6 +261,10 @@
 			balanceOperation = 'deduct';
 		}}
 	/>
+{/if}
+
+{#if selectedUser}
+	<BillingLogsModal bind:show={showBillingLogsModal} selectedUser={selectedUser} />
 {/if}
 
 {#if ($config?.license_metadata?.seats ?? null) !== null && total && total > $config?.license_metadata?.seats}
@@ -580,6 +587,10 @@
 						</div>
 					</th>
 
+					<th scope="col" class="px-2.5 py-2 text-center">
+						{$i18n.t('计费记录')}
+					</th>
+
 					<th
 						scope="col"
 						class="px-2.5 py-2 cursor-pointer select-none text-center"
@@ -762,6 +773,20 @@
 
 						<td class=" px-3 py-1">
 							{dayjs(user.created_at * 1000).format('LL')}
+						</td>
+
+						<td class="px-3 py-1 text-center">
+							<Tooltip content={$i18n.t('计费记录')}>
+								<button
+									class="self-center w-fit text-sm px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
+									on:click={() => {
+										selectedUser = user;
+										showBillingLogsModal = true;
+									}}
+								>
+									<DocumentText className="size-4" />
+								</button>
+							</Tooltip>
 						</td>
 
 						<td class="px-3 py-1 text-center">
