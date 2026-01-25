@@ -13,13 +13,16 @@
 	import { toast } from 'svelte-sonner';
 
 	import { updateUserRole, getUsers, deleteUserById } from '$lib/apis/users';
+	import { getUserSuggestionFeedbackCounts } from '$lib/apis/evaluations';
 
 	import Pagination from '$lib/components/common/Pagination.svelte';
 	import ChatBubbles from '$lib/components/icons/ChatBubbles.svelte';
+	import ChatBubbleDotted from '$lib/components/icons/ChatBubbleDotted.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
 	import EditUserModal from '$lib/components/admin/Users/UserList/EditUserModal.svelte';
 	import UserChatsModal from '$lib/components/admin/Users/UserList/UserChatsModal.svelte';
+	import UserFeedbackModal from '$lib/components/admin/Users/UserList/UserFeedbackModal.svelte';
 	import AddUserModal from '$lib/components/admin/Users/UserList/AddUserModal.svelte';
 	import BalanceModal from '$lib/components/admin/Users/UserList/BalanceModal.svelte';
 	import RechargeHistoryModal from '$lib/components/admin/Users/UserList/RechargeHistoryModal.svelte';
@@ -43,6 +46,7 @@
 
 	let users = null;
 	let total = null;
+	let suggestionFeedbackCounts = {};
 
 	let query = '';
 	let orderBy = 'created_at'; // default sort key
@@ -54,6 +58,7 @@
 	let showAddUserModal = false;
 
 	let showUserChatsModal = false;
+	let showUserFeedbackModal = false;
 	let showEditUserModal = false;
 	let showBalanceModal = false;
 	let showRechargeHistoryModal = false;
@@ -76,6 +81,45 @@
 		}
 	};
 
+	const sortBySuggestionFeedbackCount = () => {
+		if (!users) return;
+		users = [...users].sort((a, b) => {
+			const aValue = suggestionFeedbackCounts[a.id] ?? 0;
+			const bValue = suggestionFeedbackCounts[b.id] ?? 0;
+			return direction === 'asc' ? aValue - bValue : bValue - aValue;
+		});
+	};
+
+	const loadSuggestionFeedbackCounts = async () => {
+		if (!users?.length) {
+			suggestionFeedbackCounts = {};
+			return;
+		}
+
+		const userIds = users.map((u) => u.id).filter(Boolean);
+		if (userIds.length === 0) {
+			suggestionFeedbackCounts = {};
+			return;
+		}
+
+		const res = await getUserSuggestionFeedbackCounts(localStorage.token, userIds).catch((error) => {
+			console.error(error);
+			return null;
+		});
+
+		const counts = {};
+		(res ?? []).forEach((item) => {
+			if (item?.user_id) {
+				counts[item.user_id] = item.count ?? 0;
+			}
+		});
+		suggestionFeedbackCounts = counts;
+
+		if (orderBy === 'suggestion_feedback_count') {
+			sortBySuggestionFeedbackCount();
+		}
+	};
+
 	const setSortKey = (key) => {
 		if (orderBy === key) {
 			direction = direction === 'asc' ? 'desc' : 'asc';
@@ -84,7 +128,7 @@
 			direction = 'asc';
 		}
 
-		// 前端排序：当日交互和平均交互
+		// 前端排序：当日交互、平均交互、反馈数量
 		if (key === 'daily_interaction' || key === 'average_interaction') {
 			if (!users) return;
 
@@ -112,6 +156,9 @@
 
 				return direction === 'asc' ? aValue - bValue : bValue - aValue;
 			});
+		} else if (key === 'suggestion_feedback_count') {
+			loadSuggestionFeedbackCounts();
+			sortBySuggestionFeedbackCount();
 		}
 	};
 
@@ -127,6 +174,7 @@
 			if (res) {
 				users = res.users;
 				total = res.total;
+				loadSuggestionFeedbackCounts();
 			}
 		} catch (err) {
 			console.error(err);
@@ -139,7 +187,11 @@
 
 	$: if (query !== null && orderBy && direction) {
 		// 前端排序的字段不需要调用后端API
-		if (orderBy !== 'daily_interaction' && orderBy !== 'average_interaction') {
+		if (
+			orderBy !== 'daily_interaction' &&
+			orderBy !== 'average_interaction' &&
+			orderBy !== 'suggestion_feedback_count'
+		) {
 			getUserList();
 		}
 	}
@@ -172,6 +224,10 @@
 
 {#if selectedUser}
 	<UserChatsModal bind:show={showUserChatsModal} user={selectedUser} />
+{/if}
+
+{#if selectedUser}
+	<UserFeedbackModal bind:show={showUserFeedbackModal} selectedUser={selectedUser} />
 {/if}
 
 {#if selectedUser}
@@ -524,6 +580,30 @@
 						</div>
 					</th>
 
+					<th
+						scope="col"
+						class="px-2.5 py-2 cursor-pointer select-none text-center"
+						on:click={() => setSortKey('suggestion_feedback_count')}
+					>
+						<div class="flex gap-1.5 items-center justify-center">
+							{$i18n.t('Feedbacks')}
+
+							{#if orderBy === 'suggestion_feedback_count'}
+								<span class="font-normal">
+									{#if direction === 'asc'}
+										<ChevronUp className="size-2" />
+									{:else}
+										<ChevronDown className="size-2" />
+									{/if}
+								</span>
+							{:else}
+								<span class="invisible">
+									<ChevronUp className="size-2" />
+								</span>
+							{/if}
+						</div>
+					</th>
+
 					<th scope="col" class="px-2.5 py-2 text-right" />
 				</tr>
 			</thead>
@@ -682,6 +762,26 @@
 
 						<td class=" px-3 py-1">
 							{dayjs(user.created_at * 1000).format('LL')}
+						</td>
+
+						<td class="px-3 py-1 text-center">
+							<Tooltip content={$i18n.t('Feedbacks')}>
+								<button
+									class="self-center w-fit text-sm px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
+									on:click={() => {
+										selectedUser = user;
+										showUserFeedbackModal = true;
+									}}
+									aria-label={`${$i18n.t('Feedbacks')}: ${suggestionFeedbackCounts[user.id] ?? 0}`}
+								>
+									<span class="flex items-center justify-center gap-1.5">
+										<ChatBubbleDotted className="size-4" />
+										<span class="text-xs font-medium text-gray-700 dark:text-gray-300">
+											{suggestionFeedbackCounts[user.id] ?? 0}
+										</span>
+									</span>
+								</button>
+							</Tooltip>
 						</td>
 
 						<td class="px-3 py-1 text-right">

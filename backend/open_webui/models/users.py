@@ -99,7 +99,6 @@ class UserModel(BaseModel):
     total_consumed: Optional[int] = 0  # 毫
     billing_status: Optional[str] = "active"
     total_recharged: Optional[int] = 0  # 累计充值金额（毫）
-
     # 邀请相关字段
     invite_code: Optional[str] = None  # 用户专属邀请码
     invited_by: Optional[str] = None  # 邀请人的 user_id
@@ -207,25 +206,24 @@ class UsersTable:
 
             invite_code = generate_unique_invite_code(check_invite_code_exists)
 
-            user = UserModel(
-                **{
-                    "id": id,
-                    "name": name,
-                    "email": email,
-                    "phone": phone,
-                    "role": role,
-                    "profile_image_url": profile_image_url,
-                    # AI-Friend, 默认启用记忆功能
-                    "settings": {"ui": {"memory": True}},
-                    "last_active_at": int(time.time()),
-                    "created_at": int(time.time()),
-                    "updated_at": int(time.time()),
-                    "oauth_sub": oauth_sub,
-                    "invite_code": invite_code,
-                    "invited_by": invited_by,
-                }
-            )
-            result = User(**user.model_dump(exclude={"total_recharged"}))
+            now_ts = int(time.time())
+            user_data = {
+                "id": id,
+                "name": name,
+                "email": email,
+                "phone": phone,
+                "role": role,
+                "profile_image_url": profile_image_url,
+                # AI-Friend, 默认启用记忆功能
+                "settings": {"ui": {"memory": True}},
+                "last_active_at": now_ts,
+                "created_at": now_ts,
+                "updated_at": now_ts,
+                "oauth_sub": oauth_sub,
+                "invite_code": invite_code,
+                "invited_by": invited_by,
+            }
+            result = User(**user_data)
             db.add(result)
             db.commit()
             db.refresh(result)
@@ -238,7 +236,7 @@ class UsersTable:
                         log.info(f"Incremented invite count for inviter {invited_by}")
                     except Exception as e:
                         log.error(f"Failed to increment invite count for inviter {invited_by}: {e}")
-                return user
+                return UserModel.model_validate(result)
             else:
                 return None
 
@@ -289,7 +287,6 @@ class UsersTable:
         limit: Optional[int] = None,
     ) -> dict:
         from open_webui.models.billing import PaymentOrder
-
         with get_db() as db:
             # 创建子查询计算每个用户的充值总额
             recharge_subquery = (
@@ -307,7 +304,7 @@ class UsersTable:
                 recharge_subquery, User.id == recharge_subquery.c.user_id
             )
             query = query.add_columns(
-                func.coalesce(recharge_subquery.c.total_recharged, 0).label('total_recharged')
+                func.coalesce(recharge_subquery.c.total_recharged, 0).label("total_recharged")
             )
 
             if filter:
@@ -367,7 +364,6 @@ class UsersTable:
                         query = query.order_by(func.coalesce(recharge_subquery.c.total_recharged, 0).asc())
                     else:
                         query = query.order_by(func.coalesce(recharge_subquery.c.total_recharged, 0).desc())
-
             else:
                 query = query.order_by(User.created_at.desc())
 

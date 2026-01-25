@@ -81,6 +81,15 @@ class UserSuggestionForm(BaseModel):
     contact: Optional[str] = None
 
 
+class UserSuggestionCountsForm(BaseModel):
+    user_ids: list[str]
+
+
+class UserSuggestionCountResponse(BaseModel):
+    user_id: str
+    count: int
+
+
 @router.get("/feedbacks/all", response_model=list[FeedbackUserResponse])
 async def get_all_feedbacks(user=Depends(get_admin_user)):
     feedbacks = Feedbacks.get_all_feedbacks()
@@ -174,6 +183,37 @@ async def create_suggestion_feedback(
 async def list_user_suggestions(user=Depends(get_admin_user)):
     """管理员查看所有用户反馈。"""
     return UserFeedbacks.list_all()
+
+
+@router.post(
+    "/feedbacks/suggestion/counts", response_model=list[UserSuggestionCountResponse]
+)
+async def list_user_suggestion_counts(
+    form_data: UserSuggestionCountsForm, user=Depends(get_admin_user)
+):
+    """管理员查看指定用户反馈数量。"""
+    user_ids = form_data.user_ids or []
+    if not user_ids:
+        return []
+
+    seen = set()
+    unique_user_ids = []
+    for user_id in user_ids:
+        if user_id and user_id not in seen:
+            seen.add(user_id)
+            unique_user_ids.append(user_id)
+
+    counts = UserFeedbacks.count_by_user_ids(unique_user_ids)
+    return [
+        UserSuggestionCountResponse(user_id=user_id, count=counts.get(user_id, 0))
+        for user_id in unique_user_ids
+    ]
+
+
+@router.get("/feedbacks/suggestion/user/{user_id}", response_model=list[UserFeedbackModel])
+async def list_user_suggestions_by_user(user_id: str, user=Depends(get_admin_user)):
+    """管理员查看指定用户反馈。"""
+    return UserFeedbacks.list_by_user(user_id)
 
 
 @router.delete("/feedback/suggestion/{id}")

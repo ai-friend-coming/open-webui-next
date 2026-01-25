@@ -3,7 +3,7 @@ import uuid
 from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column, Text, BigInteger
+from sqlalchemy import Column, Text, BigInteger, func
 
 from open_webui.internal.db import Base, get_db
 from open_webui.env import SRC_LOG_LEVELS
@@ -103,6 +103,20 @@ class UserFeedbacksTable:
         with get_db() as db:
             items = db.query(UserFeedback).order_by(UserFeedback.created_at.desc()).all()
             return [UserFeedbackModel.model_validate(x) for x in items]
+
+    def count_by_user_ids(self, user_ids: List[str]) -> dict:
+        """按用户ID列表统计反馈数量。"""
+        if not user_ids:
+            return {}
+
+        with get_db() as db:
+            items = (
+                db.query(UserFeedback.user_id, func.count(UserFeedback.id))
+                .filter(UserFeedback.user_id.in_(user_ids))
+                .group_by(UserFeedback.user_id)
+                .all()
+            )
+            return {user_id: count for user_id, count in items}
 
     def update_status(self, id: str, status: str) -> Optional[UserFeedbackModel]:
         """更新状态（例如管理员处理后标记 resolved）。"""

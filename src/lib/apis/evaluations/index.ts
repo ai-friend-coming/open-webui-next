@@ -184,6 +184,65 @@ export const createUserSuggestionFeedback = async (token: string, body: { conten
 	return res;
 };
 
+export const getUserSuggestionFeedbacksByUserId = async (token: string, userId: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/evaluations/feedbacks/suggestion/user/${userId}`, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail ?? err;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const getUserSuggestionFeedbackCounts = async (token: string, userIds: string[]) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/evaluations/feedbacks/suggestion/counts`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			user_ids: userIds
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail ?? err;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const getFeedbackById = async (token: string, feedbackId: string) => {
 	let error = null;
 
