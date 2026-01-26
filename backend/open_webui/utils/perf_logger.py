@@ -3,12 +3,11 @@
 
 记录关键时间节点：
 1. 接口调用开始
-2. ensure_initial_summary 开始/结束
-3. messages_loaded 组装完成
-4. 调用 LLM 之前
-5. LLM 返回第一个 token
-6. LLM 回复完成
-7. update_summary 开始/结束
+2. messages_loaded 组装完成
+3. 调用 LLM 之前
+4. LLM 返回第一个 token
+5. LLM 回复完成
+6. update_summary 开始/结束
 
 最终保存为 JSON 文件，便于性能分析。
 """
@@ -55,17 +54,12 @@ class ChatPerfLogger:
         self.t_llm_response = None  # LLM 回复完成
         self.t_payload_start = None  # process_chat_payload 开始
         self.t_payload_end = None  # process_chat_payload 结束
-        self.t_ensure_initial_summary_start = None
-        self.t_ensure_initial_summary_end = None
-        self.t_update_summary_start = None
-        self.t_update_summary_end = None
 
         # 详细信息
         self.llm_info: Dict[str, Any] = {}
         self.payload_info: Dict[str, Any] = {}  # payload 处理详情
-        self.ensure_initial_summary_info: Dict[str, Any] = {}
         self.messages_loaded_info: Dict[str, Any] = {}
-        self.update_summary_info: Dict[str, Any] = {}
+        self.ordered_messages_in_chat: Optional[List[Dict[str, Any]]] = None
 
         # 新增：LLM 调用和 Summary 材料存储
         self.llm_payload: Optional[Dict[str, Any]] = None  # LLM 调用的完整 payload
@@ -73,6 +67,8 @@ class ChatPerfLogger:
 
         # 滚动摘要迭代记录
         self.rolling_summary_iterations: List[Dict[str, Any]] = []
+        # 摘要调用明细（bootstrap/rolling）
+        self.summary_runs: List[Dict[str, Any]] = []
 
         self.model_id: Optional[str] = None
         self._filepath: Optional[Path] = None
@@ -188,85 +184,6 @@ class ChatPerfLogger:
             self.llm_info["response_length"] = len(response)
         print("[PERF] 记录 LLM 回复内容")
 
-    def ensure_initial_summary_start(
-        self, messages: List[Dict], prompt: str
-    ) -> None:
-        """2. ensure_initial_summary 开始"""
-        self.t_ensure_initial_summary_start = time.time()
-        self.ensure_initial_summary_info = {
-            "prompt": prompt,
-            "messages_count": len(messages),
-            "prompt_length": len(prompt) if prompt else 0,
-        }
-        print(
-            f"[PERF] ensure_initial_summary 开始: {self.t_ensure_initial_summary_start:.6f} "
-            f"(messages={len(messages)})"
-        )
-
-    def ensure_initial_summary_end(
-        self, response: Optional[Any], prompt:str, usage: Optional[Dict[str, Any]]
-    ) -> None:
-        """3. ensure_initial_summary 结束"""
-        self.t_ensure_initial_summary_end = time.time()
-        self.ensure_initial_summary_info["usage"] = usage
-        self.ensure_initial_summary_info["prompt"] = prompt
-        self.ensure_initial_summary_info["response"] = response
-        # 将滚动摘要迭代记录放入 ensure_initial_summary_info
-        self.ensure_initial_summary_info["rolling_summary_iterations"] = self.rolling_summary_iterations
-        print(
-            f"[PERF] ensure_initial_summary 结束: {self.t_ensure_initial_summary_end:.6f}"
-        )
-
-    def record_messages_loaded(
-        self,
-        summary_system_message: Dict[str, Any],
-        cold_start_messages: List[Dict[str, Any]],
-        recent_conversation_in_this_chat: List[Dict[str, Any]],
-    ) -> None:
-        """4. messages_loaded 内部组装完成"""
-        t_now = time.time()
-        self.messages_loaded_info = {
-            "time": t_now,
-            "summary_system_message": summary_system_message,
-            "cold_start_messages": self._sanitize_messages(cold_start_messages),
-            "recent_conversation_in_this_chat": self._sanitize_messages(
-                recent_conversation_in_this_chat
-            ),
-        }
-        print(f"[PERF] messages_loaded 组装完成: {t_now:.6f}")
-
-    def update_summary_start(
-        self,
-        old_summary: Optional[str],
-        to_be_summarized_messages: List[Dict[str, Any]],
-        tokens: Optional[int] = None,
-        threshold: Optional[int] = None,
-    ) -> None:
-        """7. update_summary 开始"""
-        self.t_update_summary_start = time.time()
-        self.update_summary_info = {
-            "old_summary": old_summary,
-            "to_be_summarized_messages": self._sanitize_messages(
-                to_be_summarized_messages
-            ),
-            "tokens": tokens,
-            "threshold": threshold,
-        }
-        print(
-            f"[PERF] update_summary 开始: {self.t_update_summary_start:.6f} "
-            f"(messages={len(to_be_summarized_messages)})"
-        )
-
-    def update_summary_end(
-        self, response: Optional[Any], prompt:str, usage: Optional[Dict[str, Any]],
-    ) -> None:
-        """8. update_summary 结束"""
-        self.t_update_summary_end = time.time()
-        self.update_summary_info["response"] = response
-        self.update_summary_info["prompt"] = prompt
-        self.update_summary_info["usage"] = usage
-        print(f"[PERF] update_summary 结束: {self.t_update_summary_end:.6f}")
-
     def record_rolling_summary_iteration(
         self,
         iteration: int,
@@ -304,6 +221,39 @@ class ChatPerfLogger:
             f"usage={usage}"
         )
 
+    def record_summary_runs(
+        self,
+        mode: str,
+        chunk_summaries: List[Dict[str, Any]],
+    ) -> None:
+        """
+        记录摘要调用明细（每个 chunk 一条）
+
+        Args:
+            mode: bootstrap 或 rolling
+            chunk_summaries: summarize_multi_chunk 的返回结果
+        """
+        if not chunk_summaries:
+            return
+
+        for idx, summary_info in enumerate(chunk_summaries):
+            messages = summary_info.get("messages", []) or []
+            self.summary_runs.append(
+                {
+                    "mode": mode,
+                    "chunk_index": idx,
+                    "chunk_type": summary_info.get("chunk_type"),
+                    "messages": self._sanitize_messages(messages),
+                    "messages_count": len(messages),
+                    "summary": summary_info.get("summary"),
+                    "prompt": summary_info.get("prompt"),
+                    "response": summary_info.get("response"),
+                    "usage": summary_info.get("usage"),
+                    "model": summary_info.get("model"),
+                }
+            )
+        print(f"[PERF] 记录摘要明细: mode={mode}, chunks={len(chunk_summaries)}")
+
     def record_llm_payload(self, payload: Dict[str, Any]) -> None:
         """
         记录 LLM 调用的完整 payload
@@ -327,6 +277,26 @@ class ChatPerfLogger:
         }
         print(f"[PERF] 记录 LLM Payload: model={payload.get('model')}, 消息数={len(payload.get('messages', []))}")
 
+    def record_messages_loaded(
+        self,
+        summary_system_message: Dict[str, Any],
+        recent_conversation_in_this_chat: Optional[List[Dict[str, Any]]] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.messages_loaded_info = {
+            "time": time.time(),
+            "summary_system_message": summary_system_message,
+            "recent_messages": recent_conversation_in_this_chat or [],
+        }
+        if extra:
+            extra_info = dict(extra)
+            extra_info.pop("ordered_messages", None)
+            if "ordered_messages_in_chat" in extra_info:
+                self.ordered_messages_in_chat = extra_info["ordered_messages_in_chat"]
+                extra_info.pop("ordered_messages_in_chat", None)
+            self.messages_loaded_info.update(extra_info)
+        print("[PERF] 记录 messages_loaded 细节")
+
     def _sanitize_messages(self, messages: List[Dict]) -> List[Dict]:
         """
         清理消息数据，只保留关键字段，减小日志体积
@@ -348,6 +318,13 @@ class ChatPerfLogger:
                 sanitized_msg["id"] = msg["id"]
             if "name" in msg:
                 sanitized_msg["name"] = msg["name"]
+            timestamp = (
+                msg.get("createdAt")
+                or msg.get("created_at")
+                or msg.get("timestamp")
+            )
+            if timestamp is not None:
+                sanitized_msg["timestamp"] = timestamp
 
             sanitized.append(sanitized_msg)
 
@@ -373,21 +350,17 @@ class ChatPerfLogger:
                 "api_start": self.t0,
                 "payload_processing_start": self.t_payload_start,
                 "payload_processing_end": self.t_payload_end,
-                "ensure_initial_summary_start": self.t_ensure_initial_summary_start,
-                "ensure_initial_summary_end": self.t_ensure_initial_summary_end,
                 "messages_loaded": self.messages_loaded_info.get("time"),
                 "before_llm": self.t_before_llm,
                 "first_token": self.t_first_token,
                 "llm_response": self.t_llm_response,
-                "update_summary_start": self.t_update_summary_start,
-                "update_summary_end": self.t_update_summary_end,
             },
             "durations_ms": {},
             "llm_info": self.llm_info,
             "payload_info": self.payload_info,  # 包含所有 checkpoint 信息
-            "ensure_initial_summary_info": self.ensure_initial_summary_info,
             "messages_loaded_info": self.messages_loaded_info,
-            "update_summary_info": self.update_summary_info,
+            "ordered_messages_in_chat": self.ordered_messages_in_chat,
+            "summary_runs": self.summary_runs,
             "llm_payload": self.llm_payload,  # LLM 调用的完整 payload
             "llm_response": self.llm_response_content,  # LLM 回复内容
         }
@@ -417,10 +390,6 @@ class ChatPerfLogger:
             if self.t_llm_response:
                 durations["total"] = (self.t_llm_response - self.t0) * 1000
 
-            if self.t_update_summary_start and self.t_update_summary_end:
-                durations["update_summary"] = (
-                    self.t_update_summary_end - self.t_update_summary_start
-                ) * 1000
 
             # 计算 payload checkpoints 之间的耗时
             if hasattr(self, "_payload_checkpoints") and self._payload_checkpoints:

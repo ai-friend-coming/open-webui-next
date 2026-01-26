@@ -510,7 +510,6 @@ from open_webui.utils.chat import (
 )
 from open_webui.billing import chat_with_billing
 from open_webui.utils.misc import get_message_list
-from open_webui.utils.summary import ensure_initial_summary
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
 from open_webui.utils.access_control import has_access
@@ -1710,16 +1709,6 @@ async def chat_completion(
         """处理完整的聊天流程：Payload 处理 → LLM 调用 → 响应处理"""
 
         async with chat_error_boundary(metadata, user):
-            await ensure_initial_summary(
-                request=request,
-                metadata=metadata,
-                user=user,
-                chat_id=metadata.get("chat_id"),
-                model_id=form_data.get("model"),
-                is_user_model=form_data.get("is_user_model", False),
-                model_config=model,
-                perf_logger=perf_logger
-            )
 
             # === 8.0.5 用户画像分析（异步，不阻塞主请求）===
             await create_task(

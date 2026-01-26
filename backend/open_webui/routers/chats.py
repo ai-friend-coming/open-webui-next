@@ -24,11 +24,34 @@ from open_webui.memory.mem0 import mem0_delete, mem0_delete_by_message_content
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_permission
+from open_webui.utils.summary_1 import SummaryChromaStore
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
+
+def _delete_chat_summary_collection(request: Request, user_id: str, chat_id: str) -> None:
+    try:
+        store = SummaryChromaStore(request, user_id, chat_id)
+        collection_name = store.collection_name
+        if not collection_name:
+            return
+
+        vector_client = getattr(request.app.state, "VECTOR_DB_CLIENT", None)
+        if vector_client is None:
+            from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT as default_client
+
+            vector_client = default_client
+        if not vector_client:
+            return
+
+        if hasattr(vector_client, "has_collection") and not vector_client.has_collection(collection_name):
+            return
+
+        vector_client.delete_collection(collection_name)
+    except Exception as e:
+        log.warning(f"delete_chat_summary_collection failed: chat_id={chat_id} error={e}")
 
 
 def _clean_chat_meta(chat_dict) -> dict:
@@ -95,6 +118,19 @@ async def delete_all_user_chats(request: Request, user=Depends(get_verified_user
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+    chat_list = Chats.get_chat_title_id_list_by_user_id(
+        user.id,
+        include_archived=True,
+        include_folders=True,
+        include_pinned=True,
+    )
+    for chat in chat_list:
+        chat_id = getattr(chat, "id", None)
+        if not chat_id and isinstance(chat, dict):
+            chat_id = chat.get("id")
+        if chat_id:
+            _delete_chat_summary_collection(request, user.id, chat_id)
 
     result = Chats.delete_chats_by_user_id(user.id)
     return result
@@ -783,6 +819,9 @@ async def delete_chat_by_id(request: Request, id: str, user=Depends(get_verified
         # 清理该聊天的 Mem0 记忆条目
         await mem0_delete(chat.user_id, id)
 
+        # 删除该聊天对应的 summary 向量集合
+        _delete_chat_summary_collection(request, chat.user_id, id)
+
         # 清理孤立标签（仅被该聊天使用的标签）
         for tag in chat.meta.get("tags", []):
             if Chats.count_chats_by_tag_name_and_user_id(tag, user.id) == 1:
@@ -814,6 +853,9 @@ async def delete_chat_by_id(request: Request, id: str, user=Depends(get_verified
 
         # 清理该聊天的 Mem0 记忆条目
         await mem0_delete(user.id, id)
+
+        # 删除该聊天对应的 summary 向量集合
+        _delete_chat_summary_collection(request, user.id, id)
 
         # 清理孤立标签
         for tag in chat.meta.get("tags", []):

@@ -322,6 +322,40 @@ class ChatTable:
             log.exception(f"set_summary_by_user_id_and_chat_id failed: {e}")
             return None
 
+    def update_chat_meta(
+        self, chat_id: str, user_id: str, meta_updates: Dict
+    ) -> Optional[ChatModel]:
+        """
+        更新 chat.meta 的部分字段（深度合并）
+
+        参数：
+            chat_id: 聊天 ID
+            user_id: 用户 ID
+            meta_updates: 需要更新的 meta 字段（字典）
+
+        返回：
+            更新后的 ChatModel，失败时返回 None
+        """
+        try:
+            with get_db() as db:
+                chat = db.query(Chat).filter_by(id=chat_id, user_id=user_id).first()
+                if chat is None:
+                    return None
+
+                # 深度合并 meta
+                meta = chat.meta if isinstance(chat.meta, dict) else {}
+                new_meta = {**meta, **meta_updates}
+
+                # 重新赋值以触发 SQLAlchemy 变更检测
+                chat.meta = new_meta
+                chat.updated_at = int(time.time())
+                db.commit()
+                db.refresh(chat)
+                return ChatModel.model_validate(chat)
+        except Exception as e:
+            log.exception(f"update_chat_meta failed: {e}")
+            return None
+
     def add_error_message_by_user_id_and_chat_id(
         self,
         user_id: str,

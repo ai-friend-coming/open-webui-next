@@ -709,51 +709,6 @@ else:
 # 全局调试开关（默认开启）
 CHAT_DEBUG_FLAG = os.environ.get("CHAT_DEBUG_FALG", "False").lower() == "true"
 
-# 摘要/聊天相关的默认阈值
-SUMMARY_TOKEN_THRESHOLD_DEFAULT = os.environ.get("SUMMARY_TOKEN_THRESHOLD", "50000")
-try:
-    SUMMARY_TOKEN_THRESHOLD_DEFAULT = int(SUMMARY_TOKEN_THRESHOLD_DEFAULT)
-except Exception:
-    SUMMARY_TOKEN_THRESHOLD_DEFAULT = 50000
-
-INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT = os.environ.get(
-    "INITIAL_SUMMARY_TOKEN_WINDOW", "50000"
-)
-try:
-    INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT = int(
-        INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT
-    )
-except Exception:
-    INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT = 50000
-
-COLD_START_TOKEN_WINDOW_DEFAULT = os.environ.get(
-    "COLD_START_TOKEN_WINDOW", "15000"
-)
-try:
-    COLD_START_TOKEN_WINDOW_DEFAULT = int(COLD_START_TOKEN_WINDOW_DEFAULT)
-except Exception:
-    COLD_START_TOKEN_WINDOW_DEFAULT = 15000
-
-# 滚动摘要单次 LLM 调用的 token 上限
-ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT = os.environ.get(
-    "ROLLING_SUMMARY_TOKEN_THRESHOLD", "90000"
-)
-try:
-    ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT = int(ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT)
-except Exception:
-    ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT = 80000
-
-USER_TOKEN_IN_CONTEXT_NUM_DEFAULT = os.environ.get("USER_TOKEN_IN_CONTEXT_NUM", "15000")
-try:
-    USER_TOKEN_IN_CONTEXT_NUM_DEFAULT = int(USER_TOKEN_IN_CONTEXT_NUM_DEFAULT)
-except Exception:
-    USER_TOKEN_IN_CONTEXT_NUM_DEFAULT = 15000
-
-ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT = os.environ.get("ASSISTANT_TOKEN_IN_CONTEXT_NUM", "5000")
-try:
-    ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT = int(ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT)
-except Exception:
-    ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT = 5000
 
 ####################################
 # WEBSOCKET SUPPORT
@@ -1183,5 +1138,43 @@ ENCRYPTION_DEBUG = (
 # SUMMARY
 ####################################
 
-# 并行摘要时最多处理的分段数量（默认 3）
-MAX_SUMMARY_CHUNKS = int(os.environ.get("MAX_SUMMARY_CHUNKS", "3"))
+# Bootstrap summary chunk strategy (comma-separated token limits)
+_BOOTSTRAP_SUMMARY_CHUNK_STRATEGY_RAW = os.environ.get(
+    "BOOTSTRAP_SUMMARY_CHUNK_STRATEGY", "90000,10000,10000"
+)
+BOOTSTRAP_SUMMARY_CHUNK_STRATEGY = []
+for item in _BOOTSTRAP_SUMMARY_CHUNK_STRATEGY_RAW.split(","):
+    item = item.strip()
+    if not item:
+        continue
+    try:
+        value = int(item)
+    except ValueError:
+        continue
+    if value > 0:
+        BOOTSTRAP_SUMMARY_CHUNK_STRATEGY.append(value)
+if not BOOTSTRAP_SUMMARY_CHUNK_STRATEGY:
+    BOOTSTRAP_SUMMARY_CHUNK_STRATEGY = [90000, 10000, 10000]
+
+####################################
+# ROLLING SUMMARY (无限上下文)
+####################################
+
+# 摘要触发阈值 - 混合策略（先达到者触发）
+SUMMARY_MESSAGE_THRESHOLD = int(os.environ.get("SUMMARY_MESSAGE_THRESHOLD", "12"))
+SUMMARY_TOKEN_THRESHOLD = int(os.environ.get("SUMMARY_TOKEN_THRESHOLD", "5000"))
+SUMMARY_SUBCHUNK_MIN_MESSAGES = int(
+    os.environ.get("SUMMARY_SUBCHUNK_MIN_MESSAGES", "2")
+)
+
+# 检索摘要数量（可配置）
+SUMMARY_RETRIEVAL_LIMIT = int(os.environ.get("SUMMARY_RETRIEVAL_LIMIT", "3"))
+# 检索摘要时使用的最近用户消息条数
+SUMMARY_RETRIEVAL_USER_MESSAGE_COUNT = int(
+    os.environ.get("SUMMARY_RETRIEVAL_USER_MESSAGE_COUNT", "4")
+)
+
+# 当前对话窗口最小消息数
+CURRENT_CONTEXT_MINIAL_MESSAGE = int(os.environ.get("CURRENT_CONTEXT_MINIAL_MESSAGE", "4"))
+# 当前对话窗口 token 数
+CURRENT_CONTEXT_TOKEN_BUDGET = int(os.environ.get("CURRENT_CONTEXT_TOKEN_BUDGET", "3000"))

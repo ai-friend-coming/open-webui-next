@@ -101,11 +101,9 @@ from open_webui.utils.filter import (
 from open_webui.utils.code_interpreter import execute_code_jupyter
 from open_webui.utils.payload import apply_system_prompt_to_body
 from open_webui.utils.mcp.client import MCPClient
-from open_webui.utils.summary import (
+from open_webui.utils.summary_1 import (
     messages_loaded,
-    update_summary,
-    messages_loaded,
-    messages_loaded_new
+    update_summary
 )
 
 from open_webui.config import (
@@ -117,10 +115,9 @@ from open_webui.config import (
 from open_webui.env import (
     SRC_LOG_LEVELS,
     GLOBAL_LOG_LEVEL,
+    CHAT_DEBUG_FLAG,
     CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE,
     CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES,
-    USER_TOKEN_IN_CONTEXT_NUM_DEFAULT,
-    ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT,
     ENABLE_REALTIME_CHAT_SAVE,
     ENABLE_QUERIES_CACHE,
 )
@@ -1318,17 +1315,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if perf_logger:
         perf_logger.mark_payload_checkpoint("image_caption")
 
-    user_token_num = USER_TOKEN_IN_CONTEXT_NUM_DEFAULT
-    assistant_token_num = ASSISTANT_TOKEN_IN_CONTEXT_NUM_DEFAULT
-
-    # form_data["messages"] = messages_loaded_new(
-    #     metadata, 
-    #     user, 
-    #     user_token_num,
-    #     assistant_token_num,
-    #     perf_logger
-    # )
-    form_data["messages"] = messages_loaded(metadata, user, memory_enabled, perf_logger)
+    form_data["messages"] = messages_loaded(request, metadata, user, memory_enabled, perf_logger)
 
     # === 2. 处理 System Prompt 变量替换 ===
     system_message = get_system_message(form_data.get("messages", []))
@@ -2399,7 +2386,8 @@ async def process_chat_response(
                                 perf_logger.chat_title = title
 
                                 # 保存性能日志为 JSON 文件
-                                await perf_logger.save_to_file()
+                                if CHAT_DEBUG_FLAG:
+                                    await perf_logger.save_to_file()
 
                     # ----------------------------------------
                     # 步骤 7：合并额外事件（如 RAG sources）
@@ -3909,7 +3897,8 @@ async def process_chat_response(
                     perf_logger.chat_title = title
 
                     # 保存性能日志为 JSON 文件
-                    await perf_logger.save_to_file()
+                    if CHAT_DEBUG_FLAG:
+                        await perf_logger.save_to_file()
 
             except asyncio.CancelledError:
                 log.warning("Task was cancelled!")
