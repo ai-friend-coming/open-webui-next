@@ -355,6 +355,7 @@ from open_webui.config import (
     ENABLE_SIGNUP,
     ENABLE_LOGIN_FORM,
     SIGNUP_WELCOME_BONUS,
+    REQUEST_TIMEOUT_SECONDS,
     ENABLE_API_KEY,
     ENABLE_API_KEY_ENDPOINT_RESTRICTIONS,
     API_KEY_ALLOWED_ENDPOINTS,
@@ -779,6 +780,7 @@ app.state.config.WEBUI_URL = WEBUI_URL
 app.state.config.ENABLE_SIGNUP = ENABLE_SIGNUP
 app.state.config.ENABLE_LOGIN_FORM = ENABLE_LOGIN_FORM
 app.state.config.SIGNUP_WELCOME_BONUS = SIGNUP_WELCOME_BONUS
+app.state.config.REQUEST_TIMEOUT_SECONDS = REQUEST_TIMEOUT_SECONDS
 
 app.state.config.ENABLE_API_KEY = ENABLE_API_KEY
 app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS = (
@@ -2061,6 +2063,7 @@ async def get_app_config(request: Request):
                     "pending_user_overlay_title": app.state.config.PENDING_USER_OVERLAY_TITLE,
                     "pending_user_overlay_content": app.state.config.PENDING_USER_OVERLAY_CONTENT,
                     "response_watermark": app.state.config.RESPONSE_WATERMARK,
+                    "request_timeout_seconds": app.state.config.REQUEST_TIMEOUT_SECONDS,
                 },
                 "license_metadata": app.state.LICENSE_METADATA,
                 **(

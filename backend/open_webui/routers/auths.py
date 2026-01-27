@@ -56,7 +56,7 @@ from open_webui.env import (
     SMS_VERIFICATION_SEND_INTERVAL,
     SMS_VERIFICATION_MAX_ATTEMPTS,
 )
-from open_webui.config import SIGNUP_WELCOME_BONUS
+from open_webui.config import SIGNUP_WELCOME_BONUS, REQUEST_TIMEOUT_SECONDS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response, JSONResponse
 from open_webui.config import OPENID_PROVIDER_URL, ENABLE_OAUTH_SIGNUP, ENABLE_LDAP
@@ -1590,6 +1590,7 @@ async def get_admin_config(request: Request, user=Depends(get_admin_user)):
         "PENDING_USER_OVERLAY_TITLE": request.app.state.config.PENDING_USER_OVERLAY_TITLE,
         "PENDING_USER_OVERLAY_CONTENT": request.app.state.config.PENDING_USER_OVERLAY_CONTENT,
         "RESPONSE_WATERMARK": request.app.state.config.RESPONSE_WATERMARK,
+        "REQUEST_TIMEOUT_SECONDS": request.app.state.config.REQUEST_TIMEOUT_SECONDS,
     }
 
 
@@ -1611,6 +1612,7 @@ class AdminConfig(BaseModel):
     PENDING_USER_OVERLAY_TITLE: Optional[str] = None
     PENDING_USER_OVERLAY_CONTENT: Optional[str] = None
     RESPONSE_WATERMARK: Optional[str] = None
+    REQUEST_TIMEOUT_SECONDS: int = 30
 
 
 @router.post("/admin/config")
@@ -1661,6 +1663,10 @@ async def update_admin_config(
 
     request.app.state.config.RESPONSE_WATERMARK = form_data.RESPONSE_WATERMARK
 
+    # 验证并更新请求超时时间（5-300秒）
+    if 5 <= form_data.REQUEST_TIMEOUT_SECONDS <= 300:
+        request.app.state.config.REQUEST_TIMEOUT_SECONDS = form_data.REQUEST_TIMEOUT_SECONDS
+
     return {
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,
         "WEBUI_URL": request.app.state.config.WEBUI_URL,
@@ -1679,6 +1685,7 @@ async def update_admin_config(
         "PENDING_USER_OVERLAY_TITLE": request.app.state.config.PENDING_USER_OVERLAY_TITLE,
         "PENDING_USER_OVERLAY_CONTENT": request.app.state.config.PENDING_USER_OVERLAY_CONTENT,
         "RESPONSE_WATERMARK": request.app.state.config.RESPONSE_WATERMARK,
+        "REQUEST_TIMEOUT_SECONDS": request.app.state.config.REQUEST_TIMEOUT_SECONDS,
     }
 
 

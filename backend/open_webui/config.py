@@ -1134,6 +1134,24 @@ SIGNUP_WELCOME_BONUS = PersistentConfig(
 )
 
 
+def get_request_timeout_seconds():
+    """Get REQUEST_TIMEOUT_SECONDS from environment with validation"""
+    timeout = os.environ.get("REQUEST_TIMEOUT_SECONDS", "30")
+    try:
+        timeout_int = int(timeout)
+        return max(5, min(300, timeout_int))  # Ensure between 5-300 seconds
+    except ValueError:
+        log.warning(f"Invalid REQUEST_TIMEOUT_SECONDS value '{timeout}', defaulting to 30")
+        return 30
+
+
+REQUEST_TIMEOUT_SECONDS = PersistentConfig(
+    "REQUEST_TIMEOUT_SECONDS",
+    "ui.request_timeout_seconds",
+    get_request_timeout_seconds(),
+)
+
+
 def get_first_recharge_bonus_enabled():
     """Get FIRST_RECHARGE_BONUS_ENABLED from environment"""
     return os.environ.get("FIRST_RECHARGE_BONUS_ENABLED", "False").lower() == "true"

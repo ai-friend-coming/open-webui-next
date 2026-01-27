@@ -74,24 +74,25 @@ export class SendingRequestManagement {
 	/**
 	 * 开始一个新的请求
 	 *
-	 * 【调用时机】sendMessage 中��每个模型创建 responseMessage 之后
+	 * 【调用时机】sendMessage 中为每个模型创建 responseMessage 之后
 	 * 【功能】初始化请求生命周期数据，记录发送时间和业务数据
 	 *
 	 * @param messageId - 响应消息 ID
 	 * @param sentData - 发送时的业务数据
 	 * @param submitAt - submitPrompt 的调用时间戳
+	 * @param timeoutSeconds - 超时时间（秒），默认 30 秒
 	 */
-	startRequest(messageId: string, sentData: SentData, submitAt: number): void {
+	startRequest(messageId: string, sentData: SentData, submitAt: number, timeoutSeconds: number = 30): void {
 		this.currentRequestId.set(messageId);
 
-		// 创建 30s 超时定时器
+		// 创建超时定时器（使用配置的超时时间）
 		const timeoutId = setTimeout(() => {
 			console.log(`[Timeout] Timer triggered for message ${messageId}`);
 			// 正确处理 async 函数的 Promise
-			this.timeoutRequest(messageId).catch((error) => {
+			this.timeoutRequest(messageId, timeoutSeconds).catch((error) => {
 				console.error('Error in timeoutRequest:', error);
 			});
-		}, 30000);
+		}, timeoutSeconds * 1000);
 
 		this.requests[messageId] = {
 			status: 'pending',
@@ -337,12 +338,13 @@ export class SendingRequestManagement {
 	/**
 	 * 请求超时处理
 	 *
-	 * 【调用时机】startRequest 后 30s 内未收到第一个 token
+	 * 【调用时机】startRequest 后超时时间内未收到第一个 token
 	 * 【功能】终止后端任务，记录超时错误，发送埋点
 	 *
 	 * @param messageId - 响应消息 ID
+	 * @param timeoutSeconds - 超时时间（秒）
 	 */
-	private async timeoutRequest(messageId: string): Promise<void> {
+	private async timeoutRequest(messageId: string, timeoutSeconds: number): Promise<void> {
 		const request = this.requests[messageId];
 		if (!request) return;
 
@@ -357,7 +359,7 @@ export class SendingRequestManagement {
 			return;
 		}
 
-		console.warn(`Request ${messageId} timed out after 30s without receiving first token`);
+		console.warn(`Request ${messageId} timed out after ${timeoutSeconds}s without receiving first token`);
 
 		// 先终止后端任务（如果有 taskId）
 		if (request.taskId) {
@@ -366,7 +368,7 @@ export class SendingRequestManagement {
 
 		// 显示用户提示（使用 i18n）
 		toast.error(
-			i18next.t('Request timeout: No response received within 30 seconds, please try again')
+			i18next.t('Request timeout: No response received within {{seconds}} seconds, please try again', { seconds: timeoutSeconds })
 		);
 
 		// 【新增】发送超时事件，通知 Chat.svelte 标记消息为 broken
@@ -377,7 +379,7 @@ export class SendingRequestManagement {
 			messageId,
 			{
 				errorType: 'timeout',
-				error: 'No first token received within 30 seconds'
+				error: `No first token received within ${timeoutSeconds} seconds`
 			},
 			'error'
 		);

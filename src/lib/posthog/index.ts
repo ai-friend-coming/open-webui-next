@@ -789,7 +789,7 @@ export interface MessageLifecycleResponseData {
 
 /** 错误数据 */
 export interface MessageLifecycleErrorData {
-	errorType: 'ws_error' | 'completion_error' | 'api_error' | 'http_error';
+	errorType: 'ws_error' | 'completion_error' | 'api_error' | 'http_error' | 'timeout';
 	error: any;
 }
 

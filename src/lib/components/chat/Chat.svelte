@@ -2126,6 +2126,8 @@
 				responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`] = responseMessageId;
 
 				// 5.5 启动请求生命周期追踪（在创建响应消息后立即调用，确保时间戳准确）
+				// 从配置获取超时时间（秒），默认 30 秒
+				const timeoutSeconds = $config?.ui?.request_timeout_seconds ?? 30;
 				sendingRequestManagement.startRequest(responseMessageId, {
 					isNewChat: newChat && userMessage?.parentId === null,
 					chatId: _chatId,
@@ -2140,7 +2142,7 @@
 					fileCount: userMessage?.files?.length ?? 0,
 					selectedTools: selectedToolIds,
 					features: featuresForTracking
-				}, submitAt);
+				}, submitAt, timeoutSeconds);
 			}
 		}
 		history = history;

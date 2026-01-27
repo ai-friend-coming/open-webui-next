@@ -308,6 +308,7 @@ type Config = {
 	ui?: {
 		pending_user_overlay_title?: string;
 		pending_user_overlay_description?: string;
+		request_timeout_seconds?: number;
 	};
 };
 
