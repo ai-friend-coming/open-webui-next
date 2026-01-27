@@ -769,6 +769,7 @@ export interface MessageLifecycleSentData {
 	modelId: string;
 	modelName: string;
 	isUserModel: boolean;
+	provider: string | null;
 	responseMessageId: string;
 	chatContext: any;
 	hasFiles: boolean;
@@ -850,6 +851,10 @@ export interface MessageLifecycleRawParams {
  * - sent.model_id: string - 模型 ID
  * - sent.model_name: string - 模型名称
  * - sent.is_user_model: boolean - 是否用户私有模型
+ * - sent.provider: string | null - 模型提供商标识
+ *   - 系统模型：info.provider 或 owned_by (ollama/openai/arena)
+ *   - 用户模型：从 base_url 提取的域名
+ *   - 无法确定时为 null
  * - sent.response_message_id: string - 响应消息 ID
  * - sent.has_files: boolean - 是否有附件
  * - sent.file_count: number - 附件数量
@@ -954,6 +959,7 @@ export const trackMessageLifecycle = (params: MessageLifecycleRawParams) => {
 			model_id: sentData.modelId,
 			model_name: sentData.modelName,
 			is_user_model: sentData.isUserModel,
+			provider: sentData.provider,
 			response_message_id: sentData.responseMessageId,
 			chat_context: sentData.chatContext,
 			has_files: sentData.hasFiles,

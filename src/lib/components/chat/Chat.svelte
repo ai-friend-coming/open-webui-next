@@ -2136,6 +2136,7 @@
 					modelId: modelId,
 					modelName: model.name ?? model.id ?? modelId,
 					isUserModel: combined.source === 'user',
+					provider: extractProvider(combined),
 					responseMessageId: responseMessageId,
 					chatContext: chatContextForTracking,
 					hasFiles: (userMessage?.files?.length ?? 0) > 0,
@@ -2274,6 +2275,49 @@
 		if (platform) return { source: 'platform', model: platform };
 		const priv = $userModels.find((m) => m.id === modelId);
 		if (priv) return { source: 'user', credential: priv };
+		return null;
+	};
+
+	/**
+	 * 从模型对象中提取 provider 标识
+	 *
+	 * @param combined - getCombinedModelById 返回的组合对象
+	 * @returns provider 字符串，如果无法确定则返回 null
+	 *
+	 * 提取规则：
+	 * - 系统模型：优先使用 model.info?.provider，回退到 model.owned_by
+	 * - 用户模型：从 credential.base_url 提取域名
+	 */
+	const extractProvider = (combined: { source: string; model?: any; credential?: any } | null): string | null => {
+		if (!combined) return null;
+
+		if (combined.source === 'platform' && combined.model) {
+			const model = combined.model;
+			if (model.info?.provider) {
+				return model.info.provider;
+			}
+			if (model.owned_by) {
+				return model.owned_by;
+			}
+			return null;
+		}
+
+		if (combined.source === 'user' && combined.credential) {
+			const baseUrl = combined.credential.base_url;
+			if (!baseUrl || typeof baseUrl !== 'string') {
+				return null;
+			}
+
+			try {
+				const url = new URL(baseUrl);
+				return url.hostname;
+			} catch (error) {
+				console.warn('Invalid base_url format:', baseUrl, error);
+				const cleaned = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
+				return cleaned || null;
+			}
+		}
+
 		return null;
 	};
 
