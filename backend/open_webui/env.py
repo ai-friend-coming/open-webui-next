@@ -707,7 +707,7 @@ else:
         CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES = 30
 
 # 全局调试开关（默认开启）
-CHAT_DEBUG_FLAG = os.environ.get("CHAT_DEBUG_FALG", "False").lower() == "true"
+CHAT_DEBUG_FLAG = os.environ.get("CHAT_DEBUG_FLAG", "False").lower() == "true"
 
 
 ####################################
