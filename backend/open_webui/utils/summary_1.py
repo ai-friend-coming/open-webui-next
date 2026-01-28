@@ -127,6 +127,28 @@ def _extract_text_content(content) -> str:
         return " ".join(texts)
     return str(content) if content else ""
 
+def _strip_pending_pair(
+    messages: List[Dict[str, Any]],
+    *,
+    metadata: Dict[str, Any],
+    messages_map: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """移除当前轮的 user+空 assistant 占位对话，避免误判为历史消息。"""
+    current_assistant_id = metadata.get("message_id")
+    if not current_assistant_id:
+        return messages
+    current_assistant = messages_map.get(current_assistant_id) or {}
+    if current_assistant.get("role") != "assistant":
+        return messages
+    assistant_text = _extract_text_content(current_assistant.get("content", "")).strip()
+    if assistant_text:
+        return messages
+    parent_id = current_assistant.get("parentId")
+    drop_ids = {current_assistant_id}
+    if parent_id:
+        drop_ids.add(parent_id)
+    return [msg for msg in messages if msg.get("id") not in drop_ids]
+
 def _transform_message_content(
     content: Any,
     transform: Callable[[str], str],
@@ -1682,8 +1704,13 @@ async def update_summary(
 
     # === Bootstrap 摘要：第一次进入该 chat 时生成初始摘要 ===
     if not summary_state:
+        bootstrap_messages = _strip_pending_pair(
+            ordered_messages,
+            metadata=metadata,
+            messages_map=messages_map,
+        )
         # 没有历史消息则只落状态，不生成摘要
-        if not ordered_messages:
+        if not bootstrap_messages:
             empty_state = _init_state({})
             summary_state_payload = _build_summary_state(
                 {}, empty_state, "done", task_id=""
@@ -1693,7 +1720,7 @@ async def update_summary(
 
         # 按 BOOTSTRAP_SUMMARY_CHUNK_STRATEGY 切分历史消息
         bootstrap_chunks = build_bootstrap_chunks(
-            ordered_messages, BOOTSTRAP_SUMMARY_CHUNK_STRATEGY
+            bootstrap_messages, BOOTSTRAP_SUMMARY_CHUNK_STRATEGY
         )
         if not bootstrap_chunks:
             return
@@ -1704,7 +1731,7 @@ async def update_summary(
         if perf_logger:
             total_tokens = sum(compute_token_count(chunk) for chunk in bootstrap_chunks)
             extra = {
-                "messages": len(ordered_messages),
+                "messages": len(bootstrap_messages),
                 "tokens": total_tokens,
                 "chunks": len(bootstrap_chunks),
             }
@@ -1823,4 +1850,3 @@ async def update_summary(
 # - SUMMARY_MESSAGE_THRESHOLD（12）：滚动摘要触发的消息条数阈值。
 # - SUMMARY_TOKEN_THRESHOLD（5000）：滚动摘要触发的 token 数阈值。
 # - SUMMARY_SUBCHUNK_MIN_MESSAGES（2）：即使 token 超限，滚动摘要也必须满足的最小消息数。
-
