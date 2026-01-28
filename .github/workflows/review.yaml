@@ -1,0 +1,138 @@
+# AI PR Reviewer 可配置版本
+# 文件位置: .github/workflows/ai-pr-reviewer.yml
+#
+# ===== 配置说明 =====
+# 在仓库 Settings → Secrets and variables → Actions 中配置：
+#
+# 【Secrets（必须）】
+# - OPENAI_API_KEY: API 密钥
+#
+# 【Variables（可选）】
+# - OPENAI_BASE_URL: API 地址（默认: https://api.openai.com/v1）
+# - OPENAI_LIGHT_MODEL: 轻量模型（默认: gpt-3.5-turbo）
+# - OPENAI_HEAVY_MODEL: 重量模型（默认: gpt-4）
+# - AI_REVIEW_LANGUAGE: 审查语言（默认: zh-CN）
+
+name: AI Code Review
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  # 只在 PR 事件触发审查
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  # 支持评论交互
+  pull_request_review_comment:
+    types: [created]
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.event.number || github.head_ref || github.sha }}-${{ github.workflow }}-${{ github.event_name == 'pull_request_review_comment' && 'pr_comment' || 'pr' }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request_review_comment' }}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # 跳过 draft PR
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: coderabbitai/ai-pr-reviewer@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          # API 配置（通过 Variables 自定义）
+          openai_base_url: ${{ vars.OPENAI_BASE_URL || 'https://yunwu.ai/v1' }}
+          openai_light_model: ${{ vars.OPENAI_LIGHT_MODEL || 'gpt-5.2-codex' }}
+          openai_heavy_model: ${{ vars.OPENAI_HEAVY_MODEL || 'gpt-5.2-codex' }}
+
+          # 审查配置
+          language: ${{ vars.AI_REVIEW_LANGUAGE || 'zh-CN' }}
+          debug: false
+          review_simple_changes: false
+          review_comment_lgtm: false
+          max_files: '100'
+          openai_timeout_ms: '360000'
+          openai_retries: '5'
+
+          # 文件过滤（基于 open-webui 项目结构）
+          path_filters: |
+            # ===== 包含：后端 Python =====
+            backend/**/*.py
+
+            # ===== 包含：前端 Svelte/TypeScript/JavaScript =====
+            src/**/*.svelte
+            src/**/*.ts
+            src/**/*.js
+            src/**/*.mjs
+            src/**/*.cjs
+
+            # ===== 排除：测试文件 =====
+            !**/*.test.*
+            !**/*.spec.*
+            !**/__tests__/**
+            !**/test_*.py
+            !**/*_test.py
+            !**/tests/**
+
+            # ===== 排除：依赖和构建产物 =====
+            !**/node_modules/**
+            !**/dist/**
+            !**/build/**
+            !**/__pycache__/**
+            !**/.venv/**
+            !**/venv/**
+
+            # ===== 排除：锁文件和配置 =====
+            !**/*.lock
+            !**/package-lock.json
+            !**/uv.lock
+            !**/poetry.lock
+            !**/*.json
+            !**/*.yaml
+            !**/*.yml
+            !**/*.toml
+
+            # ===== 排除：文档和静态资源 =====
+            !**/*.md
+            !**/*.txt
+            !**/*.rst
+            !**/static/**
+            !**/*.svg
+            !**/*.png
+            !**/*.jpg
+            !**/*.jpeg
+            !**/*.gif
+            !**/*.ico
+            !**/*.woff
+            !**/*.woff2
+            !**/*.ttf
+            !**/*.eot
+
+            # ===== 排除：i18n 翻译文件 =====
+            !**/i18n/**
+            !**/locales/**
+
+            # ===== 排除：迁移文件 =====
+            !**/migrations/**
+            !**/alembic/**
+
+          # 系统提示词
+          system_message: |
+            你是一位资深的全栈工程师，熟悉 open-webui 项目（Python FastAPI 后端 + Svelte 前端）。请使用中文回复。
+
+            ## 技术栈
+            - 后端：Python 3.11+, FastAPI, SQLAlchemy, Pydantic
+            - 前端：SvelteKit, TypeScript, TailwindCSS
+            - 数据库：SQLite/PostgreSQL, ChromaDB (向量数据库)
+
+            ## 审查重点
+            - 🔴 严重：安全漏洞（SQL注入、XSS、认证绕过）、数据泄露、逻辑错误
+            - 🟡 一般：性能问题、错误处理不当、类型安全
+            - 💡 建议：代码优化、最佳实践
+
+            ## 规则
+            - 忽略代码格式问题（由 linter 处理）
+            - 保持简洁，直接指出问题和解决方案
+            - 严重问题必须标注 🔴
