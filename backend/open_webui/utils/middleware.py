@@ -2242,41 +2242,76 @@ async def process_chat_response(
                 # 步骤 1：响应类型检查和数据解析
                 # ----------------------------------------
                 # 边界情况：支持 dict 和 JSONResponse 两种响应类型
-                if isinstance(response, dict) or isinstance(response, JSONResponse):
+                if isinstance(response, (dict, JSONResponse, Response)):
+                    response_data = None
+                    response_status = None
+
                     # 边界情况：处理单项列表（某些 LLM 可能返回 [response]）
                     # 数据流转：[response] → response
                     if isinstance(response, list) and len(response) == 1:
                         response = response[0]
 
-                    # 边界情况：JSONResponse 需要从 body (bytes) 解析 JSON
-                    # 数据流转：JSONResponse.body (bytes) → response_data (dict)
-                    if isinstance(response, JSONResponse) and isinstance(
-                        response.body, bytes
-                    ):
-                        try:
-                            response_data = json.loads(
-                                response.body.decode("utf-8", "replace")  # replace 处理无效 UTF-8 字符
-                            )
-                        except json.JSONDecodeError:
-                            # 边界情况：JSON 解析失败，构造错误响应
-                            response_data = {
-                                "error": {"detail": "Invalid JSON response"}
-                            }
-                    else:
+                    if isinstance(response, dict):
                         # dict 类型直接使用
                         response_data = response
+                    elif isinstance(response, JSONResponse):
+                        response_status = response.status_code
+                        # 边界情况：JSONResponse 需要从 body (bytes) 解析 JSON
+                        # 数据流转：JSONResponse.body (bytes) → response_data (dict)
+                        if isinstance(response.body, bytes):
+                            try:
+                                response_data = json.loads(
+                                    response.body.decode("utf-8", "replace")  # replace 处理无效 UTF-8 字符
+                                )
+                            except json.JSONDecodeError:
+                                # 边界情况：JSON 解析失败，构造错误响应
+                                response_data = {
+                                    "error": {"detail": "Invalid JSON response"}
+                                }
+                        else:
+                            response_data = response.body
+                    else:
+                        response_status = response.status_code
+                        # PlainText/HTML 等响应：尽量解析 JSON，否则保留文本
+                        body = getattr(response, "body", None)
+                        if isinstance(body, (bytes, bytearray)):
+                            body_text = body.decode("utf-8", "replace")
+                            try:
+                                response_data = json.loads(body_text)
+                            except json.JSONDecodeError:
+                                response_data = body_text
+                        else:
+                            response_data = body
 
                     # ----------------------------------------
                     # 步骤 2：错误响应处理（仅 WebSocket 推送，不持久化）
                     # ----------------------------------------
                     # 业务逻辑：LLM 返回错误（如 API 限流、模型不可用等）
                     # 数据流转：error → WebSocket 推送（临时通知）
-                    if "error" in response_data:
+                    error = None
+                    if isinstance(response_data, dict) and "error" in response_data:
                         error = response_data.get("error")
+                    elif response_status and response_status >= 400:
+                        if isinstance(response_data, dict):
+                            error = (
+                                response_data.get("detail")
+                                or response_data.get("message")
+                                or response_data.get("error")
+                                or response_data
+                            )
+                        elif isinstance(response_data, str):
+                            error = response_data
+                        else:
+                            error = f"Upstream API error ({response_status})"
 
+                    if error is not None:
                         # 边界情况：统一错误格式（dict 或 str）
                         if isinstance(error, dict):
-                            error = error.get("detail", error)  # 提取 detail 字段或保持原样
+                            error = (
+                                error.get("detail")
+                                or error.get("message")
+                                or error
+                            )  # 提取 detail/message 字段或保持原样
                         else:
                             error = str(error)
 
@@ -2295,6 +2330,9 @@ async def process_chat_response(
                                     "data": {"error": {"content": error}},
                                 }
                             )
+
+                    if not isinstance(response_data, dict):
+                        response_data = {}
 
                     # ----------------------------------------
                     # 步骤 3：Arena 模式处理（盲测模型选择）
