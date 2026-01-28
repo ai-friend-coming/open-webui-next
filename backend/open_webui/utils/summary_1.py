@@ -1384,38 +1384,56 @@ def build_bootstrap_chunks(
     token_limits: Sequence[int],
 ) -> List[List[Dict]]:
     """
-    按 token_limits 从旧到新切分 bootstrap 摘要 chunk。
+    按 token_limits 从新到旧切分 bootstrap 摘要 chunk。
 
     规则：
-    1) 依次按 token_limits 切分；
-    2) 单条消息超过阈值时，强制取出；
-    3) 超出策略的剩余消息合并到最后一个 chunk。
+    1) 从最新消息开始，依次按 token_limits（反向）切分；
+    2) 每个 chunk 尽可能多取消息，但不超过对应 token 上限；
+    3) 单条消息超过阈值时，强制取出；
+    4) 超出策略的更老消息直接丢弃。
     """
     if not messages:
         return []
 
-    remaining = list(messages)
-    chunks: List[List[Dict]] = []
-    for max_tokens in token_limits:
+    remaining = list(messages)  # 按时间从旧到新
+    chunks_newest_first: List[List[Dict]] = []
+
+    # 从最新开始切分：使用 token_limits 的反向顺序
+    for max_tokens in reversed(list(token_limits)):
         if not remaining:
             break
-        chunk, remaining = split_messages_by_tokens(remaining, max_tokens)
-        if not chunk and remaining:
-            log.warning("update_summary: bootstrap 单条消息超过阈值，强制取出")
-            chunk = [remaining.pop(0)]
-        if chunk:
-            chunks.append(chunk)
 
-    if remaining:
-        if chunks:
-            log.warning(
-                "update_summary: bootstrap 分段策略不足，剩余消息合并到最后一个 chunk"
-            )
-            chunks[-1].extend(remaining)
-        else:
-            chunks = [remaining]
+        chunk: List[Dict] = []
+        chunk_tokens = 0
+        i = len(remaining) - 1  # 从最新向更老迭代
 
-    return chunks
+        while i >= 0:
+            msg = remaining[i]
+            msg_tokens = compute_token_count([msg])
+
+            if not chunk and msg_tokens > max_tokens:
+                # 单条消息超过阈值，强制取出以避免死循环
+                log.warning("update_summary: bootstrap 单条消息超过阈值，强制取出")
+                chunk = [msg]
+                i -= 1
+                break
+
+            if chunk_tokens + msg_tokens <= max_tokens:
+                chunk.append(msg)
+                chunk_tokens += msg_tokens
+                i -= 1
+            else:
+                break
+
+        if not chunk:
+            break
+
+        # chunk 当前为从新到旧，反转为从旧到新
+        chunks_newest_first.append(list(reversed(chunk)))
+        remaining = remaining[: i + 1]
+
+    # 超出策略的更老消息直接丢弃（不再合并）
+    return list(reversed(chunks_newest_first))
 
 def _init_state(prev_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     prev_state = prev_state if isinstance(prev_state, dict) else {}
