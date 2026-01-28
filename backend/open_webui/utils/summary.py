@@ -898,14 +898,17 @@ async def summarize_multi_chunk(
 
         # 记录到 perf_logger
         if perf_logger:
-            perf_logger.record_rolling_summary_iteration(
-                iteration=chunk_idx + 1,
-                old_summary=old_summary if chunk_idx == 0 else None,
-                messages=chunks[chunk_idx],
-                response=summary_text,
-                usage=usage,
-                remaining_messages_count=sum(len(chunks[j]) for j in range(chunk_idx + 1, len(chunks))),
-            )
+            try:
+                perf_logger.record_rolling_summary_iteration(
+                    iteration=chunk_idx + 1,
+                    old_summary=old_summary if chunk_idx == 0 else None,
+                    messages=chunks[chunk_idx],
+                    response=summary_text,
+                    usage=usage,
+                    remaining_messages_count=sum(len(chunks[j]) for j in range(chunk_idx + 1, len(chunks))),
+                )
+            except Exception as e:
+                log.warning(f"perf_logger.record_rolling_summary_iteration failed: {e}")
 
     # 5. 拼接所有摘要
     final_summary = "\n\n".join(all_summaries)
@@ -1104,8 +1107,11 @@ async def ensure_initial_summary(
 
     # === 6. 性能监控：标记摘要生成开始 ===
     if perf_logger and messages_for_summary:
-        prompt = build_summary_prompt(messages_for_summary, None)
-        perf_logger.ensure_initial_summary_start(messages_for_summary, prompt)
+        try:
+            prompt = build_summary_prompt(messages_for_summary, None)
+            perf_logger.ensure_initial_summary_start(messages_for_summary, prompt)
+        except Exception as e:
+            log.warning(f"perf_logger.ensure_initial_summary_start failed: {e}")
 
     # === 7. 根据 need_summary 决定是否生成摘要 ===
     if need_summary and messages_for_summary:
@@ -1136,15 +1142,18 @@ async def ensure_initial_summary(
                 )
 
                 if perf_logger:
-                    perf_logger.ensure_initial_summary_end(
-                        response={
-                            "summary_text": summary_text,
-                            "llm_response": summary_llm_details.get("response"),
-                        },
-                        prompt=summary_llm_details.get("prompt"),
-                        usage=summary_llm_details.get("usage"),
-                    )
-                    await perf_logger.save_to_file()
+                    try:
+                        perf_logger.ensure_initial_summary_end(
+                            response={
+                                "summary_text": summary_text,
+                                "llm_response": summary_llm_details.get("response"),
+                            },
+                            prompt=summary_llm_details.get("prompt"),
+                            usage=summary_llm_details.get("usage"),
+                        )
+                        await perf_logger.save_to_file()
+                    except Exception as e:
+                        log.warning(f"perf_logger.ensure_initial_summary_end/save_to_file failed: {e}")
 
         summarize_task_id, _ = await create_task(
             request.app.state.redis,
@@ -1233,12 +1242,17 @@ def messages_loaded(
         recent_conversation_in_this_chat = list(reversed(window))
 
     if perf_logger:
-        perf_logger.mark_payload_checkpoint("db_get_messages_map")
-        perf_logger.record_messages_loaded(
-            summary_system_message,
-            cold_start_messages,
-            recent_conversation_in_this_chat,
-        )
+        try:
+            perf_logger.mark_payload_checkpoint("db_get_messages_map")
+            perf_logger.record_messages_loaded(
+                summary_system_message=summary_system_message,
+                recent_conversation_in_this_chat=recent_conversation_in_this_chat,
+                extra={
+                    "cold_start_messages": cold_start_messages,
+                }
+            )
+        except Exception as e:
+            log.warning(f"perf_logger.record_messages_loaded failed: {e}")
 
     # 移除旧的 system 消息
     recent_conversation_in_this_chat = [
@@ -1294,12 +1308,15 @@ async def update_summary(request, metadata, user, model, is_user_model):
 
         # 标记 summary 更新开始
         if perf_logger:
-            perf_logger.update_summary_start(
-                old_summary=old_summary,
-                to_be_summarized_messages=to_be_summarized_summary_messages,
-                tokens=tokens_in_window,
-                threshold=threshold,
-            )
+            try:
+                perf_logger.update_summary_start(
+                    old_summary=old_summary,
+                    to_be_summarized_messages=to_be_summarized_summary_messages,
+                    tokens=tokens_in_window,
+                    threshold=threshold,
+                )
+            except Exception as e:
+                log.warning(f"perf_logger.update_summary_start failed: {e}")
         
         # 获取当前模型ID和用户模型标记，确保使用正确的模型进行摘要更新
         model_id = model.get("id") if model else None
@@ -1340,14 +1357,17 @@ async def update_summary(request, metadata, user, model, is_user_model):
         # 记录 summary 更新使用的材料（summarize 函数的完整参数）
         # 标记 summary 更新结束
         if perf_logger:
-            perf_logger.update_summary_end(
-                response={
-                    "summary_text": summary_text,
-                    "llm_response": summary_llm_details.get("response"),
-                },
-                prompt=summary_llm_details.get("prompt"),
-                usage=summary_llm_details.get("usage"),
-            )
+            try:
+                perf_logger.update_summary_end(
+                    response={
+                        "summary_text": summary_text,
+                        "llm_response": summary_llm_details.get("response"),
+                    },
+                    prompt=summary_llm_details.get("prompt"),
+                    usage=summary_llm_details.get("usage"),
+                )
+            except Exception as e:
+                log.warning(f"perf_logger.update_summary_end failed: {e}")
     else: # tokens 未超过阈值，不执行摘要更新
         pass
 
@@ -1379,7 +1399,10 @@ def messages_loaded_new(
     all_messages = build_ordered_messages(messages_map, current_message_id)
 
     if perf_logger:
-        perf_logger.mark_payload_checkpoint("db_get_messages_map")
+        try:
+            perf_logger.mark_payload_checkpoint("db_get_messages_map")
+        except Exception as e:
+            log.warning(f"perf_logger.mark_payload_checkpoint failed: {e}")
 
     # 3 按分支顺序从新到旧遍历消息，按角色分别扣减 token 配额
     all_messages = list(reversed(all_messages))

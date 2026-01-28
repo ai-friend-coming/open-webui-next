@@ -493,6 +493,7 @@ from open_webui.env import (
     ENABLE_STAR_SESSIONS_MIDDLEWARE,
 
     CHAT_DEBUG_FLAG,
+    SUMMARY_SYSTEM,
 )
 
 
@@ -515,6 +516,7 @@ from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
 from open_webui.utils.access_control import has_access
 from open_webui.utils.user_profile import update_profile
+from open_webui.utils import summary as summary_legacy
 
 from open_webui.utils.auth import (
     get_license_data,
@@ -1711,6 +1713,20 @@ async def chat_completion(
         """处理完整的聊天流程：Payload 处理 → LLM 调用 → 响应处理"""
 
         async with chat_error_boundary(metadata, user):
+            
+            # 仅在使用旧版摘要系统时调用 ensure_initial_summary
+            if SUMMARY_SYSTEM in ("summary", "legacy", "summary_legacy"):
+                await summary_legacy.ensure_initial_summary(
+                    request=request,
+                    metadata=metadata,
+                    user=user,
+                    chat_id=metadata.get("chat_id"),
+                    model_id=form_data.get("model"),
+                    is_user_model=form_data.get("is_user_model", False),
+                    model_config=model,
+                    perf_logger=perf_logger
+                )
+
 
             # === 8.0.5 用户画像分析（异步，不阻塞主请求）===
             await create_task(
