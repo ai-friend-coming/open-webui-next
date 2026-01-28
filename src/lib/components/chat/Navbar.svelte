@@ -41,6 +41,10 @@
 	import ChatCheck from '../icons/ChatCheck.svelte';
 	import Knobs from '../icons/Knobs.svelte';
 
+	import { getChatErrorMessages } from '$lib/apis/chats';
+	import ErrorListModal from './ErrorListModal.svelte';
+	import ErrorDetailModal from './ErrorDetailModal.svelte';
+
 	const i18n = getContext('i18n');
 
 	export let initNewChat: Function;
@@ -63,6 +67,35 @@
 
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
+
+	// Error messages state
+	let errorMessages = null;
+	let showErrorListModal = false;
+	let showErrorDetailModal = false;
+	let selectedError = null;
+	let selectedErrorIndex = 0;
+
+	// Load error messages when chat changes
+	const loadErrorMessages = async (chatId: string) => {
+		if (!chatId || !$user?.role || $user.role !== 'admin') {
+			errorMessages = null;
+			return;
+		}
+
+		try {
+			const res = await getChatErrorMessages(localStorage.token, chatId);
+			errorMessages = res;
+		} catch (err) {
+			console.error('Failed to load error messages:', err);
+			errorMessages = null;
+		}
+	};
+
+	$: if ($chatId && $user?.role === 'admin') {
+		loadErrorMessages($chatId);
+	} else {
+		errorMessages = null;
+	}
 </script>
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
@@ -160,6 +193,39 @@
 									<svg class="size-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
 									</svg>
+								</div>
+							</button>
+						</Tooltip>
+					{/if}
+
+					<!-- Admin: Error messages button -->
+					{#if $user?.role === 'admin' && errorMessages?.error_messages?.length > 0}
+						<Tooltip content="错误日志">
+							<button
+								class="cursor-pointer flex px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition relative"
+								on:click={() => {
+									showErrorListModal = true;
+								}}
+							>
+								<div class="m-auto self-center">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 20 20"
+										fill="currentColor"
+										class="size-5 text-red-500"
+									>
+										<path
+											fill-rule="evenodd"
+											d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
+											clip-rule="evenodd"
+										/>
+									</svg>
+								</div>
+								<!-- Error count badge -->
+								<div
+									class="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1"
+								>
+									{errorMessages.error_messages.length}
 								</div>
 							</button>
 						</Tooltip>
@@ -371,3 +437,21 @@
 		{/if}
 	</div>
 </nav>
+
+<!-- Error Modals -->
+<ErrorListModal
+	bind:show={showErrorListModal}
+	errorMessages={errorMessages?.error_messages || []}
+	on:select={(e) => {
+		selectedError = e.detail.error;
+		selectedErrorIndex = e.detail.index;
+		showErrorListModal = false;
+		showErrorDetailModal = true;
+	}}
+/>
+
+<ErrorDetailModal
+	bind:show={showErrorDetailModal}
+	error={selectedError}
+	errorIndex={selectedErrorIndex}
+/>

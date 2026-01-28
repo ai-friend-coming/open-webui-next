@@ -1240,3 +1240,30 @@ async def delete_all_tags_by_id(id: str, user=Depends(get_verified_user)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND
         )
+
+
+############################
+# GetChatErrorMessages
+############################
+
+
+@router.get("/{id}/errors")
+async def get_chat_error_messages(
+    id: str,
+    user=Depends(get_admin_user)
+):
+    """获取指定 chat 的所有 error_messages（仅限 admin）"""
+    chat = Chats.get_chat_by_id(id)
+
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND
+        )
+
+    error_messages = chat.meta.get("error_messages", []) if isinstance(chat.meta, dict) else []
+
+    return {
+        "chat_id": id,
+        "error_messages": error_messages
+    }
