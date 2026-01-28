@@ -90,6 +90,7 @@
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
 	import Spinner from '../common/Spinner.svelte';
+	import Modal from '../common/Modal.svelte';
 	import { getFunctions } from '$lib/apis/functions';
 	import Image from '../common/Image.svelte';
 	import { updateFolderById } from '$lib/apis/folders';
@@ -122,6 +123,10 @@
 	let eventConfirmationInputPlaceholder = '';
 	let eventConfirmationInputValue = '';
 	let eventCallback = null;
+
+	// Perf Log Modal 状态
+	let showPerfLogModal = false;
+	let latestPerfLog: { timestamp: number; messageId: string; data: any } | null = null;
 
 	let chatIdUnsubscriber: Unsubscriber | undefined;
 	const sendingRequestManagement = new SendingRequestManagement();
@@ -569,6 +574,31 @@
 						toast.warning(toastContent);
 					} else {
 						toast.info(toastContent);
+					}
+					// ========== 性能日志 ==========
+					// 开发调试用：输出性能日志到控制台
+				} else if (type === 'chat:perf_log') {
+					// 存储最新的 perf_log 数据
+					latestPerfLog = {
+						timestamp: Date.now(),
+						messageId: event.message_id,
+						data: data
+					};
+
+					// 开发调试用：输出性能日志到控制台
+					console.group('🔧 Performance Log');
+					console.log('Message ID:', event.message_id);
+					console.log('Full Data:', data);
+					console.groupEnd();
+
+					// 可选：存储到 window 对象供调试
+					if (typeof window !== 'undefined') {
+						window.__PERF_LOGS__ = window.__PERF_LOGS__ || [];
+						window.__PERF_LOGS__.push({
+							timestamp: Date.now(),
+							messageId: event.message_id,
+							data: data
+						});
 					}
 					// ========== 确认对话框 ==========
 					// 后端请求用户确认某操作，需要通过 cb 回调结果
@@ -3252,6 +3282,29 @@
 									}}
 								/>
 
+								<!-- Perf Log 调试按钮 -->
+								{#if latestPerfLog}
+									<div class="flex justify-end mt-2">
+										<button
+											class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
+											on:click={() => (showPerfLogModal = true)}
+											aria-label="Performance Log"
+											title="Performance Log"
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												class="w-5 h-5"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+											>
+												<path d="M12 20V10M18 20V4M6 20v-4" />
+											</svg>
+										</button>
+									</div>
+								{/if}
+
 								<div
 									class="absolute bottom-1 text-xs text-gray-500 text-center line-clamp-1 right-0 left-0"
 								>
@@ -3337,3 +3390,48 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Perf Log Modal -->
+{#if showPerfLogModal}
+	<Modal bind:show={showPerfLogModal} size="2xl">
+		<div class="p-6">
+			<div class="flex justify-between items-center mb-4">
+				<h2 class="text-lg font-semibold dark:text-white">Performance Log</h2>
+				<button
+					class="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+					on:click={() => (showPerfLogModal = false)}
+				>
+					<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+
+			{#if latestPerfLog}
+				<div class="space-y-4">
+					<!-- 时间戳和消息 ID -->
+					<div class="text-sm text-gray-500 dark:text-gray-400">
+						<span>Message ID: {latestPerfLog.messageId}</span>
+						<span class="ml-4">Time: {new Date(latestPerfLog.timestamp).toLocaleTimeString()}</span>
+					</div>
+
+					<!-- JSON 数据展示 -->
+					<div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 overflow-auto max-h-[60vh]">
+						<pre class="text-sm font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200">{JSON.stringify(latestPerfLog.data, null, 2)}</pre>
+					</div>
+
+					<!-- 复制按钮 -->
+					<button
+						class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition"
+						on:click={() => {
+							navigator.clipboard.writeText(JSON.stringify(latestPerfLog.data, null, 2));
+							toast.success('Copied to clipboard');
+						}}
+					>
+						Copy JSON
+					</button>
+				</div>
+			{/if}
+		</div>
+	</Modal>
+{/if}

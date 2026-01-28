@@ -2043,6 +2043,12 @@ async def process_chat_response(
                                 pass
 
                 # ========================================
+                # 任务 4: 摘要更新（基于新增 token 阈值）
+                # ========================================
+                is_user_model = form_data.get("is_user_model", False)
+                await update_summary(request, metadata, user, model, is_user_model)
+
+                # ========================================
                 # 任务 2 & 3: 标题和标签生成（仅非临时聊天）
                 # ========================================
                 # 边界情况：临时聊天（local:）不需要标题和标签，跳过这两个任务
@@ -2198,12 +2204,6 @@ async def process_chat_response(
                                 # 边界情况：JSON 解析失败
                                 # 静默失败，不影响主流程
                                 pass
-
-                # ========================================
-                # 任务 4: 摘要更新（基于新增 token 阈值）
-                # ========================================
-                is_user_model = form_data.get("is_user_model", False)
-                await update_summary(request, metadata, user, model, is_user_model)
     # ========================================
     # 第一阶段：事件发射器初始化
     # ========================================
@@ -2395,6 +2395,14 @@ async def process_chat_response(
                                 # 保存性能日志为 JSON 文件
                                 if CHAT_DEBUG_FLAG:
                                     await perf_logger.save_to_file()
+                                    # 通过 WebSocket 推送 perf_log 数据到前端（仅 admin 用户）
+                                    if user and user.role == "admin":
+                                        await event_emitter(
+                                            {
+                                                "type": "chat:perf_log",
+                                                "data": perf_logger.to_dict(),
+                                            }
+                                        )
 
                     # ----------------------------------------
                     # 步骤 7：合并额外事件（如 RAG sources）
@@ -3906,6 +3914,14 @@ async def process_chat_response(
                     # 保存性能日志为 JSON 文件
                     if CHAT_DEBUG_FLAG:
                         await perf_logger.save_to_file()
+                        # 通过 WebSocket 推送 perf_log 数据到前端（仅 admin 用户）
+                        if user and user.role == "admin":
+                            await event_emitter(
+                                {
+                                    "type": "chat:perf_log",
+                                    "data": perf_logger.to_dict(),
+                                }
+                            )
 
             except asyncio.CancelledError:
                 log.warning("Task was cancelled!")
