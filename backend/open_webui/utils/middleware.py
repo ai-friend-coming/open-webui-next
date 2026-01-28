@@ -101,10 +101,9 @@ from open_webui.utils.filter import (
 from open_webui.utils.code_interpreter import execute_code_jupyter
 from open_webui.utils.payload import apply_system_prompt_to_body
 from open_webui.utils.mcp.client import MCPClient
-from open_webui.utils.summary_1 import (
-    messages_loaded,
-    update_summary
-)
+from open_webui.env import SUMMARY_SYSTEM
+from open_webui.utils import summary as summary_legacy
+from open_webui.utils import summary_1 as summary_new
 
 from open_webui.config import (
     DEFAULT_TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
@@ -127,6 +126,14 @@ from open_webui.constants import TASKS
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
+
+summary_mode = SUMMARY_SYSTEM
+if summary_mode in ("summary", "legacy", "summary_legacy"):
+    messages_loaded = summary_legacy.messages_loaded
+    update_summary = summary_legacy.update_summary
+else:
+    messages_loaded = summary_new.messages_loaded
+    update_summary = summary_new.update_summary
 
 
 DEFAULT_REASONING_TAGS = [

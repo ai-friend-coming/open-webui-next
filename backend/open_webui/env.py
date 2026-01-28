@@ -1138,6 +1138,9 @@ ENCRYPTION_DEBUG = (
 # SUMMARY
 ####################################
 
+# Summary system selector: "summary_1" (default) or "summary" (legacy)
+SUMMARY_SYSTEM = os.environ.get("SUMMARY_SYSTEM", "summary_1").strip().lower()
+
 # Bootstrap summary chunk strategy (comma-separated token limits)
 _BOOTSTRAP_SUMMARY_CHUNK_STRATEGY_RAW = os.environ.get(
     "BOOTSTRAP_SUMMARY_CHUNK_STRATEGY", "90000,10000,10000"
@@ -1178,3 +1181,18 @@ SUMMARY_RETRIEVAL_USER_MESSAGE_COUNT = int(
 CURRENT_CONTEXT_MINIAL_MESSAGE = int(os.environ.get("CURRENT_CONTEXT_MINIAL_MESSAGE", "4"))
 # 当前对话窗口 token 数
 CURRENT_CONTEXT_TOKEN_BUDGET = int(os.environ.get("CURRENT_CONTEXT_TOKEN_BUDGET", "3000"))
+
+####################################
+# LEGACY SUMMARY (summary.py)
+####################################
+
+SUMMARY_TOKEN_THRESHOLD_DEFAULT = int(os.environ.get("SUMMARY_TOKEN_THRESHOLD", "40000"))
+INITIAL_SUMMARY_TOKEN_WINDOW_DEFAULT = int(
+    os.environ.get("INITIAL_SUMMARY_TOKEN_WINDOW", "40000")
+)
+COLD_START_TOKEN_WINDOW_DEFAULT = int(
+    os.environ.get("COLD_START_TOKEN_WINDOW", "15000")
+)
+ROLLING_SUMMARY_TOKEN_THRESHOLD_DEFAULT = int(
+    os.environ.get("ROLLING_SUMMARY_TOKEN_THRESHOLD", "90000")
+)

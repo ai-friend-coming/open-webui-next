@@ -1176,7 +1176,13 @@ async def ensure_initial_summary(
             cold_start_messages=cold_start_messages
         )
 
-def messages_loaded(metadata, user, memory_enabled:bool, perf_logger: Optional[ChatPerfLogger] = None):
+def messages_loaded(
+    request: Request,
+    metadata,
+    user,
+    memory_enabled: bool,
+    perf_logger: Optional[ChatPerfLogger] = None,
+):
     chat_id = metadata.get("chat_id", None)
     chat_item = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
     summary_record = Chats.get_summary_by_user_id_and_chat_id(user.id, chat_id)
