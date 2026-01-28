@@ -84,13 +84,25 @@ class QueryMemoryForm(BaseModel):
 async def query_memory(
     request: Request, form_data: QueryMemoryForm, user=Depends(get_verified_user)
 ):
+    # 如果启用了 BYPASS_EMBEDDING_AND_RETRIEVAL，返回空结果（不支持语义搜索）
+    if request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
+        return []
+
     memories = Memories.get_memories_by_user_id(user.id)
     if not memories:
         raise HTTPException(status_code=404, detail="No memories found for user")
 
+    try:
+        vector = request.app.state.EMBEDDING_FUNCTION(form_data.content, user=user)
+    except (ValueError, AttributeError) as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Embedding service is not available. Please check server configuration."
+        )
+
     results = VECTOR_DB_CLIENT.search(
         collection_name=f"user-memory-{user.id}",
-        vectors=[request.app.state.EMBEDDING_FUNCTION(form_data.content, user=user)],
+        vectors=[vector],
         limit=form_data.k,
     )
 
@@ -104,25 +116,39 @@ async def query_memory(
 async def reset_memory_from_vector_db(
     request: Request, user=Depends(get_verified_user)
 ):
+    # 如果启用了 BYPASS_EMBEDDING_AND_RETRIEVAL，直接返回（不需要向量索引）
+    if request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
+        return True
+
     VECTOR_DB_CLIENT.delete_collection(f"user-memory-{user.id}")
 
     memories = Memories.get_memories_by_user_id(user.id)
+
+    # Generate embeddings for all memories
+    items = []
+    for memory in memories:
+        try:
+            vector = request.app.state.EMBEDDING_FUNCTION(
+                memory.content, user=user
+            )
+        except (ValueError, AttributeError) as e:
+            raise HTTPException(
+                status_code=503,
+                detail="Embedding service is not available. Please check server configuration."
+            )
+        items.append({
+            "id": memory.id,
+            "text": memory.content,
+            "vector": vector,
+            "metadata": {
+                "created_at": memory.created_at,
+                "updated_at": memory.updated_at,
+            },
+        })
+
     VECTOR_DB_CLIENT.upsert(
         collection_name=f"user-memory-{user.id}",
-        items=[
-            {
-                "id": memory.id,
-                "text": memory.content,
-                "vector": request.app.state.EMBEDDING_FUNCTION(
-                    memory.content, user=user
-                ),
-                "metadata": {
-                    "created_at": memory.created_at,
-                    "updated_at": memory.updated_at,
-                },
-            }
-            for memory in memories
-        ],
+        items=items,
     )
 
     return True
@@ -134,14 +160,16 @@ async def reset_memory_from_vector_db(
 
 
 @router.delete("/delete/user", response_model=bool)
-async def delete_memory_by_user_id(user=Depends(get_verified_user)):
+async def delete_memory_by_user_id(request: Request, user=Depends(get_verified_user)):
     result = Memories.delete_memories_by_user_id(user.id)
 
     if result:
-        try:
-            VECTOR_DB_CLIENT.delete_collection(f"user-memory-{user.id}")
-        except Exception as e:
-            log.error(e)
+        # 如果未启用 BYPASS_EMBEDDING_AND_RETRIEVAL，同时删除向量数据库集合
+        if not request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
+            try:
+                VECTOR_DB_CLIENT.delete_collection(f"user-memory-{user.id}")
+            except Exception as e:
+                log.error(e)
         return True
 
     return False
@@ -165,16 +193,28 @@ async def update_memory_by_id(
     if memory is None:
         raise HTTPException(status_code=404, detail="Memory not found")
 
+    # 如果启用了 BYPASS_EMBEDDING_AND_RETRIEVAL，跳过 embedding 操作
+    if request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
+        return memory
+
     if form_data.content is not None:
+        try:
+            vector = request.app.state.EMBEDDING_FUNCTION(
+                memory.content, user=user
+            )
+        except (ValueError, AttributeError) as e:
+            raise HTTPException(
+                status_code=503,
+                detail="Embedding service is not available. Please check server configuration."
+            )
+
         VECTOR_DB_CLIENT.upsert(
             collection_name=f"user-memory-{user.id}",
             items=[
                 {
                     "id": memory.id,
                     "text": memory.content,
-                    "vector": request.app.state.EMBEDDING_FUNCTION(
-                        memory.content, user=user
-                    ),
+                    "vector": vector,
                     "metadata": {
                         "created_at": memory.created_at,
                         "updated_at": memory.updated_at,
@@ -192,13 +232,20 @@ async def update_memory_by_id(
 
 
 @router.delete("/{memory_id}", response_model=bool)
-async def delete_memory_by_id(memory_id: str, user=Depends(get_verified_user)):
+async def delete_memory_by_id(
+    memory_id: str, request: Request, user=Depends(get_verified_user)
+):
     result = Memories.delete_memory_by_id_and_user_id(memory_id, user.id)
 
     if result:
-        VECTOR_DB_CLIENT.delete(
-            collection_name=f"user-memory-{user.id}", ids=[memory_id]
-        )
+        # 如果未启用 BYPASS_EMBEDDING_AND_RETRIEVAL，同时从向量数据库删除
+        if not request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
+            try:
+                VECTOR_DB_CLIENT.delete(
+                    collection_name=f"user-memory-{user.id}", ids=[memory_id]
+                )
+            except Exception as e:
+                log.error(f"Failed to delete from vector DB: {e}")
         return True
 
     return False
