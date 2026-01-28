@@ -2151,59 +2151,60 @@ async def process_chat_response(
                     # ========================================
                     # 业务逻辑：使用 LLM 生成聊天分类标签（如"技术"、"工作"、"生活"等）
                     # 目的：方便用户对聊天进行分类管理和检索
-                    if TASKS.TAGS_GENERATION in tasks and tasks[TASKS.TAGS_GENERATION]:
-                        # 调用 LLM 生成标签
-                        # 数据流转：messages → LLM → JSON 格式的 tags 数组
-                        res = await generate_chat_tags(
-                            request,
-                            {
-                                "model": message["model"],
-                                "messages": messages,
-                                "chat_id": metadata["chat_id"],
-                            },
-                            user,
-                        )
+                    if False:
+                        if TASKS.TAGS_GENERATION in tasks and tasks[TASKS.TAGS_GENERATION]:
+                            # 调用 LLM 生成标签
+                            # 数据流转：messages → LLM → JSON 格式的 tags 数组
+                            res = await generate_chat_tags(
+                                request,
+                                {
+                                    "model": message["model"],
+                                    "messages": messages,
+                                    "chat_id": metadata["chat_id"],
+                                },
+                                user,
+                            )
 
-                        # 边界情况：检查 LLM 响应是否有效
-                        if res and isinstance(res, dict):
-                            if len(res.get("choices", [])) == 1:
-                                response_message = res.get("choices", [])[0].get(
-                                    "message", {}
-                                )
+                            # 边界情况：检查 LLM 响应是否有效
+                            if res and isinstance(res, dict):
+                                if len(res.get("choices", [])) == 1:
+                                    response_message = res.get("choices", [])[0].get(
+                                        "message", {}
+                                    )
 
-                                # 提取内容（优先 content，回退到 reasoning_content）
-                                tags_string = response_message.get(
-                                    "content"
-                                ) or response_message.get("reasoning_content", "")
-                            else:
-                                # 边界情况：LLM 返回多个 choices 或没有 choices
-                                tags_string = ""
+                                    # 提取内容（优先 content，回退到 reasoning_content）
+                                    tags_string = response_message.get(
+                                        "content"
+                                    ) or response_message.get("reasoning_content", "")
+                                else:
+                                    # 边界情况：LLM 返回多个 choices 或没有 choices
+                                    tags_string = ""
 
-                            # 数据清理：提取 JSON 对象
-                            tags_string = tags_string[
-                                tags_string.find("{") : tags_string.rfind("}") + 1
-                            ]
+                                # 数据清理：提取 JSON 对象
+                                tags_string = tags_string[
+                                    tags_string.find("{") : tags_string.rfind("}") + 1
+                                ]
 
-                            try:
-                                # 解析 JSON：{"tags": ["技术", "工作", "Python"]}
-                                tags = json.loads(tags_string).get("tags", [])
+                                try:
+                                    # 解析 JSON：{"tags": ["技术", "工作", "Python"]}
+                                    tags = json.loads(tags_string).get("tags", [])
 
-                                # 数据流转：更新数据库（保存到 chat.meta.tags）
-                                Chats.update_chat_tags_by_id(
-                                    metadata["chat_id"], tags, user
-                                )
+                                    # 数据流转：更新数据库（保存到 chat.meta.tags）
+                                    Chats.update_chat_tags_by_id(
+                                        metadata["chat_id"], tags, user
+                                    )
 
-                                # 数据流转：通过 WebSocket 发送标签给前端
-                                await event_emitter(
-                                    {
-                                        "type": "chat:tags",
-                                        "data": tags,
-                                    }
-                                )
-                            except Exception as e:
-                                # 边界情况：JSON 解析失败
-                                # 静默失败，不影响主流程
-                                pass
+                                    # 数据流转：通过 WebSocket 发送标签给前端
+                                    await event_emitter(
+                                        {
+                                            "type": "chat:tags",
+                                            "data": tags,
+                                        }
+                                    )
+                                except Exception as e:
+                                    # 边界情况：JSON 解析失败
+                                    # 静默失败，不影响主流程
+                                    pass
     # ========================================
     # 第一阶段：事件发射器初始化
     # ========================================

@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, Tuple, Sequence, Any, Union, Callable
 import datetime
 import re
 import os
-from contextlib import contextmanager
 import time
 from logging import getLogger
 import hashlib
@@ -21,6 +20,10 @@ from open_webui.tasks import create_task
 from open_webui.utils.chat_error_boundary import chat_error_boundary, CustmizedError
 from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
 from open_webui.utils.perf_logger import ChatPerfLogger
+from open_webui.utils.global_api import (
+    get_global_api_config as _get_global_api_config,
+    temporary_request_state as _temporary_request_state,
+)
 
 from open_webui.env import (
     BOOTSTRAP_SUMMARY_CHUNK_STRATEGY,
@@ -448,128 +451,6 @@ def build_ordered_messages(
     sortable.sort(key=lambda x: x[0])
     return [with_id(mid, msg) for _, mid, msg in sortable]
 
-def _get_global_api_config(request: Request) -> Optional[Dict[str, Any]]:
-    """
-    获取 Global Summary API 配置
-
-    返回：
-        如果配置完整，返回 {
-            "key": str,
-            "base_url": str,
-            "model_id": str,
-            "input_price": int,
-            "output_price": int
-        }
-        否则返回 None
-    """
-    global_api_key = getattr(request.app.state.config, "GLOBAL_API_KEY", None)
-    global_api_base_url = getattr(request.app.state.config, "GLOBAL_API_BASE_URL", None)
-    global_api_model_id = getattr(request.app.state.config, "GLOBAL_API_MODEL_ID", None)
-    global_api_input_price = getattr(request.app.state.config, "GLOBAL_API_INPUT_PRICE", None)
-    global_api_output_price = getattr(request.app.state.config, "GLOBAL_API_OUTPUT_PRICE", None)
-
-    # 提取 PersistentConfig 的实际值
-    if global_api_key:
-        global_api_key = getattr(global_api_key, "value", global_api_key)
-    if global_api_base_url:
-        global_api_base_url = getattr(global_api_base_url, "value", global_api_base_url)
-    if global_api_model_id:
-        global_api_model_id = getattr(global_api_model_id, "value", global_api_model_id)
-    if global_api_input_price:
-        global_api_input_price = getattr(global_api_input_price, "value", global_api_input_price)
-    if global_api_output_price:
-        global_api_output_price = getattr(global_api_output_price, "value", global_api_output_price)
-
-    # 判断配置是否有效（三个必需字段都非空）
-    if (
-        global_api_key and isinstance(global_api_key, str) and global_api_key.strip() and
-        global_api_base_url and isinstance(global_api_base_url, str) and global_api_base_url.strip() and
-        global_api_model_id and isinstance(global_api_model_id, str) and global_api_model_id.strip()
-    ):
-        return {
-            "key": global_api_key,
-            "base_url": global_api_base_url,
-            "model_id": global_api_model_id,
-            "input_price": int(global_api_input_price) if global_api_input_price else 0,
-            "output_price": int(global_api_output_price) if global_api_output_price else 0,
-        }
-    return None
-
-# 临时修改 request.state
-# 作用：为摘要调用注入 direct/model 或 global summayr api 配置，同时不污染后续请求处理。
-@contextmanager
-def _temporary_request_state(
-    request: Request,
-    is_user_model: bool,
-    model_config: Optional[Dict],
-    model_id: Optional[str],
-):
-    """
-    临时修改 request.state，为摘要调用注入模型配置
-
-    优先级：
-    1. 如果 is_user_model = True → 使用用户私有模型（不扣费）
-    2. 否则，检查 Global API：
-       - 如果 Global API 配置完整 → 使用 Global API（扣费）
-       - 如果 Global API 为空 → 使用用户指定的模型（扣费）
-    """
-    local_request = request
-    original_direct = getattr(local_request.state, "direct", None)
-    original_model = getattr(local_request.state, "model", None)
-
-    # 优先级 1: 如果是用户私有模型，直接使用
-    if is_user_model:
-        effective_model_config = model_config
-        effective_is_user_model = True
-        log.info(f"摘要生成使用用户私有模型（不扣费）: model={model_id}")
-    else:
-        # 优先级 2: 检查 Global API 配置
-        global_api_config = _get_global_api_config(request)
-
-        if global_api_config:
-            # 使用 Global Summary API
-            effective_model_config = {
-                "id": global_api_config["model_id"],
-                "base_url": global_api_config["base_url"],
-                "api_key": global_api_config["key"],
-            }
-            effective_is_user_model = False  # 改为 False，因为需要扣费
-            log.info(
-                f"摘要生成使用 Global Summary API（扣费）: "
-                f"model={global_api_config['model_id']}, base_url={global_api_config['base_url']}"
-            )
-        else:
-            # 优先级 3: 回退使用用户指定的平台模型
-            effective_model_config = model_config
-            effective_is_user_model = False
-            log.info(f"摘要生成使用平台模型（扣费）: model={model_id}")
-
-    # 设置 request.state
-    if effective_is_user_model:
-        local_request.state.direct = True
-        local_request.state.model = effective_model_config
-        log.debug(
-            f"设置 request.state: direct=True, model_id={effective_model_config.get('id', 'unknown')}, "
-            f"base_url={effective_model_config.get('base_url')}"
-        )
-    else:
-        log.debug(f"设置 request.state: 使用平台模型 {model_id}")
-
-    try:
-        yield local_request
-    finally:
-        if original_direct is None:
-            if hasattr(local_request.state, "direct"):
-                delattr(local_request.state, "direct")
-        else:
-            local_request.state.direct = original_direct
-
-        if original_model is None:
-            if hasattr(local_request.state, "model"):
-                delattr(local_request.state, "model")
-        else:
-            local_request.state.model = original_model
-
 def build_summary_prompt(messages: List[Dict], summary_chars: int = 200) -> str:
     # 使用 _extract_text_content 处理多模态消息
     sorted_messages = sorted(
@@ -978,6 +859,14 @@ async def summarize(
         "temperature": 0.1,  # 低温度保证稳定性
     }
 
+    effective_model_id = form_data["model"]
+    if not is_user_model:
+        global_api_config = _get_global_api_config(request)
+        if global_api_config:
+            effective_model_id = global_api_config["model_id"]
+            form_data["model"] = effective_model_id
+
+    model_id = effective_model_id
     log.info(f"开始生成摘要: model={model_id}, is_user_model={is_user_model}, messages_count={len(messages)}")
 
     # 3. 直接调用 API（不使用 chat_with_billing，采用后付费模式）
@@ -1079,6 +968,18 @@ async def summarize(
     else:
         # 错误响应：JSONResponse / Response / str（不扣费）
         error_body = response.body.decode("utf-8") if hasattr(response, "body") else str(response)
+        status_code = getattr(response, "status_code", None)
+        content_type = getattr(response, "media_type", None)
+        if content_type is None and hasattr(response, "headers"):
+            content_type = response.headers.get("content-type")
+
+        log.error(
+            "Summary LLM error response: type=%s status=%s content_type=%s body=%s",
+            type(response).__name__,
+            status_code,
+            content_type,
+            error_body,
+        )
 
         raise CustmizedError(
             user_toast_message = "梳理记忆失败，请联系管理员。",
@@ -1149,7 +1050,20 @@ async def summarize_multi_chunk(
             )
             return chunk_idx, summary_text, details
         except Exception as e:
-            log.error(f"并行摘要第 {chunk_idx + 1} 段失败: {e}")
+            if isinstance(e, CustmizedError):
+                log.error(
+                    "并行摘要第 %s 段失败: %s; debug_log=%s",
+                    chunk_idx + 1,
+                    e.user_toast_message,
+                    e.debug_log,
+                )
+            else:
+                log.error(
+                    "并行摘要第 %s 段失败: %s",
+                    chunk_idx + 1,
+                    e,
+                    exc_info=True,
+                )
             raise
 
     # 并发执行所有分段的摘要
@@ -1663,65 +1577,63 @@ async def update_summary(
         state["error_message"] = None
         chunk_summaries: List[Dict[str, Any]] = []
         error = None
-        try:
-            # 1) 并行生成各分段摘要
-            chunk_summaries = await summarize_multi_chunk(
-                chunks=chunks,
-                model_id=model_id,
-                user=user,
-                request=request,
-                is_user_model=is_user_model,
-                model_config=model_config,
-                summary_chars=summary_chars,
-            )
-            # 2) 记录分段类型（bootstrap/rolling/subchunk）
-            for idx, summary_info in enumerate(chunk_summaries):
-                if idx < len(chunk_types):
-                    summary_info["chunk_type"] = chunk_types[idx]
 
-            if perf_logger:
-                perf_logger.record_summary_runs(mode, chunk_summaries)
+        async with chat_error_boundary(metadata, user):
+            try:
+                # 1) 并行生成各分段摘要
+                chunk_summaries = await summarize_multi_chunk(
+                    chunks=chunks,
+                    model_id=model_id,
+                    user=user,
+                    request=request,
+                    is_user_model=is_user_model,
+                    model_config=model_config,
+                    summary_chars=summary_chars,
+                )
+                # 2) 记录分段类型（bootstrap/rolling/subchunk）
+                for idx, summary_info in enumerate(chunk_summaries):
+                    if idx < len(chunk_types):
+                        summary_info["chunk_type"] = chunk_types[idx]
 
-            # 3) 生成 embedding 并写入向量库，同时更新统计状态
-            stored = store_summary_chunks(
-                chunk_summaries,
-                embedding_function=embedding_function,
-                store=store,
-                chat_id=chat_id,
-                user_id=user_id,
-                user=user,
-                state=state,
-            )
-            if not stored and not state.get("error_status"):
-                state["error_status"] = "store_error"
-        except Exception as e:
-            error = e
-            state["error_status"] = state.get("error_status") or "summary_error"
-            state["error_message"] = str(e)
-        finally:
-            # 4) 无论成功/失败，都写回 summary_state 以记录边界与统计
-            summary_state_payload = _build_summary_state(
-                prev_state, state, "done", task_id=""
-            )
-            Chats.update_chat_meta(chat_id, user_id, {"summary_state": summary_state_payload})
+                if perf_logger:
+                    perf_logger.record_summary_runs(mode, chunk_summaries)
 
-            if perf_logger:
-                await perf_logger.save_to_file()
+                # 3) 生成 embedding 并写入向量库，同时更新统计状态
+                stored = store_summary_chunks(
+                    chunk_summaries,
+                    embedding_function=embedding_function,
+                    store=store,
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    user=user,
+                    state=state,
+                )
+                if not stored and not state.get("error_status"):
+                    state["error_status"] = "store_error"
+            except Exception as e:
+                error = e
+                state["error_status"] = state.get("error_status") or "summary_error"
+                state["error_message"] = str(e)
+            finally:
+                # 4) 无论成功/失败，都写回 summary_state 以记录边界与统计
+                summary_state_payload = _build_summary_state(
+                    prev_state, state, "done", task_id=""
+                )
+                Chats.update_chat_meta(chat_id, user_id, {"summary_state": summary_state_payload})
 
-        if error:
-            raise error
+                if perf_logger:
+                    await perf_logger.save_to_file()
+
+            if error:
+                raise error
 
     # === Bootstrap 摘要：第一次进入该 chat 时生成初始摘要 ===
-    print("summary_state")
-    print(summary_state)
     if not summary_state:
         bootstrap_messages = _strip_pending_pair(
             ordered_messages,
             metadata=metadata,
             messages_map=messages_map,
         )
-        print("bootstrap_messages")
-        print(bootstrap_messages)
         # 没有历史消息则只落状态，不生成摘要
         if not bootstrap_messages:
             empty_state = _init_state({})

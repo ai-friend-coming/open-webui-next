@@ -23,6 +23,7 @@ from open_webui.constants import TASKS
 from open_webui.routers.pipelines import process_pipeline_inlet_filter
 
 from open_webui.utils.task import get_task_model_id
+from open_webui.utils.global_api import get_global_api_config, temporary_request_state
 
 from open_webui.config import (
     DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE,
@@ -166,28 +167,40 @@ async def generate_title(
             content={"detail": "Title generation is disabled"},
         )
 
-    if getattr(request.state, "direct", False) and hasattr(request.state, "model"):
+    global_api_config = get_global_api_config(request)
+
+    if global_api_config:
+        task_model_id = global_api_config["model_id"]
         models = {
-            request.state.model["id"]: request.state.model,
+            task_model_id: {
+                "id": task_model_id,
+                "owned_by": "openai",
+                "info": {"params": {}},
+            }
         }
     else:
-        models = request.app.state.MODELS
+        if getattr(request.state, "direct", False) and hasattr(request.state, "model"):
+            models = {
+                request.state.model["id"]: request.state.model,
+            }
+        else:
+            models = request.app.state.MODELS
 
-    model_id = form_data["model"]
-    if model_id not in models:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Model not found",
+        model_id = form_data["model"]
+        if model_id not in models:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Model not found",
+            )
+
+        # Check if the user has a custom task model
+        # If the user has a custom task model, use that model
+        task_model_id = get_task_model_id(
+            model_id,
+            request.app.state.config.TASK_MODEL,
+            request.app.state.config.TASK_MODEL_EXTERNAL,
+            models,
         )
-
-    # Check if the user has a custom task model
-    # If the user has a custom task model, use that model
-    task_model_id = get_task_model_id(
-        model_id,
-        request.app.state.config.TASK_MODEL,
-        request.app.state.config.TASK_MODEL_EXTERNAL,
-        models,
-    )
 
     log.debug(
         f"generating chat title using model {task_model_id} for user {user.email or user.phone or user.id} "
@@ -230,7 +243,16 @@ async def generate_title(
         raise e
 
     try:
-        return await generate_chat_completion(request, form_data=payload, user=user)
+        with temporary_request_state(
+            request,
+            is_user_model=False,
+            model_config=None,
+            model_id=task_model_id,
+            purpose="标题生成",
+        ) as local_request:
+            return await generate_chat_completion(
+                local_request, form_data=payload, user=user
+            )
     except Exception as e:
         log.error("Exception occurred", exc_info=True)
         return JSONResponse(
@@ -323,28 +345,40 @@ async def generate_chat_tags(
             content={"detail": "Tags generation is disabled"},
         )
 
-    if getattr(request.state, "direct", False) and hasattr(request.state, "model"):
+    global_api_config = get_global_api_config(request)
+
+    if global_api_config:
+        task_model_id = global_api_config["model_id"]
         models = {
-            request.state.model["id"]: request.state.model,
+            task_model_id: {
+                "id": task_model_id,
+                "owned_by": "openai",
+                "info": {"params": {}},
+            }
         }
     else:
-        models = request.app.state.MODELS
+        if getattr(request.state, "direct", False) and hasattr(request.state, "model"):
+            models = {
+                request.state.model["id"]: request.state.model,
+            }
+        else:
+            models = request.app.state.MODELS
 
-    model_id = form_data["model"]
-    if model_id not in models:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Model not found",
+        model_id = form_data["model"]
+        if model_id not in models:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Model not found",
+            )
+
+        # Check if the user has a custom task model
+        # If the user has a custom task model, use that model
+        task_model_id = get_task_model_id(
+            model_id,
+            request.app.state.config.TASK_MODEL,
+            request.app.state.config.TASK_MODEL_EXTERNAL,
+            models,
         )
-
-    # Check if the user has a custom task model
-    # If the user has a custom task model, use that model
-    task_model_id = get_task_model_id(
-        model_id,
-        request.app.state.config.TASK_MODEL,
-        request.app.state.config.TASK_MODEL_EXTERNAL,
-        models,
-    )
 
     log.debug(
         f"generating chat tags using model {task_model_id} for user {user.email or user.phone or user.id} "
@@ -376,7 +410,16 @@ async def generate_chat_tags(
         raise e
 
     try:
-        return await generate_chat_completion(request, form_data=payload, user=user)
+        with temporary_request_state(
+            request,
+            is_user_model=False,
+            model_config=None,
+            model_id=task_model_id,
+            purpose="标签生成",
+        ) as local_request:
+            return await generate_chat_completion(
+                local_request, form_data=payload, user=user
+            )
     except Exception as e:
         log.error(f"Error generating chat completion: {e}")
         return JSONResponse(

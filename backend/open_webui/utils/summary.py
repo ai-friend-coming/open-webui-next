@@ -2,7 +2,6 @@ from typing import Dict, List, Optional, Tuple, Sequence, Any, Union
 import json
 import re
 import os
-from contextlib import contextmanager
 import time
 from logging import getLogger
 
@@ -16,6 +15,10 @@ from open_webui.tasks import create_task
 from open_webui.utils.chat_error_boundary import chat_error_boundary, CustmizedError
 from open_webui.routers.openai import generate_chat_completion as generate_openai_chat_completion
 from open_webui.utils.perf_logger import ChatPerfLogger
+from open_webui.utils.global_api import (
+    get_global_api_config as _get_global_api_config,
+    temporary_request_state as _temporary_request_state,
+)
 
 from open_webui.env import (
     CHAT_DEBUG_FLAG,
@@ -395,128 +398,6 @@ def slice_messages_with_summary(
 
     return ordered
 
-def _get_global_api_config(request: Request) -> Optional[Dict[str, Any]]:
-    """
-    获取 Global Summary API 配置
-
-    返回：
-        如果配置完整，返回 {
-            "key": str,
-            "base_url": str,
-            "model_id": str,
-            "input_price": int,
-            "output_price": int
-        }
-        否则返回 None
-    """
-    global_api_key = getattr(request.app.state.config, "GLOBAL_API_KEY", None)
-    global_api_base_url = getattr(request.app.state.config, "GLOBAL_API_BASE_URL", None)
-    global_api_model_id = getattr(request.app.state.config, "GLOBAL_API_MODEL_ID", None)
-    global_api_input_price = getattr(request.app.state.config, "GLOBAL_API_INPUT_PRICE", None)
-    global_api_output_price = getattr(request.app.state.config, "GLOBAL_API_OUTPUT_PRICE", None)
-
-    # 提取 PersistentConfig 的实际值
-    if global_api_key:
-        global_api_key = getattr(global_api_key, "value", global_api_key)
-    if global_api_base_url:
-        global_api_base_url = getattr(global_api_base_url, "value", global_api_base_url)
-    if global_api_model_id:
-        global_api_model_id = getattr(global_api_model_id, "value", global_api_model_id)
-    if global_api_input_price:
-        global_api_input_price = getattr(global_api_input_price, "value", global_api_input_price)
-    if global_api_output_price:
-        global_api_output_price = getattr(global_api_output_price, "value", global_api_output_price)
-
-    # 判断配置是否有效（三个必需字段都非空）
-    if (
-        global_api_key and isinstance(global_api_key, str) and global_api_key.strip() and
-        global_api_base_url and isinstance(global_api_base_url, str) and global_api_base_url.strip() and
-        global_api_model_id and isinstance(global_api_model_id, str) and global_api_model_id.strip()
-    ):
-        return {
-            "key": global_api_key,
-            "base_url": global_api_base_url,
-            "model_id": global_api_model_id,
-            "input_price": int(global_api_input_price) if global_api_input_price else 0,
-            "output_price": int(global_api_output_price) if global_api_output_price else 0,
-        }
-    return None
-
-# 临时修改 request.state
-# 作用：为摘要调用注入 direct/model 或 global summayr api 配置，同时不污染后续请求处理。
-@contextmanager
-def _temporary_request_state(
-    request: Request,
-    is_user_model: bool,
-    model_config: Optional[Dict],
-    model_id: Optional[str],
-):
-    """
-    临时修改 request.state，为摘要调用注入模型配置
-
-    优先级：
-    1. 如果 is_user_model = True → 使用用户私有模型（不扣费）
-    2. 否则，检查 Global API：
-       - 如果 Global API 配置完整 → 使用 Global API（扣费）
-       - 如果 Global API 为空 → 使用用户指定的模型（扣费）
-    """
-    local_request = request
-    original_direct = getattr(local_request.state, "direct", None)
-    original_model = getattr(local_request.state, "model", None)
-
-    # 优先级 1: 如果是用户私有模型，直接使用
-    if is_user_model:
-        effective_model_config = model_config
-        effective_is_user_model = True
-        log.info(f"摘要生成使用用户私有模型（不扣费）: model={model_id}")
-    else:
-        # 优先级 2: 检查 Global API 配置
-        global_api_config = _get_global_api_config(request)
-
-        if global_api_config:
-            # 使用 Global Summary API
-            effective_model_config = {
-                "id": global_api_config["model_id"],
-                "base_url": global_api_config["base_url"],
-                "api_key": global_api_config["key"],
-            }
-            effective_is_user_model = False  # 改为 False，因为需要扣费
-            log.info(
-                f"摘要生成使用 Global Summary API（扣费）: "
-                f"model={global_api_config['model_id']}, base_url={global_api_config['base_url']}"
-            )
-        else:
-            # 优先级 3: 回退使用用户指定的平台模型
-            effective_model_config = model_config
-            effective_is_user_model = False
-            log.info(f"摘要生成使用平台模型（扣费）: model={model_id}")
-
-    # 设置 request.state
-    if effective_is_user_model:
-        local_request.state.direct = True
-        local_request.state.model = effective_model_config
-        log.debug(
-            f"设置 request.state: direct=True, model_id={effective_model_config.get('id', 'unknown')}, "
-            f"base_url={effective_model_config.get('base_url')}"
-        )
-    else:
-        log.debug(f"设置 request.state: 使用平台模型 {model_id}")
-
-    try:
-        yield local_request
-    finally:
-        if original_direct is None:
-            if hasattr(local_request.state, "direct"):
-                delattr(local_request.state, "direct")
-        else:
-            local_request.state.direct = original_direct
-
-        if original_model is None:
-            if hasattr(local_request.state, "model"):
-                delattr(local_request.state, "model")
-        else:
-            local_request.state.model = original_model
-
 def build_summary_prompt(
     messages: List[Dict], old_summary: Optional[str]
 ) -> str:
@@ -648,6 +529,14 @@ async def summarize(
         "temperature": 0.1,  # 低温度保证稳定性
     }
 
+    effective_model_id = form_data["model"]
+    if not is_user_model:
+        global_api_config = _get_global_api_config(request)
+        if global_api_config:
+            effective_model_id = global_api_config["model_id"]
+            form_data["model"] = effective_model_id
+
+    model_id = effective_model_id
     log.info(f"开始生成摘要: model={model_id}, is_user_model={is_user_model}, messages_count={len(messages)}")
 
     # 3. 直接调用 API（不使用 chat_with_billing，采用后付费模式）
