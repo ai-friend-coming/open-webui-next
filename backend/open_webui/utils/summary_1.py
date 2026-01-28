@@ -51,12 +51,12 @@ SUMMARY_PROMPT = """# Role
 </chat_transcript>
 
 # Instructions
-请对上述对话进行总结，生成一段不超过 200 字的摘要。
+请对上述对话进行总结，生成一段不超过 {summary_chars} 字的摘要。
 1. **保留关键事实**：用户提到的喜好、计划、发生的事件、提及的人名或地点。
 2. **捕捉情绪变化**：记录用户当时的心情（如：焦虑、兴奋、疲惫）。
 3. **第三人称叙述**：使用“用户”和“AI”作为主语（或者用用户的名字）。
 4. **独立性**：这段摘要未来会被独立检索，所以请确保它在没有上下文的情况下也能被读懂（例如，不要说“他说了那个”，要说“用户提到了《三体》这本书”）。
-5. 最终摘要需要尽可能详细，200 字左右，在此基础上尽可能详细地描述用户与 Assistant 之间的互动，以及对话中发生过和用户说的的所有事情。
+5. 最终摘要需要尽可能详细，{summary_chars} 字左右，在此基础上尽可能详细地描述用户与 Assistant 之间的互动，以及对话中发生过和用户说的的所有事情。
 6. 聚焦人物状态、事件节点、情绪/意图等关键信息，将片段整合为连贯文字。
 7. 禁止臆测或脏话，所有内容都必须能在聊天中找到对应描述。
 8. 要求 Assistant 在后续的和用户对话中，参考你总结出的信息，能快速回忆历史。
@@ -65,6 +65,9 @@ SUMMARY_PROMPT = """# Role
 # Output Format
 直接输出摘要内容，不要包含任何前言或后语。
 """
+
+BOOTSTRAP_SUMMARY_TARGET_CHARS = 1200
+ROLLING_SUMMARY_TARGET_CHARS = 500
 
 SYSTEM_PROMPT_ENV = Environment(trim_blocks=True, lstrip_blocks=True)
 SUMMARY_SYSTEM_PROMPT_TEMPLATE = SYSTEM_PROMPT_ENV.from_string(
@@ -567,7 +570,7 @@ def _temporary_request_state(
         else:
             local_request.state.model = original_model
 
-def build_summary_prompt(messages: List[Dict]) -> str:
+def build_summary_prompt(messages: List[Dict], summary_chars: int = 200) -> str:
     # 使用 _extract_text_content 处理多模态消息
     sorted_messages = sorted(
         messages,
@@ -581,6 +584,7 @@ def build_summary_prompt(messages: List[Dict]) -> str:
     )
     return SUMMARY_PROMPT.format(
         chat_transcript=transcript,
+        summary_chars=summary_chars,
     )
 
 # === 3. Token 选择器：按 token 数量从最近消息中选取 ===
@@ -926,6 +930,7 @@ async def summarize(
     is_user_model: bool,
     model_config: Optional[Dict],
     return_details: bool = False,
+    summary_chars: int = 200,
 ) -> Union[str, Tuple[str, Dict[str, Any]]]:
     """
     生成对话摘要（新版：复用主对话 API）
@@ -962,7 +967,7 @@ async def summarize(
         return ""
 
     # 1. 构建摘要 prompt
-    prompt = build_summary_prompt(messages)
+    prompt = build_summary_prompt(messages, summary_chars=summary_chars)
 
     # 2. 构造请求参数（OpenAI 格式）
     form_data = {
@@ -1088,6 +1093,7 @@ async def summarize_multi_chunk(
     request: Request,
     is_user_model: bool,
     model_config: Optional[Dict],
+    summary_chars: int = 200,
 ) -> List[Dict[str, Any]]:
     """
     并行分段摘要生成器 - 基于已分段消息生成摘要
@@ -1133,6 +1139,7 @@ async def summarize_multi_chunk(
                 is_user_model=is_user_model,
                 model_config=model_config,
                 return_details=True,
+                summary_chars=summary_chars,
             )
             log.info(
                 f"并行摘要第 {chunk_idx + 1}/{len(chunks)} 段完成: "
@@ -1648,6 +1655,7 @@ async def update_summary(
         chunk_types: List[str],
         prev_state: Optional[Dict[str, Any]],
         mode: str,
+        summary_chars: int,
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         state = _init_state(prev_state)
@@ -1664,6 +1672,7 @@ async def update_summary(
                 request=request,
                 is_user_model=is_user_model,
                 model_config=model_config,
+                summary_chars=summary_chars,
             )
             # 2) 记录分段类型（bootstrap/rolling/subchunk）
             for idx, summary_info in enumerate(chunk_summaries):
@@ -1703,14 +1712,26 @@ async def update_summary(
             raise error
 
     # === Bootstrap 摘要：第一次进入该 chat 时生成初始摘要 ===
+    print("summary_state")
+    print(summary_state)
     if not summary_state:
         bootstrap_messages = _strip_pending_pair(
             ordered_messages,
             metadata=metadata,
             messages_map=messages_map,
         )
+        print("bootstrap_messages")
+        print(bootstrap_messages)
         # 没有历史消息则只落状态，不生成摘要
         if not bootstrap_messages:
+            empty_state = _init_state({})
+            summary_state_payload = _build_summary_state(
+                {}, empty_state, "done", task_id=""
+            )
+            Chats.update_chat_meta(chat_id, user_id, {"summary_state": summary_state_payload})
+            return
+        # 新窗口首轮对话（仅 user+assistant 两条）不做摘要，但写入状态防止重复 bootstrap
+        if len(bootstrap_messages) <= 2:
             empty_state = _init_state({})
             summary_state_payload = _build_summary_state(
                 {}, empty_state, "done", task_id=""
@@ -1744,6 +1765,7 @@ async def update_summary(
                 chunk_types=bootstrap_chunk_types,
                 prev_state=summary_state,
                 mode="bootstrap",
+                summary_chars=BOOTSTRAP_SUMMARY_TARGET_CHARS,
                 extra=extra,
             ),
             id=chat_id,
@@ -1823,6 +1845,7 @@ async def update_summary(
             chunk_types=chunk_types,
             prev_state=summary_state,
             mode="rolling",
+            summary_chars=ROLLING_SUMMARY_TARGET_CHARS,
             extra=extra,
         ),
         id=chat_id,
