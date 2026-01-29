@@ -713,6 +713,7 @@ def store_summary_chunks(
     last_processed_msg = None
     last_processed_timestamp = None
     chunk_index = state["current_chunk_count"]
+    chunk_type_counts: Dict[str, int] = {}
 
     for summary_info, embedding_vector in zip(valid_summaries, embeddings):
         chunk_messages = summary_info.get("messages", []) or []
@@ -762,10 +763,12 @@ def store_summary_chunks(
         usage = summary_info.get("usage", {}) if summary_info else {}
         usage_total["prompt_tokens"] += usage.get("prompt_tokens", 0)
         usage_total["completion_tokens"] += usage.get("completion_tokens", 0)
+        chunk_type = summary_info.get("chunk_type", "chunk")
+        chunk_type_counts[chunk_type] = chunk_type_counts.get(chunk_type, 0) + 1
         summary_iterations.append(
             {
                 "chunk_index": chunk_index,
-                "chunk_type": summary_info.get("chunk_type", "chunk"),
+                "chunk_type": chunk_type,
                 "message_count": len(chunk_messages),
                 "start_message_id": first_msg.get("id", ""),
                 "end_message_id": last_msg.get("id", ""),
@@ -784,12 +787,63 @@ def store_summary_chunks(
         chunk_index += 1
 
     # 4) 批量写入向量库
+    first_item_id = items[0]["id"] if items else None
+    last_item_id = items[-1]["id"] if items else None
+    first_meta = items[0]["metadata"] if items else {}
+    last_meta = items[-1]["metadata"] if items else {}
+    start_ts = (
+        min(record["start_timestamp"] for record in chunk_records)
+        if chunk_records
+        else None
+    )
+    end_ts = (
+        max(record["end_timestamp"] for record in chunk_records)
+        if chunk_records
+        else None
+    )
     try:
         store.upsert_many(items)
     except Exception as e:
+        log.exception(
+            "summary vector upsert failed: chat_id=%s user_id=%s collection=%s items=%s "
+            "chunk_index=%s..%s item_id=%s..%s messages=%s msg_id=%s..%s ts=%s..%s types=%s",
+            chat_id,
+            user_id,
+            store.collection_name if store else None,
+            len(items),
+            first_meta.get("chunk_index"),
+            last_meta.get("chunk_index"),
+            first_item_id,
+            last_item_id,
+            processed_message_count,
+            first_meta.get("start_message_id"),
+            last_meta.get("end_message_id"),
+            start_ts,
+            end_ts,
+            chunk_type_counts,
+        )
         state["error_status"] = "chroma_error"
         state["error_message"] = str(e)
         return False
+    else:
+        log.info(
+            "summary vector upsert: chat_id=%s user_id=%s collection=%s items=%s "
+            "chunk_index=%s..%s item_id=%s..%s messages=%s msg_id=%s..%s ts=%s..%s types=%s",
+            chat_id,
+            user_id,
+            store.collection_name if store else None,
+            len(items),
+            first_meta.get("chunk_index"),
+            last_meta.get("chunk_index"),
+            first_item_id,
+            last_item_id,
+            processed_message_count,
+            first_meta.get("start_message_id"),
+            last_meta.get("end_message_id"),
+            start_ts,
+            end_ts,
+            chunk_type_counts,
+        )
 
     # 5) 合并统计数据到 state
     state["processed_message_count"] += processed_message_count
