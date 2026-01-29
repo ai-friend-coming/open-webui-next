@@ -293,7 +293,11 @@
 		}
 	};
 
-	export const setText = async (text?: string, cb?: (text: string) => void, options?: { focusInput?: boolean }) => {
+	export const setText = async (
+		text?: string,
+		cb?: (text: string) => void,
+		options?: { focusInput?: boolean }
+	) => {
 		const chatInput = document.getElementById('chat-input');
 
 		if (chatInput) {
@@ -437,7 +441,7 @@
 		// 图片的 caption 将由后端处理，前端直接发送原始 prompt
 		console.log('[Submit] Triggering submit with files:', {
 			filesCount: files.length,
-			files: files.map(f => ({ name: f.name, type: f.type, hasBase64: !!f.base64 }))
+			files: files.map((f) => ({ name: f.name, type: f.type, hasBase64: !!f.base64 }))
 		});
 
 		blurInput();
@@ -1530,44 +1534,46 @@
 										/> -->
 
 										<!-- AI-Friend 扩展菜单 -->
+										{#if false}
 										{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
-												<IntegrationsMenu
-													selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
-													{toggleFilters}
-													{showWebSearchButton}
-													{showImageGenerationButton}
-													{showCodeInterpreterButton}
-													bind:selectedToolIds
-													bind:selectedFilterIds
-													bind:webSearchEnabled
-													bind:imageGenerationEnabled
-													bind:codeInterpreterEnabled
-													bind:memoryEnabled
-													closeOnOutsideClick={integrationsMenuCloseOnOutsideClick}
-													onShowValves={(e) => {
-														const { type, id } = e;
-														selectedValvesType = type;
-														selectedValvesItemId = id;
-														showValvesModal = true;
-														integrationsMenuCloseOnOutsideClick = false;
-													}}
-													onClose={async () => {
-														await tick();
+											<IntegrationsMenu
+												selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
+												{toggleFilters}
+												{showWebSearchButton}
+												{showImageGenerationButton}
+												{showCodeInterpreterButton}
+												bind:selectedToolIds
+												bind:selectedFilterIds
+												bind:webSearchEnabled
+												bind:imageGenerationEnabled
+												bind:codeInterpreterEnabled
+												bind:memoryEnabled
+												closeOnOutsideClick={integrationsMenuCloseOnOutsideClick}
+												onShowValves={(e) => {
+													const { type, id } = e;
+													selectedValvesType = type;
+													selectedValvesItemId = id;
+													showValvesModal = true;
+													integrationsMenuCloseOnOutsideClick = false;
+												}}
+												onClose={async () => {
+													await tick();
 
-														const chatInput = document.getElementById('chat-input');
-														chatInput?.focus();
-													}}
+													const chatInput = document.getElementById('chat-input');
+													chatInput?.focus();
+												}}
+											>
+												<div
+													id="integration-menu-button"
+													class="bg-transparent hover:bg-gray-100 text-gray-700 dark:text-white dark:hover:bg-gray-800 rounded-full size-8 flex justify-center items-center outline-hidden focus:outline-hidden"
 												>
-													<div
-														id="integration-menu-button"
-														class="bg-transparent hover:bg-gray-100 text-gray-700 dark:text-white dark:hover:bg-gray-800 rounded-full size-8 flex justify-center items-center outline-hidden focus:outline-hidden"
-													>
-														<Component className="size-4.5" strokeWidth="1.5" />
-													</div>
-												</IntegrationsMenu>
-											{/if}
+													<Component className="size-4.5" strokeWidth="1.5" />
+												</div>
+											</IntegrationsMenu>
+										{/if}
+										{/if}
 
-											{#if showMemoryButton}
+										{#if showMemoryButton}
 											<Tooltip
 												content={memoryLocked
 													? $i18n.t('对话进行中无法切换记忆')
